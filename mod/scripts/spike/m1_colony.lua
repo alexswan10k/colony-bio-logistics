@@ -24,6 +24,10 @@ core.register("m1_colony", {
     build("colony-tool-rack", {p.x - 6, p.y})
     ctx.check("houses registered", tent and cabin and c.houses[tent.unit_number] and c.houses[cabin.unit_number] ~= nil)
     ctx.check("capacity 10", colony.capacity(c) == 10, colony.capacity(c))
+    local furnace = s.create_entity{name = "stone-furnace", position = {p.x - 8, p.y + 6}, force = "player"}
+    c.machines[furnace.unit_number] = {entity = furnace, enabled = true, collect = true, inflight = {},
+      requests = {{item = "iron-ore", count = 20}, {item = "wood", count = 10}}}
+    hall.insert{name = "iron-ore", count = 100}
     hall.insert{name = "raw-fish", count = 100}
     hall.insert{name = "wood", count = 100}
     hall.insert{name = "colony-axe", count = 2}
@@ -45,6 +49,9 @@ core.register("m1_colony", {
       ctx.check("cabin is powered", colony.is_powered(ch) == true)
       ctx.check("cabin got no wood (power substitutes)", tcnt(cabin, "wood") == 0, tcnt(cabin, "wood"))
       ctx.check("cabin got food", tcnt(cabin, "raw-fish") + tcnt(cabin, "colony-forage") > 0)
+      ctx.log("furnace: ore=" .. furnace.get_item_count("iron-ore") .. " plates=" .. furnace.get_item_count("iron-plate") ..
+        " hall plates=" .. hall.get_item_count("iron-plate"))
+      ctx.check("opt-in furnace supplied and output collected to hall", hall.get_item_count("iron-plate") > 0, hall.get_item_count("iron-plate"))
       ctx.check("colonists took tools", hall.get_item_count("colony-axe") < 2 or hall.get_item_count("colony-pickaxe") < 2)
       ctx.check("colonists alive", colony.live_colonists(c) >= 1, colony.live_colonists(c))
       ctx.check("hall received resources", hall.get_item_count("iron-ore") + hall.get_item_count("colony-forage") > 0 or hall.get_item_count("wood") > 100)

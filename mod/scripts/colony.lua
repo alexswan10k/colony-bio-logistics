@@ -7,6 +7,7 @@ local territory = require("scripts.territory")
 local desirability = require("scripts.model.desirability")
 local housing = require("scripts.model.housing")
 local work = require("scripts.work")
+local gui = require("scripts.gui")
 local M = {}
 
 M.HALL, M.RACK = "colony-town-hall", "colony-tool-rack"
@@ -129,9 +130,9 @@ function M.evaluate(data)
     local stock, inv = M.house_stock(h)
     local before = {}
     for k, v in pairs(stock) do before[k] = v end
-    local consumed, _, score, crit = housing.step(tier, occ[i], stock, M.is_powered(h), h.acc)
+    local consumed, sat, score, crit = housing.step(tier, occ[i], stock, M.is_powered(h), h.acc)
     for item, n in pairs(consumed) do if n > 0 then inv.remove{name = item, count = n} end end
-    h.score = score
+    h.score, h.sat, h.occupants = score, sat, occ[i]
     if occ[i] > 0 then
       score_sum = score_sum + score; rated = rated + 1
       if crit then
@@ -169,7 +170,7 @@ local function on_built(ev)
     local owner = territory.owner_at(e.surface.index, e.position)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
-    storage.colonies[id] = {id = id, surface_index = e.surface.index, hall = e, houses = {}, racks = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
+    storage.colonies[id] = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, racks = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
     territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)
     local cx, cy = territory.chunk_of(e.position)
     rendering.draw_rectangle{color = {0.2, 0.8, 0.3, 0.8}, width = 3, filled = false, surface = e.surface,
@@ -195,6 +196,6 @@ events.on(defines.events.on_robot_built_entity, on_built)
 events.on(defines.events.script_raised_built, on_built)
 events.on(defines.events.script_raised_revive, on_built)
 
-work.bind(M)   -- avoids a require cycle (runtime require is illegal)
+work.bind(M); gui.bind(M)   -- avoids a require cycle (runtime require is illegal)
 
 return M

@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 3
+local SCHEMA = 4
 
 local migrations = {
   [1] = function()
@@ -15,6 +15,9 @@ local migrations = {
   end,
   [3] = function()
     storage.unit_tools = storage.unit_tools or {}         -- [unit_number] = {axe = uses_left, pick = uses_left}
+  end,
+  [4] = function()
+    for _, c in pairs(storage.colonies) do c.machines = c.machines or {} end   -- opt-in machine supply registry
   end,
 }
 

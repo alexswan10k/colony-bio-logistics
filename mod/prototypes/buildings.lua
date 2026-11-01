@@ -36,13 +36,13 @@ end
 local hall = chest_clone("steel-chest", "colony-town-hall", "town-hall", 48, 1.5)
 local tent = chest_clone("iron-chest", "colony-housing-tent", "tent", 4, 1)
 local cabin = chest_clone("steel-chest", "colony-housing-cabin", "cabin", 6, 1.5)
-local forager = chest_clone("iron-chest", "colony-forager-hut", "forager-hut", 4, 1)
-local woodcutter = chest_clone("iron-chest", "colony-woodcutter-hut", "woodcutter-hut", 4, 1)
-local miner = chest_clone("iron-chest", "colony-miner-hut", "miner-hut", 4, 1)
+local forager = chest_clone("iron-chest", "colony-forager-hut", "forager-hut", 8, 1)
+local woodcutter = chest_clone("iron-chest", "colony-woodcutter-hut", "woodcutter-hut", 8, 1)
+local miner = chest_clone("iron-chest", "colony-miner-hut", "miner-hut", 8, 1)
 -- Watchtower (#37-adjacent, design §2.1): built inside territory, claims a ring of chunks around itself,
 -- so the colony's work area (and therefore its huts and opted-in machines) can creep outward.
 local watchtower = chest_clone("steel-chest", "colony-watchtower", "watchtower", 4, 1)
-local farmhut = chest_clone("iron-chest", "colony-farm-hut", "farm-hut", 4, 1)
+local farmhut = chest_clone("iron-chest", "colony-farm-hut", "farm-hut", 8, 1)
 
 -- Farm plot (#44 first slice): a 1x1 tilled tile the player places on farmland. Three graphics
 -- variations are the crop stages; the script switches graphics_variation as the crop grows.

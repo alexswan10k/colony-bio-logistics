@@ -89,10 +89,14 @@ core.register("m1_colony", {
     for i = 1, 12 do s.create_entity{name = "tree-01", position = {p.x + 12 + i * 2, p.y + 8}} end
     local ore1 = s.create_entity{name = "iron-ore", position = {p.x - 14, p.y - 6}, amount = 500}
     local ore2 = s.create_entity{name = "iron-ore", position = {p.x - 15, p.y - 6}, amount = 500}
+    -- A stone patch closer than the iron: the miner only ignores it because the player turned stone off (#74).
+    local stone1 = s.create_entity{name = "stone", position = {p.x - 9, p.y - 6}, amount = 500}
+    c.huts[miner.unit_number].ores = {stone = 0}
     local trees_before = #s.find_entities_filtered{type = "tree", position = {p.x + 12, p.y + 8}, radius = 30}
     local ore_before = (ore1 and ore1.amount or 0) + (ore2 and ore2.amount or 0)
     local patches_before = #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30}
-    local saw = {ore = false, wood = false, food = false, planted = false, ripe = false, produce = false}
+    local saw = {ore = false, wood = false, food = false, planted = false, ripe = false, produce = false,
+      hut_output = false}
     local function produce_total()
       local n = hall.get_item_count("colony-produce")
       for _, h in pairs(c.houses) do
@@ -117,7 +121,14 @@ core.register("m1_colony", {
           if plot.stage == farm.GROWING then saw.planted = true elseif plot.stage == farm.RIPE then saw.ripe = true end
         end
         if produce_total() > 0 then saw.produce = true end
-
+        -- Yield is deposited in the hut that employed the colonist (#72), not walked to the hall.
+        for _, h in pairs(c.huts) do
+          if h.entity.valid then
+            for _, item in ipairs({"wood", "iron-ore", "copper-ore", "coal", "stone", "colony-forage", "colony-produce"}) do
+              if h.entity.get_item_count(item) > 0 then saw.hut_output = true end
+            end
+          end
+        end
       end)
     end
     ctx.after(colony.INTERVAL * 20, function()
@@ -155,24 +166,16 @@ core.register("m1_colony", {
       ctx.check("tools wear out with use", (wh and wh.wear or 0) + (fh and fh.wear or 0) + (mh and mh.wear or 0) > 0)
       ctx.check("tools hauled to huts", hall.get_item_count("colony-axe") < 3 or hall.get_item_count("colony-pickaxe") < 3 or hall.get_item_count("colony-basket") < 3)
       ctx.check("colonists alive", colony.live_colonists(c) >= 1, colony.live_colonists(c))
-      local stages = {}
-      for _, plot in pairs(c.plots or {}) do stages[#stages + 1] = tostring(plot.stage) end
       local jc, js = work.job_counts(c), {}
       for job, n in pairs(jc) do js[#js + 1] = job .. "=" .. n end
-      ctx.log("plots: " .. table.concat(stages, ",") .. " | jobs: " .. table.concat(js, " "))
-      for un, plot in pairs(c.plots or {}) do
-        local pe = plot.entity
-        if pe.valid then
-          local k = pe.surface.index .. ":" .. pe.position.x .. "," .. pe.position.y
-          ctx.log("plot " .. un .. " stage=" .. plot.stage .. " claimed=" .. tostring(c.claimed[k]))
-        end
-      end
-      for un, st in pairs(storage.unit_state) do
-        if st.job == "farm" then
-          ctx.log("unit " .. un .. " job=farm state=" .. tostring(st.state) .. " site_valid="
-            .. tostring(st.site and st.site.valid) .. " hut=" .. tostring(st.hut and st.hut.entity.valid))
-        end
-      end
+      ctx.log("jobs: " .. table.concat(js, " "))
+      local stone_after = stone1 and stone1.valid and stone1.amount or 0
+      ctx.check("miner ignores a de-prioritised ore even when it is closer", stone_after == 500, stone_after)
+      local hh, assigned = colony.households(c), 0
+      for _, list in pairs(hh) do assigned = assigned + #list end
+      ctx.check("every colonist is assigned to a house roster", assigned == colony.live_colonists(c),
+        assigned .. "/" .. colony.live_colonists(c))
+      ctx.check("harvest yield lands in the worker's hut", saw.hut_output)
       ctx.check("farmers planted crops", saw.planted)
       ctx.check("crops ripened", saw.ripe)
       ctx.check("farmers harvested produce", saw.produce, produce_total())

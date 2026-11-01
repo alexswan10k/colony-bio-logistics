@@ -60,9 +60,37 @@ end
 function M.live_colonists(colony)
   local n = 0
   for id, c in pairs(colony.colonists) do
-    if c.valid then n = n + 1 else colony.colonists[id] = nil end
+    if c.valid then n = n + 1 else
+      colony.colonists[id] = nil
+      if colony.locks then colony.locks[id] = nil end
+    end
   end
   return n
+end
+
+-- Sorted live colonist unit_numbers: the stable order used by rosters and by house assignment.
+function M.colonist_ids(colony)
+  local ids = {}
+  for un, c in pairs(colony.colonists) do
+    if c.valid then ids[#ids + 1] = un else
+      colony.colonists[un] = nil
+      if colony.locks then colony.locks[un] = nil end
+    end
+  end
+  table.sort(ids)
+  return ids
+end
+
+-- Who lives in which house: [house unit_number] = {colonist unit_number, ...}. Per-colonist job locks are
+-- managed on the house panel, so a town with hundreds of colonists never has to list them all in one window.
+function M.households(colony)
+  local houses = M.house_list(colony)
+  local caps = {}
+  for i, h in ipairs(houses) do caps[i] = housing.TIERS[h.kind].capacity end
+  local split = housing.assign(M.colonist_ids(colony), caps)
+  local out = {}
+  for i, h in ipairs(houses) do out[h.entity.unit_number] = split[i] or {} end
+  return out
 end
 
 -- Valid houses in deterministic (unit_number) order; prunes dead ones.
@@ -103,6 +131,14 @@ function M.total_food(colony)
   for _, h in ipairs(M.house_list(colony)) do
     local stock = M.house_stock(h)
     for _, opt in ipairs(housing.FOOD) do n = n + (stock[opt.item] or 0) end
+  end
+  -- Hut stockpiles count too: food only waits there until a hauler clears it.
+  for _, h in pairs(colony.huts or {}) do
+    if h.entity.valid then
+      for _, item in ipairs(M.FOOD_ITEMS) do
+        if prototypes.item[item] then n = n + h.entity.get_item_count(item) end
+      end
+    end
   end
   return n
 end
@@ -256,7 +292,7 @@ local function on_built(ev)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
+      towers = {}, plots = {}, locks = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
     storage.colonies[id] = colony
     territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)
     M.seed_forage(colony)   -- the claimed land already has berries on it

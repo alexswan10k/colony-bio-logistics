@@ -3,9 +3,11 @@
 -- so a machine with two requests is filled in one visit instead of starving one of them.
 local M = {}
 
--- Lower number = served first. Explicit player requests beat passive house buffering, but an unmet
--- critical need (food/heat) always comes first or colonists die while the furnace gets stocked.
-M.PRIORITY = {critical = 1, tools = 2, request = 3, collect = 4, buffer = 5}
+-- Lower number = served first. An unmet critical need (food/heat) always comes first or colonists die
+-- while the furnace gets stocked. Tools next: a hut without a tool stops working entirely, while output
+-- only waits for space. Then the hut's finished goods (they block its slots), explicit requests, machine
+-- output and passive buffering.
+M.PRIORITY = {critical = 1, tools = 2, hut_output = 3, request = 4, collect = 5, buffer = 6}
 
 M.DEFAULT_CAP = 20
 

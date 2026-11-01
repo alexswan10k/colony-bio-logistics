@@ -6,6 +6,7 @@ local territory = require("scripts.territory")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local jobs = require("scripts.model.jobs")
+local mine_plan = require("scripts.model.mine_plan")
 local haul_plan = require("scripts.model.haul_plan")
 local work = require("scripts.work")
 local M = {}
@@ -24,7 +25,34 @@ M.MACHINE_GUIS = MACHINE_GUIS   -- selection tool (#35) opts in exactly the mach
 local function colony_at(e) local id = territory.owner_at(e.surface.index, e.position); return id and storage.colonies[id] end
 
 -- ---------- household panel ----------
-local function fill_house(frame, h)
+-- Per-colonist job locks live on the house, not the Town Hall: a house lists only its own handful of
+-- occupants, so the panel stays usable when a town grows to hundreds of colonists.
+local LOCK_OPTS = {{"auto", "A"}, {"haul", "H"}, {"forage", "F"}, {"chop", "C"}, {"mine", "M"}, {"farm", "G"}}
+
+local function fill_roster(pane, colony, ids)
+  colony.locks = colony.locks or {}
+  if #ids == 0 then
+    pane.add{type = "label", caption = {"colony-gui-info.roster-empty"}}
+    return
+  end
+  for i, un in ipairs(ids) do
+    local st = storage.unit_state[un]
+    local job = st and st.job or "idle"
+    local row = pane.add{type = "flow", direction = "horizontal"}
+    row.style.vertical_align = "center"
+    local name = row.add{type = "label", caption = {"colony-gui-info.colonist", i, {"colony-gui-info.job-" .. job}}}
+    name.style.width = 110
+    local lock = colony.locks[un]
+    for _, opt in ipairs(LOCK_OPTS) do
+      local locked = (lock or "auto") == opt[1]
+      local b = row.add{type = "button", name = "colony_lock_" .. un .. "_" .. opt[1],
+        caption = locked and "[" .. opt[2] .. "]" or opt[2], tooltip = {"colony-gui-info.lock-" .. opt[1]}}
+      b.style.width = 34
+    end
+  end
+end
+
+local function fill_house(frame, h, colony)
   frame.clear()
   local tier = housing.TIERS[h.kind]
   local stock = colony_mod.house_stock(h)
@@ -54,6 +82,12 @@ local function fill_house(frame, h)
     frame.add{type = "label", caption = {"", {"colony-gui.requesting"}, " ", table.concat(want, "  ")}}
   end
   frame.add{type = "label", caption = {"colony-gui.house-hint"}}
+  frame.add{type = "line"}
+  frame.add{type = "label", caption = {"colony-gui-info.roster"}, style = "bold_label"}
+  local pane = frame.add{type = "scroll-pane", name = "roster", direction = "vertical"}
+  pane.style.maximal_height = 140
+  local households = colony_mod.households(colony)
+  fill_roster(pane, colony, households[h.entity.unit_number] or {})
 end
 
 local function open_house(player, e)
@@ -65,7 +99,7 @@ local function open_house(player, e)
     caption = {"colony-gui.household"}, anchor = {gui = defines.relative_gui_type.container_gui,
       position = defines.relative_gui_position.right, names = {"colony-housing-tent", "colony-housing-cabin"}}}
   local body = frame.add{type = "flow", name = "body", direction = "vertical"}
-  fill_house(body, h)
+  fill_house(body, h, colony)
   scheduler.after(30, "gui.refresh_house", {player_index = player.index, un = e.unit_number, colony_id = colony.id})
 end
 
@@ -77,7 +111,7 @@ scheduler.register("gui.refresh_house", function(d)
   local colony = storage.colonies[d.colony_id]
   local h = colony and colony.houses[d.un]
   if not h then return end
-  fill_house(frame.body, h)
+  fill_house(frame.body, h, colony)
   scheduler.after(30, "gui.refresh_house", d)
 end)
 
@@ -120,6 +154,26 @@ local function fill_hut(frame, h)
   end
   if h.job == "farm" then
     frame.add{type = "label", caption = {"colony-gui-hut.farm-hint"}}
+  end
+  if h.job == "mine" then
+    -- Ore priority (#74): which rock this hut goes for first, instead of always the closest one.
+    frame.add{type = "line"}
+    frame.add{type = "label", caption = {"colony-gui-hut.ore-priority"}, style = "bold_label"}
+    local ranks = mine_plan.effective(h.ores)
+    for _, ore in ipairs(mine_plan.ORES) do
+      local row = frame.add{type = "flow", direction = "horizontal"}
+      row.style.vertical_align = "center"
+      local name = row.add{type = "label", caption = "[item=" .. ore .. "]"}
+      name.style.width = 96
+      row.add{type = "button", name = "colony_ore_" .. ore .. "_more", caption = "+",
+        tooltip = {"colony-gui-hut.ore-more-tt"}}
+      local rank = row.add{type = "label", caption = ranks[ore] > 0 and tostring(ranks[ore]) or {"colony-gui-info.off"}}
+      rank.style.width = 24
+      rank.style.horizontal_align = "center"
+      row.add{type = "button", name = "colony_ore_" .. ore .. "_less", caption = "-",
+        tooltip = {"colony-gui-hut.ore-less-tt"}}
+    end
+    frame.add{type = "label", caption = {"colony-gui-hut.ore-hint"}}
   end
   local sites = work.site_count(h)
   if sites == 0 then
@@ -219,33 +273,10 @@ local function fill_info(frame, colony)
   frame.add{type = "button", name = "colony_prio_reset", caption = {"colony-gui-info.reset"}}
   frame.add{type = "label", caption = {"colony-gui-info.priority-hint"}}
 
-  -- Roster: who is here and what each colonist is locked to (A = follow the matrix).
+  -- Per-colonist locks live on each house (see fill_house); a town can have hundreds of colonists, so the
+  -- Town Hall keeps to aggregate job counts and points at the houses for individual assignment.
   frame.add{type = "line"}
-  frame.add{type = "label", caption = {"colony-gui-info.roster"}, style = "bold_label"}
-  local pane = frame.add{type = "scroll-pane", name = "roster", direction = "vertical"}
-  pane.style.maximal_height = 180
-  colony.locks = colony.locks or {}
-  local ids = {}
-  for un, c in pairs(colony.colonists) do
-    if c.valid then ids[#ids + 1] = un else colony.locks[un] = nil end
-  end
-  table.sort(ids)
-  if #ids == 0 then pane.add{type = "label", caption = {"colony-gui-info.roster-empty"}} end
-  for i, un in ipairs(ids) do
-    local st = storage.unit_state[un]
-    local job = st and st.job or "idle"
-    local row = pane.add{type = "flow", direction = "horizontal"}
-    row.style.vertical_align = "center"
-    local name = row.add{type = "label", caption = {"colony-gui-info.colonist", i, {"colony-gui-info.job-" .. job}}}
-    name.style.width = 110
-    local lock = colony.locks[un]
-    for _, opt in ipairs({{"auto", "A"}, {"haul", "H"}, {"forage", "F"}, {"chop", "C"}, {"mine", "M"}, {"farm", "G"}}) do
-      local locked = (lock or "auto") == opt[1]
-      local b = row.add{type = "button", name = "colony_lock_" .. un .. "_" .. opt[1],
-        caption = locked and "[" .. opt[2] .. "]" or opt[2], tooltip = {"colony-gui-info.lock-" .. opt[1]}}
-      b.style.width = 34
-    end
-  end
+  frame.add{type = "label", caption = {"colony-gui-info.roster-moved"}}
 end
 
 local function open_info(player, e)
@@ -277,13 +308,17 @@ events.on(defines.events.on_gui_click, function(ev)
   if un then
     local player = game.get_player(ev.player_index)
     local e = player and player.opened
-    if not (e and e.valid and e.name == colony_mod.HALL) then return end
+    if not (e and e.valid and (e.name == colony_mod.HALL or colony_mod.HOUSES[e.name])) then return end
     local colony = colony_at(e)
     if not colony then return end
+    if lock_job ~= "auto" and not jobs.DEFAULT[lock_job] then return end   -- only roles the matrix knows
     colony.locks = colony.locks or {}
     colony.locks[tonumber(un)] = (lock_job ~= "auto") and lock_job or nil
-    local frame = player.gui.relative[INFO_FRAME]
-    if frame and frame.body then fill_info(frame.body, colony) end
+    local house = colony.houses[e.unit_number]
+    local frame = player.gui.relative[house and HOUSE_FRAME or INFO_FRAME]
+    if frame and frame.body then
+      if house then fill_house(frame.body, house, colony) else fill_info(frame.body, colony) end
+    end
     return
   end
   if name == "colony_pop_less" or name == "colony_pop_more" then
@@ -298,6 +333,22 @@ events.on(defines.events.on_gui_click, function(ev)
     colony.pop_target = nxt >= capacity and nil or nxt
     local frame = player.gui.relative[INFO_FRAME]
     if frame and frame.body then fill_info(frame.body, colony) end
+    return
+  end
+  local ore, ore_dir = name:match("^colony_ore_(.+)_(more|less)$")
+  if ore then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid and labour.HUTS[e.name]) then return end
+    local colony = colony_at(e)
+    local h = colony and colony.huts[e.unit_number]
+    if not (h and mine_plan.valid(ore)) then return end
+    h.ores = h.ores or {}
+    local rank = mine_plan.rank(h.ores, ore)
+    if ore_dir == "more" then mine_plan.set(h.ores, ore, rank == 0 and 1 or math.max(1, rank - 1))
+    else mine_plan.shift(h.ores, ore, 1) end
+    local frame = player.gui.relative[HUT_FRAME]
+    if frame and frame.body then fill_hut(frame.body, h) end
     return
   end
   if name == "colony_hut_limit_less" or name == "colony_hut_limit_more" then

@@ -10,6 +10,7 @@ local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local haul_plan = require("scripts.model.haul_plan")
 local farm = require("scripts.model.farm")
+local mine_plan = require("scripts.model.mine_plan")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
@@ -20,7 +21,7 @@ M.YIELD = {forage = {item = "colony-forage", count = 4}, chop = {item = "wood", 
 M.MINE_PER_TRIP = 5         -- resource units mined per trip; each unit becomes exactly one item (design §4.2)
 M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still feeds the biters
 M.CARRY_CAP = 20
-M.ORES = {"iron-ore", "copper-ore", "coal", "stone"}
+M.ORES = mine_plan.ORES   -- every ore a Miner's Hut can be pointed at
 M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", haul = "hauler"}
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
@@ -131,7 +132,13 @@ local function find_site(colony, e, hut)
   elseif hut.job == "chop" then
     return nearest(s.find_entities_filtered{position = base, radius = radius, type = "tree"}, base, free)
   elseif hut.job == "mine" then
-    return nearest(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = M.ORES}, base, in_territory)
+    -- Ore priority: work the best-ranked ore that is actually in range, so a hut does not walk past iron
+    -- to grab the nearest stone. Ores sharing a rank fall back to distance (the old behaviour).
+    for _, ore in ipairs(mine_plan.order(hut.ores)) do
+      local site = nearest(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = ore}, base, in_territory)
+      if site then return site end
+    end
+    return nil
   elseif hut.job == "farm" then
     -- Ripe plots first (food now), then fallow plots (plant for later); nearest wins, ties by unit_number.
     local best, best_ripe, best_d, r2 = nil, false, nil, radius * radius
@@ -166,10 +173,18 @@ function M.site_count(h)
     end
     return n
   end
+  if h.job == "mine" then
+    local n = 0
+    for _, ore in ipairs(mine_plan.order(h.ores)) do
+      for _, e in ipairs(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = ore}) do
+        if e.valid and free(e) then n = n + 1 end
+      end
+    end
+    return n
+  end
   local list
   if h.job == "forage" then list = s.find_entities_filtered{name = "colony-forage-patch", position = base, radius = radius}
-  elseif h.job == "chop" then list = s.find_entities_filtered{position = base, radius = radius, type = "tree"}
-  else list = s.find_entities_filtered{position = base, radius = radius, type = "resource", name = M.ORES} end
+  else list = s.find_entities_filtered{position = base, radius = radius, type = "tree"} end
   local n = 0
   for _, e in ipairs(list) do if e.valid and free(e) then n = n + 1 end end
   return n
@@ -206,6 +221,24 @@ local function hut_offer(h)
   if want < 1 then return nil end
   return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
     demands = {{item = def.tool, count = want}}}
+end
+
+-- Finished goods sit in the hut until a hauler clears them, so the hut is the local stockpile and the
+-- colonist never walks every load home. Everything except the hut's own tool is fair game.
+local function hut_collect_offer(h)
+  local def = labour.HUTS[h.entity.name]
+  local inv = h.entity.get_inventory(defines.inventory.chest)
+  if not (def and inv and not inv.is_empty()) then return nil end
+  local demands, available = {}, {}
+  for _, c in ipairs(inv.get_contents()) do
+    if c.name ~= def.tool then
+      demands[#demands + 1] = {item = c.name, count = c.count}
+      available[c.name] = c.count
+    end
+  end
+  if #demands == 0 then return nil end
+  return {kind = "collect", hut = h, priority = haul_plan.PRIORITY.hut_output, key = h.entity.unit_number,
+    demands = demands, available = available}
 end
 
 local function machine_demands(m)
@@ -247,6 +280,7 @@ local function find_haul_task(colony)
   end
   for _, h in ipairs(hut_list(colony)) do
     local o = hut_offer(h); if o then offers[#offers + 1] = o end
+    local c = hut_collect_offer(h); if c then offers[#offers + 1] = c end
   end
   for _, m in ipairs(machine_list(colony)) do
     local o = machine_offer(m); if o then offers[#offers + 1] = o end
@@ -274,8 +308,12 @@ local function take_load(colony, offer)
   local taken = {}
   for _, s in ipairs(offer.load) do
     local n
-    if offer.kind == "collect" then n = offer.machine.entity.remove_item{name = s.item, count = s.count}
-    else n = colony.hall.remove_item{name = s.item, count = s.count} end
+    if offer.kind == "collect" then
+      local src = offer.machine and offer.machine.entity or offer.hut.entity
+      n = src.remove_item{name = s.item, count = s.count}
+    else
+      n = colony.hall.remove_item{name = s.item, count = s.count}
+    end
     if n and n > 0 then taken[#taken + 1] = {item = s.item, count = n} end
   end
   if #taken == 0 then return nil end
@@ -465,8 +503,7 @@ scheduler.register("work.finish", function(d)
   elseif st.job == "mine" then
     n = math.min(M.MINE_PER_TRIP, site.amount or 0)
     if n > 0 then
-      site.amount = site.amount - n
-      if site.amount <= 0 then site.destroy() end
+      if site.amount > n then site.amount = site.amount - n else site.destroy() end   -- 0 is not a legal amount
       e.surface.pollute(pos, M.MINE_POLLUTION)       -- 1:1 depletion, zero electricity, but not zero pollution
     end
   end
@@ -477,9 +514,11 @@ scheduler.register("work.finish", function(d)
     return
   end
   popup(e.surface, pos, {"", "+" .. n .. " ", item_name(item)})
+  -- Yield goes into the hut that employed the colonist: the hut is the forward stockpile, and a hauler
+  -- carries it inward (hut_collect_offer) instead of every worker walking each load to the Town Hall.
   st.carry = {{item = item, count = n}}
-  st.state = "to_hall"
-  go(e, colony.hall.position, 3)
+  st.state = "to_hut"
+  go(e, hut.entity.position, 3)
 end)
 
 events.on(defines.events.on_ai_command_completed, function(ev)
@@ -516,6 +555,32 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     local e = colony.colonists[ev.unit_number]
     if e and e.valid and st.site.valid then work_ring(e, st.site.position) end
     scheduler.after(M.WORK_TICKS, "work.finish", {un = ev.unit_number})
+  elseif st.state == "to_hut" then
+    local e = colony.colonists[ev.unit_number]
+    local hut_entity = st.hut and st.hut.entity
+    local refused = {}
+    if hut_entity and hut_entity.valid and st.carry then
+      for _, s in ipairs(st.carry) do
+        local n = hut_entity.insert{name = s.item, count = s.count}
+        if n < s.count then refused[#refused + 1] = {item = s.item, count = s.count - n} end
+      end
+    else
+      refused = st.carry or {}
+    end
+    st.carry = nil
+    if #refused > 0 then
+      if e and e.valid and colony.hall.valid then
+        st.carry, st.state = refused, "to_hall"     -- hut full or gone: fall back to the Town Hall
+        go(e, colony.hall.position, 3)
+        return
+      end
+      if e and e.valid then
+        for _, s in ipairs(refused) do
+          e.surface.spill_item_stack{position = e.position, stack = {name = s.item, count = s.count}, allow_belts = false}
+        end
+      end
+    end
+    M.assign(colony, ev.unit_number)
   elseif st.state == "to_hall" then
     if st.carry then return_to_hall(colony, st.carry) end
     st.carry = nil

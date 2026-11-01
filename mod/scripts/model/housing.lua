@@ -101,4 +101,19 @@ function M.distribute(pop, capacities)
   return out, pop    -- homeless remainder
 end
 
+-- Same split as distribute(), but returns who lives where: `ids` (sorted colonist unit numbers) in, one
+-- list per house out. Houses fill in order, so the house panel and the occupancy counts always agree.
+function M.assign(ids, capacities)
+  local out, next_i = {}, 1
+  for i, cap in ipairs(capacities) do
+    local list = {}
+    for _ = 1, cap do
+      if next_i > #ids then break end
+      list[#list + 1] = ids[next_i]; next_i = next_i + 1
+    end
+    out[i] = list
+  end
+  return out
+end
+
 return M

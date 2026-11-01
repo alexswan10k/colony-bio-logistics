@@ -1,7 +1,8 @@
 -- PURE: choose a job for an idle colonist so the colony tracks desired labour shares.
 -- Shares shift toward foraging when food stock is below target. No priority UI yet (see jobs.lua for the later matrix).
 local M = {}
-M.JOBS = {"forage", "chop", "mine"}
+M.JOBS = {"haul", "forage", "chop", "mine"}   -- haul first: wins ties (keeps houses supplied)
+M.HAUL_SHARE = 0.3
 
 -- food_ratio = stock/target; counts = {job -> colonists currently on it}; returns job name.
 function M.desired_shares(food_ratio)
@@ -12,6 +13,8 @@ end
 
 function M.choose(food_ratio, counts, disabled)
   local shares, total = M.desired_shares(food_ratio), 0
+  for j, v in pairs(shares) do shares[j] = v * (1 - M.HAUL_SHARE) end
+  shares.haul = M.HAUL_SHARE
   for _, j in ipairs(M.JOBS) do total = total + (counts[j] or 0) end
   local best, best_gap
   for _, j in ipairs(M.JOBS) do

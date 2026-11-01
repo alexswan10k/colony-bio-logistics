@@ -5,12 +5,15 @@ local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local territory = require("scripts.territory")
 local desirability = require("scripts.model.desirability")
+local housing = require("scripts.model.housing")
 local work = require("scripts.work")
 local M = {}
 
-M.HALL, M.TENT = "colony-town-hall", "colony-housing-tent"
+M.HALL, M.RACK = "colony-town-hall", "colony-tool-rack"
+M.HOUSES = {["colony-housing-tent"] = "tent", ["colony-housing-cabin"] = "cabin"}
 M.CLAIM_RADIUS = 1              -- chunks, Chebyshev => 3x3 chunks
-M.TENT_CAPACITY = 4
+M.STARVE_AFTER = 4              -- consecutive evaluations with unmet critical need before a colonist dies
+M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
 M.INTERVAL = 600                -- ticks between evaluations
 M.FOOD_PER_COLONIST = 1         -- food items per interval
 M.FOOD_ITEMS = {"colony-forage", "raw-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
@@ -38,14 +41,6 @@ function M.food_in(colony)
   return n
 end
 
-local function take_food(colony, amount)
-  local hall = colony.hall
-  for _, item in ipairs(M.FOOD_ITEMS) do
-    if amount <= 0 then break end
-    if prototypes.item[item] then amount = amount - hall.remove_item{name = item, count = amount} end
-  end
-end
-
 function M.live_colonists(colony)
   local n = 0
   for id, c in pairs(colony.colonists) do
@@ -54,12 +49,53 @@ function M.live_colonists(colony)
   return n
 end
 
+-- Valid houses in deterministic (unit_number) order; prunes dead ones.
+function M.house_list(colony)
+  local ids = {}
+  for un, h in pairs(colony.houses) do
+    if h.entity.valid then ids[#ids + 1] = un else
+      if h.sink and h.sink.valid then h.sink.destroy() end
+      colony.houses[un] = nil
+    end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.houses[un] end
+  return out
+end
+
 function M.capacity(colony)
   local n = 0
-  for id, e in pairs(colony.housing) do
-    if e.valid then n = n + M.TENT_CAPACITY else colony.housing[id] = nil end
+  for _, h in ipairs(M.house_list(colony)) do n = n + housing.TIERS[h.kind].capacity end
+  return n
+end
+
+function M.house_stock(h)
+  local inv = h.entity.get_inventory(defines.inventory.chest)
+  local stock = {}
+  for item in pairs(housing.items_of(housing.TIERS[h.kind])) do stock[item] = inv.get_item_count(item) end
+  return stock, inv
+end
+
+function M.is_powered(h)
+  return h.sink ~= nil and h.sink.valid and h.sink.energy >= M.POWERED_ENERGY
+end
+
+-- Total food on hand (hall + house buffers); used by work planning and desirability.
+function M.total_food(colony)
+  local n = M.food_in(colony)
+  for _, h in ipairs(M.house_list(colony)) do
+    local stock = M.house_stock(h)
+    for _, opt in ipairs(housing.FOOD) do n = n + (stock[opt.item] or 0) end
   end
   return n
+end
+
+local function kill_one(colony)
+  for id, c in pairs(colony.colonists) do
+    if c.valid then c.die(); colony.colonists[id] = nil; table.insert(colony.deaths, 0); return true end
+  end
+  return false
 end
 
 local function spawn_colonist(colony)
@@ -77,33 +113,44 @@ end
 function M.evaluate(data)
   local colony = storage.colonies[data.colony_id]
   if not colony then return end
-  if not colony.hall.valid then return end    -- hall gone; colony dormant (cleanup handled on destroy)
+  if not colony.hall.valid then return end    -- hall gone; colony dormant
   scheduler.after(M.INTERVAL, "colony.evaluate", data)
 
   local pop = M.live_colonists(colony)
-  local capacity = M.capacity(colony)
-  -- consumption (shortfall kills one colonist per interval)
-  local need = pop * M.FOOD_PER_COLONIST
-  local stock = M.food_in(colony)
-  if need > 0 then
-    if stock >= need then take_food(colony, need)
-    else
-      take_food(colony, stock)
-      for id, c in pairs(colony.colonists) do
-        if c.valid then c.die(); colony.colonists[id] = nil; table.insert(colony.deaths, 0); pop = pop - 1; break end
-      end
+  local houses = M.house_list(colony)
+  local caps = {}
+  for i, h in ipairs(houses) do caps[i] = housing.TIERS[h.kind].capacity end
+  local occ = housing.distribute(pop, caps)
+
+  -- per-house consumption (items come out of the house's own inventory)
+  local score_sum, rated = 0, 0
+  for i, h in ipairs(houses) do
+    local tier = housing.TIERS[h.kind]
+    local stock, inv = M.house_stock(h)
+    local before = {}
+    for k, v in pairs(stock) do before[k] = v end
+    local consumed, _, score, crit = housing.step(tier, occ[i], stock, M.is_powered(h), h.acc)
+    for item, n in pairs(consumed) do if n > 0 then inv.remove{name = item, count = n} end end
+    h.score = score
+    if occ[i] > 0 then
+      score_sum = score_sum + score; rated = rated + 1
+      if crit then
+        h.hungry = (h.hungry or 0) + 1
+        if h.hungry >= M.STARVE_AFTER then kill_one(colony); h.hungry = 0 end
+      else h.hungry = 0 end
     end
   end
   local kept = {}
   for _, a in ipairs(colony.deaths) do if a < 40 then kept[#kept + 1] = a + 1 end end
   colony.deaths = kept
 
-  stock = M.food_in(colony)
+  pop = M.live_colonists(colony)
+  local capacity = M.capacity(colony)
   local target = math.max(pop * M.FOOD_PER_COLONIST * M.TARGET_STOCK_INTERVALS, 1)
   local d, parts = desirability.compute({
-    food_ratio = stock / target,
+    food_ratio = M.total_food(colony) / target,
     free_housing_ratio = capacity > 0 and (capacity - pop) / capacity or 0,
-    scenic = 0.3, leisure = 0, pollution = 0, deaths = colony.deaths,
+    scenic = 0.3, leisure = rated > 0 and score_sum / rated or 0, pollution = 0, deaths = colony.deaths,
   })
   colony.d, colony.d_parts = d, parts
   if d > desirability.defaults.migrate_in and pop < capacity then
@@ -122,7 +169,7 @@ local function on_built(ev)
     local owner = territory.owner_at(e.surface.index, e.position)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
-    storage.colonies[id] = {id = id, surface_index = e.surface.index, hall = e, housing = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
+    storage.colonies[id] = {id = id, surface_index = e.surface.index, hall = e, houses = {}, racks = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
     territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)
     local cx, cy = territory.chunk_of(e.position)
     rendering.draw_rectangle{color = {0.2, 0.8, 0.3, 0.8}, width = 3, filled = false, surface = e.surface,
@@ -130,10 +177,16 @@ local function on_built(ev)
       right_bottom = {(cx + M.CLAIM_RADIUS + 1) * 32, (cy + M.CLAIM_RADIUS + 1) * 32}}
     script.register_on_object_destroyed(e)
     scheduler.after(M.INTERVAL, "colony.evaluate", {colony_id = id})
-  elseif name == M.TENT and e.type ~= "entity-ghost" then
+  elseif (M.HOUSES[name] or name == M.RACK) and e.type ~= "entity-ghost" then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
-    storage.colonies[owner].housing[e.unit_number] = e
+    local colony = storage.colonies[owner]
+    if name == M.RACK then colony.racks[e.unit_number] = e; return end
+    local h = {entity = e, kind = M.HOUSES[name], acc = {}, inflight = {}}
+    if housing.needs_power(housing.TIERS[h.kind]) then
+      h.sink = e.surface.create_entity{name = "colony-power-sink", position = e.position, force = e.force}
+    end
+    colony.houses[e.unit_number] = h
   end
 end
 

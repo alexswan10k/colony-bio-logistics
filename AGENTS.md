@@ -20,3 +20,6 @@ Territory = chunk-granular 32x32 (#15). Space Age required (#12). Open: #16-#22 
 
 ## Status
 M0 in progress: spikes #1-#11 coded, unrun. First action when Factorio is installed: `scripts/link-dev.sh`, follow `docs/SPIKES.md` order, post results, fix harness errors.
+
+## M1 slice (playable)
+Hall -> territory; houses (`model/housing.lua` tiers+needs; power substitutes fuel via hidden `colony-power-sink`) hold real inventories; colonists loop haul/forage/chop/mine (`work.lua`, `model/work_plan.lua`); axes/pickaxes wear (hall/rack supply). Integration test: `TICKS=7000 scripts/headless-spike.sh m1_colony`. Runtime `require` is illegal: break cycles via `bind`.

@@ -1,10 +1,10 @@
--- M1 integration test: Town Hall -> territory -> tent -> food -> migrant. Run: scripts/headless-spike.sh m1_colony (TICKS>=2500)
+-- M1 integration test: hall -> territory -> houses (tent+powered cabin) -> hauling -> work -> tools. Run: TICKS=7000 scripts/headless-spike.sh m1_colony
 local core = require("scripts.spike.core")
 local colony = require("scripts.colony")
 local territory = require("scripts.territory")
 
 core.register("m1_colony", {
-  issue = 28, auto = true, desc = "town hall + housing + migration loop", usage = "",
+  issue = 28, auto = true, desc = "town hall + housing + hauling + tools", usage = "",
   run = function(ctx)
     local s, p = ctx.surface, ctx.position
     ctx.flat_area(100)
@@ -15,26 +15,39 @@ core.register("m1_colony", {
     ctx.check("tent outside territory rejected", not (far and far.valid))
     local hall = build("colony-town-hall", {p.x, p.y})
     ctx.check("hall built", hall and hall.valid)
-    ctx.check("hall claims territory", territory.owner_at(s.index, p) ~= nil)
-    local hall2 = build("colony-town-hall", {p.x + 10, p.y})
-    ctx.check("overlapping hall rejected", not (hall2 and hall2.valid))
-    local tent = build("colony-housing-tent", {p.x + 6, p.y})
-    ctx.check("tent inside territory kept", tent and tent.valid)
+    ctx.check("overlapping hall rejected", not (build("colony-town-hall", {p.x + 10, p.y}) or {valid = false}).valid)
     local c = storage.colonies[territory.owner_at(s.index, p)]
-    ctx.check("capacity 4", colony.capacity(c) == 4, colony.capacity(c))
+    local tent = build("colony-housing-tent", {p.x + 6, p.y})
+    local cabin_pos = {p.x + 6, p.y + 8}
+    ctx.power_at({x = cabin_pos[1], y = cabin_pos[2]})
+    local cabin = build("colony-housing-cabin", cabin_pos)
+    build("colony-tool-rack", {p.x - 6, p.y})
+    ctx.check("houses registered", tent and cabin and c.houses[tent.unit_number] and c.houses[cabin.unit_number] ~= nil)
+    ctx.check("capacity 10", colony.capacity(c) == 10, colony.capacity(c))
     hall.insert{name = "raw-fish", count = 100}
+    hall.insert{name = "wood", count = 100}
+    hall.insert{name = "colony-axe", count = 2}
+    hall.insert{name = "colony-pickaxe", count = 2}
     for i = 1, 12 do s.create_entity{name = "tree-01", position = {p.x + 12 + i * 2, p.y + 8}} end
     s.create_entity{name = "iron-ore", position = {p.x - 14, p.y - 6}, amount = 500}
     s.create_entity{name = "iron-ore", position = {p.x - 15, p.y - 6}, amount = 500}
-    ctx.after(colony.INTERVAL * 6, function()
-      local forage, wood, iron = hall.get_item_count("colony-forage"), hall.get_item_count("wood"), hall.get_item_count("iron-ore")
-      ctx.log("hall: forage=" .. forage .. " wood=" .. wood .. " iron-ore=" .. iron)
-      ctx.check("colonists delivered something", forage + wood + iron > 0)
-    end)
-    ctx.after(colony.INTERVAL * 6 + 30, function()
-      local pop = colony.live_colonists(c)
-      ctx.check("migrants arrived (D > threshold)", pop >= 1, "pop=" .. pop .. " D=" .. tostring(c.d))
-      ctx.log("food in hall: ", colony.food_in(c))
+    ctx.after(colony.INTERVAL * 10, function()
+      local tcnt = function(e, i) return e.get_inventory(defines.inventory.chest).get_item_count(i) end
+      local th, ch = c.houses[tent.unit_number], c.houses[cabin.unit_number]
+      ctx.log(string.format("pop=%d D=%.2f tent: fish=%d wood=%d score=%s | cabin: fish=%d wood=%d score=%s powered=%s",
+        colony.live_colonists(c), c.d or 0, tcnt(tent, "raw-fish"), tcnt(tent, "wood"), tostring(th.score),
+        tcnt(cabin, "raw-fish"), tcnt(cabin, "wood"), tostring(ch.score), tostring(colony.is_powered(ch))))
+      ctx.log("hall: forage=" .. hall.get_item_count("colony-forage") .. " wood=" .. hall.get_item_count("wood") ..
+        " iron-ore=" .. hall.get_item_count("iron-ore") .. " axes=" .. hall.get_item_count("colony-axe") ..
+        " picks=" .. hall.get_item_count("colony-pickaxe"))
+      ctx.check("hauled food to tent", tcnt(tent, "raw-fish") + tcnt(tent, "colony-forage") > 0)
+      ctx.check("hauled wood to tent", tcnt(tent, "wood") > 0)
+      ctx.check("cabin is powered", colony.is_powered(ch) == true)
+      ctx.check("cabin got no wood (power substitutes)", tcnt(cabin, "wood") == 0, tcnt(cabin, "wood"))
+      ctx.check("cabin got food", tcnt(cabin, "raw-fish") + tcnt(cabin, "colony-forage") > 0)
+      ctx.check("colonists took tools", hall.get_item_count("colony-axe") < 2 or hall.get_item_count("colony-pickaxe") < 2)
+      ctx.check("colonists alive", colony.live_colonists(c) >= 1, colony.live_colonists(c))
+      ctx.check("hall received resources", hall.get_item_count("iron-ore") + hall.get_item_count("colony-forage") > 0 or hall.get_item_count("wood") > 100)
       ctx.finish()
     end)
   end,

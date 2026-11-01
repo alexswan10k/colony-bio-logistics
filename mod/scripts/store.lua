@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 1
+local SCHEMA = 2
 
 local migrations = {
   [1] = function()
@@ -9,6 +9,9 @@ local migrations = {
     storage.next_colony_id = storage.next_colony_id or 1
     storage.colony_chunks = storage.colony_chunks or {}   -- [surface_index][cx][cy] = colony_id
     storage.scheduled = storage.scheduled or {}           -- [tick] = { {handler=, data=}, ... }
+  end,
+  [2] = function()
+    storage.unit_state = storage.unit_state or {}         -- [unit_number] = {colony_id, job, state, target_pos, yield}
   end,
 }
 

@@ -1,2 +1,0 @@
-   0.001 Program arguments: "/Volumes/RTL9210/SteamLibrary/steamapps/common/Factorio/factorio.app/Contents/MacOS/factorio" "--mod-directory" "/Users/alex/Repositories/colony-bio-logistics/build/headless/mods" "--benchmark" "/Users/alex/Repositories/colony-bio-logistics/build/headless/spike.zip" "--benchmark-ticks" "2000" "--disable-audio" 
-   0.532 Loading map /Users/alex/Repositories/colony-bio-logistics/build/headless/spike.zip: 491889 bytes.

@@ -34,3 +34,11 @@ data:extend({
    ingredients = {{type = "item", name = "wood", amount = 20}, {type = "item", name = "iron-plate", amount = 5}},
    results = {{type = "item", name = "colony-housing-tent", amount = 1}}},
 })
+
+local fish = data.raw["capsule"]["raw-fish"]
+data:extend({{
+  type = "item", name = "colony-forage", icon = fish.icon, icon_size = fish.icon_size,
+  subgroup = "raw-resource", order = "z[colony]-a[forage]", stack_size = 100,
+  spoil_ticks = 60 * 60 * 20, spoil_result = "spoilage",
+  localised_name = {"item-name.colony-forage"},
+}})

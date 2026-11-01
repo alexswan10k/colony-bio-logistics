@@ -5,6 +5,7 @@ local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local territory = require("scripts.territory")
 local desirability = require("scripts.model.desirability")
+local work = require("scripts.work")
 local M = {}
 
 M.HALL, M.TENT = "colony-town-hall", "colony-housing-tent"
@@ -12,7 +13,7 @@ M.CLAIM_RADIUS = 1              -- chunks, Chebyshev => 3x3 chunks
 M.TENT_CAPACITY = 4
 M.INTERVAL = 600                -- ticks between evaluations
 M.FOOD_PER_COLONIST = 1         -- food items per interval
-M.FOOD_ITEMS = {"raw-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
+M.FOOD_ITEMS = {"colony-forage", "raw-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
 M.TARGET_STOCK_INTERVALS = 5
 
 local function name_of(e) return e.type == "entity-ghost" and e.ghost_name or e.name end
@@ -69,6 +70,7 @@ local function spawn_colonist(colony)
   if not c then return false end
   colony.colonists[c.unit_number] = c
   script.register_on_object_destroyed(c)
+  work.assign(colony, c.unit_number)
   return true
 end
 
@@ -120,8 +122,12 @@ local function on_built(ev)
     local owner = territory.owner_at(e.surface.index, e.position)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
-    storage.colonies[id] = {id = id, surface_index = e.surface.index, hall = e, housing = {}, colonists = {}, deaths = {}}
+    storage.colonies[id] = {id = id, surface_index = e.surface.index, hall = e, housing = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
     territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)
+    local cx, cy = territory.chunk_of(e.position)
+    rendering.draw_rectangle{color = {0.2, 0.8, 0.3, 0.8}, width = 3, filled = false, surface = e.surface,
+      left_top = {(cx - M.CLAIM_RADIUS) * 32, (cy - M.CLAIM_RADIUS) * 32},
+      right_bottom = {(cx + M.CLAIM_RADIUS + 1) * 32, (cy + M.CLAIM_RADIUS + 1) * 32}}
     script.register_on_object_destroyed(e)
     scheduler.after(M.INTERVAL, "colony.evaluate", {colony_id = id})
   elseif name == M.TENT and e.type ~= "entity-ghost" then
@@ -135,5 +141,7 @@ events.on(defines.events.on_built_entity, on_built)
 events.on(defines.events.on_robot_built_entity, on_built)
 events.on(defines.events.script_raised_built, on_built)
 events.on(defines.events.script_raised_revive, on_built)
+
+work.bind(M)   -- avoids a require cycle (runtime require is illegal)
 
 return M

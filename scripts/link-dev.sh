@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# Symlink ./mod into the Factorio mods dir as colony-bio-logistics_<version>.
+# Symlink ./mod into the Factorio mods dir as <name>_<version> (unzipped-mod format). Edit Lua, then
+# "Restart" a save (or /reload? no - Lua changes need a new load: main menu > load save; data changes need full restart).
 set -euo pipefail
-MODS="${FACTORIO_MODS:-$HOME/Library/Application Support/factorio/mods}"
-VER=$(python3 -c "import json;print(json.load(open('mod/info.json'))['version'])")
+source "$(dirname "$0")/lib.sh"
+MODS="$FACTORIO_USER_DIR/mods"
 mkdir -p "$MODS"
-ln -sfn "$(pwd)/mod" "$MODS/colony-bio-logistics_$VER"
-echo "Linked -> $MODS/colony-bio-logistics_$VER"
+# A stale released zip with the same name would shadow/conflict with the symlink.
+ls "$MODS"/${MOD_NAME}_*.zip >/dev/null 2>&1 && echo "WARNING: remove zipped copies of ${MOD_NAME} in $MODS, they conflict with the dev link"
+rm -f "$MODS/${MOD_NAME}_"* 2>/dev/null || true
+ln -sfn "$REPO_ROOT/mod" "$MODS/${MOD_NAME}_${MOD_VERSION}"
+echo "Linked $MODS/${MOD_NAME}_${MOD_VERSION} -> $REPO_ROOT/mod"
+echo "Launch Factorio from Steam; enable 'Bio-Logistics Colonies' (Space Age mods must be enabled too)."

@@ -1,0 +1,6 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.0.1
+Date: 2026-11-01
+  Features:
+    - Initial scaffold: territory chunk index, scheduler, versioned storage.
+    - Feasibility spike harness (/spike), dev-only.

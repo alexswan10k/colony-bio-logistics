@@ -1,0 +1,14 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lunarmodules/luacheck@v1
+        with: {args: "mod"}
+      - run: scripts/lint-determinism.sh
+      - run: python3 -m json.tool mod/info.json >/dev/null
+      - run: scripts/package.sh --release
+      - uses: actions/upload-artifact@v4
+        with: {name: mod-zip, path: build/*.zip}

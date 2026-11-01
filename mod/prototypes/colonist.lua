@@ -1,6 +1,6 @@
 -- SPIKE (#1): colonist as a `unit` prototype.
 -- Cloned from small-biter so all required unit fields (animations, attack_parameters,
--- collision, etc.) are valid; art is placeholder. Open question: which fields can be dropped.
+-- collision, etc.) are valid; art is placeholder.
 local colonist = table.deepcopy(data.raw["unit"]["small-biter"])
 colonist.name = "colony-colonist"
 colonist.localised_name = {"entity-name.colony-colonist"}
@@ -19,5 +19,8 @@ colonist.ai_settings = {
   do_separation = true,
 }
 colonist.flags = {"placeable-off-grid", "not-repairable", "breaths-air"}
-colonist.tint = nil
+-- Spike #1 variant: does a unit load without attack_parameters at all?
+if settings.startup["colony-spike-no-attack"].value then
+  colonist.attack_parameters = nil
+end
 data:extend({colonist})

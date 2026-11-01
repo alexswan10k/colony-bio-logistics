@@ -1,0 +1,22 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match info.json version
+        run: |
+          v=$(python3 -c "import json;print(json.load(open('mod/info.json'))['version'])")
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "tag ${GITHUB_REF_NAME} != info.json v$v"; exit 1; }
+          grep -q "^Version: $v\$" mod/changelog.txt || { echo "changelog.txt lacks Version: $v"; exit 1; }
+      - run: scripts/lint-determinism.sh
+      - run: scripts/package.sh --release
+      - run: gh release create "${GITHUB_REF_NAME}" build/*.zip --generate-notes
+        env: {GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"}
+      - name: Publish to Factorio mod portal (if key configured)
+        env: {FACTORIO_API_KEY: "${{ secrets.FACTORIO_API_KEY }}"}
+        run: '[ -z "$FACTORIO_API_KEY" ] && echo "no FACTORIO_API_KEY secret; skipping portal" || scripts/publish.sh'

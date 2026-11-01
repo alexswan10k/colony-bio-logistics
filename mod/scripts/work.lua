@@ -24,7 +24,7 @@ M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", haul = "hau
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
 
-local function job_counts(colony)
+function M.job_counts(colony)
   local counts = {}
   for un, c in pairs(colony.colonists) do
     local st = storage.unit_state[un]
@@ -32,6 +32,7 @@ local function job_counts(colony)
   end
   return counts
 end
+local job_counts = M.job_counts
 
 -- Floating job label above each colonist (makes the colony legible).
 local function set_label(e, text)
@@ -87,7 +88,7 @@ end
 function M.hut_info(h)
   local def = labour.HUTS[h.entity.name]
   local tools = h.entity.get_item_count(def.tool)
-  return def, tools, labour.allowed(def.capacity, tools), worker_count(h)
+  return def, tools, labour.allowed(def.capacity, tools, h.limit), worker_count(h)
 end
 
 local function job_slots(colony)
@@ -176,7 +177,7 @@ end
 
 local function hut_offer(h)
   local def, tools = M.hut_info(h)
-  local want = def.capacity - tools - (h.inflight[def.tool] or 0)
+  local want = math.min(def.capacity, h.limit or def.capacity) - tools - (h.inflight[def.tool] or 0)
   if want < 1 then return nil end
   return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
     demands = {{item = def.tool, count = want}}}
@@ -294,14 +295,32 @@ local function idle(colony, un, e)
   scheduler.after(M.RETRY_TICKS, "work.retry", {un = un})
 end
 
+-- Start a haul trip if there is one; returns true when the colonist is on its way.
+local function start_haul(colony, un, e, task)
+  if not task then return false end
+  local taken, inflight_target = take_load(colony, task)
+  if not taken then return false end
+  local dest
+  if task.kind == "collect" then dest = colony.hall.position
+  elseif task.house then dest = task.house.entity.position
+  elseif task.machine then dest = task.machine.entity.position
+  else dest = task.hut.entity.position end
+  storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = task.kind == "collect" and "to_hall" or "to_house",
+    target = inflight_target or (task.kind == "collect" and task.machine or nil), inflight_target = inflight_target, carry = taken}
+  set_label(e, "hauler")
+  go(e, dest, 3)
+  return true
+end
+
 function M.assign(colony, un)
   local e = colony.colonists[un]
   if not (e and e.valid and colony.hall.valid) then return end
   local st = storage.unit_state[un]
-  -- keep an existing labour post while the hut stands and still has tools for us
+  local lock = colony.locks and colony.locks[un]
+  -- keep an existing labour post while the hut stands, still has tools for us and matches the player's lock
   if st and st.hut then
     local h = st.hut
-    if h.entity.valid and h.workers[un] then
+    if h.entity.valid and h.workers[un] and (not lock or lock == h.job) then
       local _, _, allowed, workers = M.hut_info(h)
       if workers <= allowed and start_trip(colony, un, h) then return end
     end
@@ -311,24 +330,20 @@ function M.assign(colony, un)
   if st and st.job then counts[st.job] = math.max((counts[st.job] or 1) - 1, 0) end
   local slots, capacity, slot_list = job_slots(colony)
   local task = find_haul_task(colony)
-  local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
-  local job = work_plan.choose{food_ratio = colony_mod.total_food(colony) / target, counts = counts,
-    slots = slots, capacity = capacity, pop = math.max(colony_mod.live_colonists(colony) - 1, 0), haul = task ~= nil}
+  -- Player lock (#38): this colonist works only the chosen role, even when the matrix would send it elsewhere.
+  local job
+  if lock then
+    job = lock
+  else
+    local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
+    job = work_plan.choose{food_ratio = colony_mod.total_food(colony) / target, counts = counts,
+      slots = slots, capacity = capacity, pop = math.max(colony_mod.live_colonists(colony) - 1, 0), haul = task ~= nil,
+      priority = colony.priority}
+  end
   if not job then idle(colony, un, e); return end
   if job == "haul" then
-    if not task then idle(colony, un, e); return end
-    local taken, inflight_target = take_load(colony, task)
-    if not taken then idle(colony, un, e); return end
-    local dest
-    if task.kind == "collect" then dest = colony.hall.position
-    elseif task.house then dest = task.house.entity.position
-    elseif task.machine then dest = task.machine.entity.position
-    else dest = task.hut.entity.position end
-    storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = task.kind == "collect" and "to_hall" or "to_house",
-      target = inflight_target or (task.kind == "collect" and task.machine or nil), inflight_target = inflight_target, carry = taken}
-    set_label(e, "hauler")
-    go(e, dest, 3)
-    return
+    if start_haul(colony, un, e, task) then return end
+    idle(colony, un, e); return
   end
   for _, sl in ipairs(slot_list) do
     if sl.job == job and sl.allowed > sl.workers then

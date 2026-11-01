@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 6
+local SCHEMA = 7
 
 local migrations = {
   [1] = function()
@@ -30,6 +30,13 @@ local migrations = {
     for id, c in pairs(storage.colonies) do
       c.forage_seeded = nil
       for _, h in pairs(c.huts or {}) do h.patches = nil; h.wear = h.wear or 0; h.colony_id = h.colony_id or id end
+    end
+  end,
+  [7] = function()
+    -- watchtowers (territory expansion) and per-colonist job locks (#38 roster)
+    for _, c in pairs(storage.colonies) do
+      c.towers = c.towers or {}
+      c.locks = c.locks or {}
     end
   end,
 }

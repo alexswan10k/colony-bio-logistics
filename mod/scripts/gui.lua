@@ -5,6 +5,7 @@ local scheduler = require("scripts.scheduler")
 local territory = require("scripts.territory")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
+local jobs = require("scripts.model.jobs")
 local haul_plan = require("scripts.model.haul_plan")
 local work = require("scripts.work")
 local M = {}
@@ -13,10 +14,12 @@ function M.bind(c) colony_mod = c end
 
 M.REQUEST_ROWS = 3
 M.DEFAULT_COUNT = 20
-local HOUSE_FRAME, MACHINE_FRAME, HUT_FRAME = "colony_house_frame", "colony_machine_frame", "colony_hut_frame"
+local HOUSE_FRAME, MACHINE_FRAME, HUT_FRAME, INFO_FRAME =
+  "colony_house_frame", "colony_machine_frame", "colony_hut_frame", "colony_info_frame"
 local MACHINE_GUIS = {
   ["assembling-machine"] = "assembling_machine_gui", ["furnace"] = "furnace_gui", ["boiler"] = "boiler_gui", ["lab"] = "lab_gui",
 }
+M.MACHINE_GUIS = MACHINE_GUIS   -- selection tool (#35) opts in exactly the machines that have a panel
 
 local function colony_at(e) local id = territory.owner_at(e.surface.index, e.position); return id and storage.colonies[id] end
 
@@ -79,10 +82,31 @@ scheduler.register("gui.refresh_house", function(d)
 end)
 
 -- ---------- labour hut panel ----------
+-- While the panel is open, the hut's working radius is drawn in the world (the same idea as the Town
+-- Hall's territory rectangle) so "why is nothing being harvested?" is answerable at a glance.
+local function draw_hut_range(h)
+  rendering.draw_circle{color = {0.9, 0.9, 0.3, 0.7}, width = 2, filled = false,
+    radius = colony_mod.HUT_RADIUS, target = h.entity, surface = h.entity.surface, time_to_live = 60}
+end
+
 local function fill_hut(frame, h)
   frame.clear()
   local def, tools, allowed, workers = work.hut_info(h)
   frame.add{type = "label", caption = {"colony-gui-hut.workers", workers, allowed}}
+  local limit = h.limit or def.capacity
+  local row = frame.add{type = "flow", direction = "horizontal"}
+  row.style.vertical_align = "center"
+  row.add{type = "label", caption = {"colony-gui-hut.limit"}, style = "bold_label"}
+  local less = row.add{type = "button", name = "colony_hut_limit_less", caption = "-",
+    tooltip = {"colony-gui-hut.limit-tt"}}
+  less.style.width = 24
+  local val = row.add{type = "label", caption = tostring(limit)}
+  val.style.width = 24
+  val.style.horizontal_align = "center"
+  local more = row.add{type = "button", name = "colony_hut_limit_more", caption = "+",
+    tooltip = {"colony-gui-hut.limit-tt"}}
+  more.style.width = 24
+  frame.add{type = "label", caption = {"colony-gui-hut.range", colony_mod.HUT_RADIUS}}
   frame.add{type = "label", caption = {"colony-gui-hut.tools", tools}}
   if tools > 0 then
     frame.add{type = "label", caption = {"colony-gui-hut.condition", labour.uses_left(h.wear), labour.TOOL_USES}}
@@ -114,6 +138,7 @@ local function open_hut(player, e)
       position = defines.relative_gui_position.right, names = hut_names}}
   local body = frame.add{type = "flow", name = "body", direction = "vertical"}
   fill_hut(body, h)
+  draw_hut_range(h)
   scheduler.after(30, "gui.refresh_hut", {player_index = player.index, un = e.unit_number, colony_id = colony.id})
 end
 
@@ -126,7 +151,186 @@ scheduler.register("gui.refresh_hut", function(d)
   local h = colony and colony.huts[d.un]
   if not h then return end
   fill_hut(frame.body, h)
+  draw_hut_range(h)
   scheduler.after(30, "gui.refresh_hut", d)
+end)
+
+-- ---------- colony overview + priority matrix (#38 #27) ----------
+local function pct(x) return string.format("%.0f%%", math.min(math.max(x, 0), 9.99) * 100) end
+
+local function fill_info(frame, colony)
+  frame.clear()
+  local st = colony_mod.stats(colony)
+  local counts = work.job_counts(colony)
+  local busy = 0
+  for _, job in ipairs(jobs.JOBS) do busy = busy + (counts[job] or 0) end
+
+  frame.add{type = "label", caption = {"colony-gui-info.population", st.pop, st.capacity}}
+  frame.add{type = "label", caption = {"colony-gui-info.housing", st.tents, st.cabins, math.max(st.capacity - st.pop, 0)}}
+  local colour = st.food_ratio < 0.5 and "red" or (st.food_ratio < 1 and "orange" or "green")
+  frame.add{type = "label", caption = {"", {"colony-gui-info.food", st.food, st.food_target},
+    "  [color=" .. colour .. "]" .. pct(st.food_ratio) .. "[/color]"}}
+  local parts = st.parts
+  frame.add{type = "label", caption = {"colony-gui-info.desirability", string.format("%.2f", st.d)}}
+  frame.add{type = "label", caption = {"colony-gui-info.desirability-parts",
+    string.format("%.2f", parts.food or 0), string.format("%.2f", parts.housing or 0),
+    string.format("%.2f", parts.scenic or 0), string.format("%.2f", parts.leisure or 0),
+    string.format("%.2f", parts.pollution or 0), string.format("%.2f", parts.deaths or 0)}}
+  frame.add{type = "label", caption = {"colony-gui-info.jobs",
+    counts.haul or 0, counts.forage or 0, counts.chop or 0, counts.mine or 0, math.max(st.pop - busy, 0)}}
+  frame.add{type = "label", caption = {"colony-gui-info.territory", st.chunks, st.huts, st.machines, st.towers}}
+
+  frame.add{type = "line"}
+  frame.add{type = "checkbox", name = "colony_accept_migrants", state = colony.accept_migrants ~= false,
+    caption = {"colony-gui-info.accept-migrants"}, tooltip = {"colony-gui-info.accept-migrants-tt"}}
+  local cap_row = frame.add{type = "flow", direction = "horizontal"}
+  cap_row.style.vertical_align = "center"
+  cap_row.add{type = "label", caption = {"colony-gui-info.pop-target"}, style = "bold_label"}
+  local less = cap_row.add{type = "button", name = "colony_pop_less", caption = "-",
+    tooltip = {"colony-gui-info.pop-target-tt"}}
+  less.style.width = 24
+  local cap = cap_row.add{type = "label", caption = tostring(colony.pop_target or st.capacity)}
+  cap.style.width = 32
+  cap.style.horizontal_align = "center"
+  local more = cap_row.add{type = "button", name = "colony_pop_more", caption = "+",
+    tooltip = {"colony-gui-info.pop-target-tt"}}
+  more.style.width = 24
+
+  frame.add{type = "line"}
+  frame.add{type = "label", caption = {"colony-gui-info.priority-title"}, style = "bold_label"}
+  local p = jobs.effective(colony.priority)
+  for _, job in ipairs(jobs.JOBS) do
+    local row = frame.add{type = "flow", name = "prio_" .. job, direction = "horizontal"}
+    row.style.vertical_align = "center"
+    local name = row.add{type = "label", caption = {"colony-gui-info.job-" .. job}}
+    name.style.width = 64
+    row.add{type = "button", name = "colony_prio_" .. job .. "_more", caption = "+",
+      tooltip = {"colony-gui-info.more-tt"}}
+    local rank = row.add{type = "label", caption = p[job] > 0 and tostring(p[job]) or {"colony-gui-info.off"}}
+    rank.style.width = 24
+    rank.style.horizontal_align = "center"
+    row.add{type = "button", name = "colony_prio_" .. job .. "_less", caption = "-",
+      tooltip = {"colony-gui-info.less-tt"}}
+  end
+  if p.haul == 0 then frame.add{type = "label", caption = {"colony-gui-info.haul-off"}} end
+  frame.add{type = "button", name = "colony_prio_reset", caption = {"colony-gui-info.reset"}}
+  frame.add{type = "label", caption = {"colony-gui-info.priority-hint"}}
+
+  -- Roster: who is here and what each colonist is locked to (A = follow the matrix).
+  frame.add{type = "line"}
+  frame.add{type = "label", caption = {"colony-gui-info.roster"}, style = "bold_label"}
+  local pane = frame.add{type = "scroll-pane", name = "roster", direction = "vertical"}
+  pane.style.maximal_height = 180
+  colony.locks = colony.locks or {}
+  local ids = {}
+  for un, c in pairs(colony.colonists) do
+    if c.valid then ids[#ids + 1] = un else colony.locks[un] = nil end
+  end
+  table.sort(ids)
+  if #ids == 0 then pane.add{type = "label", caption = {"colony-gui-info.roster-empty"}} end
+  for i, un in ipairs(ids) do
+    local st = storage.unit_state[un]
+    local job = st and st.job or "idle"
+    local row = pane.add{type = "flow", direction = "horizontal"}
+    row.style.vertical_align = "center"
+    local name = row.add{type = "label", caption = {"colony-gui-info.colonist", i, {"colony-gui-info.job-" .. job}}}
+    name.style.width = 110
+    local lock = colony.locks[un]
+    for _, opt in ipairs({{"auto", "A"}, {"haul", "H"}, {"forage", "F"}, {"chop", "C"}, {"mine", "M"}}) do
+      local locked = (lock or "auto") == opt[1]
+      local b = row.add{type = "button", name = "colony_lock_" .. un .. "_" .. opt[1],
+        caption = locked and "[" .. opt[2] .. "]" or opt[2], tooltip = {"colony-gui-info.lock-" .. opt[1]}}
+      b.style.width = 34
+    end
+  end
+end
+
+local function open_info(player, e)
+  local old = player.gui.relative[INFO_FRAME]; if old then old.destroy() end
+  local colony = colony_at(e)
+  if not colony then return end
+  local frame = player.gui.relative.add{type = "frame", name = INFO_FRAME, direction = "vertical",
+    caption = {"colony-gui-info.title"}, anchor = {gui = defines.relative_gui_type.container_gui,
+      position = defines.relative_gui_position.right, names = {colony_mod.HALL}}}
+  local body = frame.add{type = "flow", name = "body", direction = "vertical"}
+  fill_info(body, colony)
+  scheduler.after(30, "gui.refresh_info", {player_index = player.index, un = e.unit_number, colony_id = colony.id})
+end
+
+scheduler.register("gui.refresh_info", function(d)
+  local player = game.get_player(d.player_index)
+  local frame = player and player.valid and player.gui.relative[INFO_FRAME]
+  local e = player and player.opened
+  if not (frame and frame.valid and frame.visible and e and e.valid and e.unit_number == d.un) then return end
+  local colony = storage.colonies[d.colony_id]
+  if not (colony and colony.hall.valid) then return end
+  fill_info(frame.body, colony)
+  scheduler.after(30, "gui.refresh_info", d)
+end)
+
+events.on(defines.events.on_gui_click, function(ev)
+  local name = ev.element.name
+  local un, lock_job = name:match("^colony_lock_(%d+)_(%a+)$")
+  if un then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid and e.name == colony_mod.HALL) then return end
+    local colony = colony_at(e)
+    if not colony then return end
+    colony.locks = colony.locks or {}
+    colony.locks[tonumber(un)] = (lock_job ~= "auto") and lock_job or nil
+    local frame = player.gui.relative[INFO_FRAME]
+    if frame and frame.body then fill_info(frame.body, colony) end
+    return
+  end
+  if name == "colony_pop_less" or name == "colony_pop_more" then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid and e.name == colony_mod.HALL) then return end
+    local colony = colony_at(e)
+    if not colony then return end
+    local capacity = colony_mod.capacity(colony)
+    local cur = colony.pop_target or capacity
+    local nxt = math.max(0, math.min(capacity, cur + (name == "colony_pop_more" and 1 or -1)))
+    colony.pop_target = nxt >= capacity and nil or nxt
+    local frame = player.gui.relative[INFO_FRAME]
+    if frame and frame.body then fill_info(frame.body, colony) end
+    return
+  end
+  if name == "colony_hut_limit_less" or name == "colony_hut_limit_more" then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid and labour.HUTS[e.name]) then return end
+    local colony = colony_at(e)
+    local h = colony and colony.huts[e.unit_number]
+    if not h then return end
+    local def = labour.HUTS[e.name]
+    local cur = h.limit or def.capacity
+    h.limit = math.max(0, math.min(def.capacity, cur + (name == "colony_hut_limit_more" and 1 or -1)))
+    local frame = player.gui.relative[HUT_FRAME]
+    if frame and frame.body then fill_hut(frame.body, h) end
+    return
+  end
+  local job, dir = name:match("^colony_prio_(%a+)_(more|less)$")
+  if not (job or name == "colony_prio_reset") then return end
+  local player = game.get_player(ev.player_index)
+  local e = player and player.opened
+  if not (e and e.valid and e.name == colony_mod.HALL) then return end
+  local colony = colony_at(e)
+  if not colony then return end
+  if name == "colony_prio_reset" then
+    colony.priority = jobs.defaults()
+  else
+    colony.priority = colony.priority or jobs.defaults()
+    if dir == "more" then
+      local rank = jobs.rank(colony.priority, job)
+      jobs.set(colony.priority, job, rank == 0 and 1 or math.max(1, rank - 1))
+    else
+      jobs.shift(colony.priority, job, 1)
+    end
+  end
+  local frame = player.gui.relative[INFO_FRAME]
+  if frame and frame.body then fill_info(frame.body, colony) end
 end)
 
 -- ---------- machine supply panel ----------
@@ -180,6 +384,7 @@ events.on(defines.events.on_gui_opened, function(ev)
   if not (player and e and e.valid and ev.gui_type == defines.gui_type.entity) then return end
   if colony_mod.HOUSES[e.name] then open_house(player, e)
   elseif labour.HUTS[e.name] then open_hut(player, e)
+  elseif e.name == colony_mod.HALL then open_info(player, e)
   elseif MACHINE_GUIS[e.type] then open_machine(player, e) end
 end)
 
@@ -195,15 +400,21 @@ end
 
 events.on(defines.events.on_gui_checked_state_changed, function(ev)
   local name = ev.element.name
+  if name == "colony_accept_migrants" then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid and e.name == colony_mod.HALL) then return end
+    local colony = colony_at(e)
+    if colony then colony.accept_migrants = ev.element.state end
+    return
+  end
   if name ~= "colony_supply_enabled" and name ~= "colony_supply_collect" then return end
   local player, e, colony, body = machine_ctx(ev)
   if not body then return end
   local m = colony.machines[e.unit_number]
   if name == "colony_supply_enabled" then
-    if ev.element.state then
-      m = m or {entity = e, requests = recipe_requests(e), collect = true, inflight = {}}
-      m.enabled = true; colony.machines[e.unit_number] = m
-    elseif m then m.enabled = false end
+    m = colony_mod.set_machine(colony, e, ev.element.state)
+    if m and m.enabled and #m.requests == 0 then m.requests = recipe_requests(e) end
     fill_machine(body, m, e)
   elseif m then m.collect = ev.element.state end
 end)

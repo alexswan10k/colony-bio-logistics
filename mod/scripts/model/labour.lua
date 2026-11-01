@@ -9,7 +9,12 @@ M.HUTS = {
 -- with three workers loses a tool roughly every 1-2 minutes: fast enough to see, slow enough to be logistics.
 M.TOOL_USES = 12
 
-function M.allowed(capacity, tools_in_hut) return math.max(0, math.min(capacity, tools_in_hut)) end
+-- A hut employs up to `capacity` colonists, but only as many as it holds tools for and as the player's
+-- per-hut worker limit allows (`limit` nil = no player limit).
+function M.allowed(capacity, tools_in_hut, limit)
+  local cap = math.min(capacity, limit or capacity)
+  return math.max(0, math.min(cap, tools_in_hut))
+end
 
 -- Count one trip of wear. Returns new wear counter and whether a tool breaks now.
 function M.wear(counter)

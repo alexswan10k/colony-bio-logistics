@@ -1,11 +1,14 @@
--- PURE: choose a job for an idle colonist. Two rules, in order:
---   1. Logistics first: keep a share of the colony hauling while there is haul work, or houses starve.
---   2. Staff the player's labour huts: a hut with tools and a free slot wants at least one worker
---      (building a hut and filling it with tools IS the player's instruction until #17's priority matrix).
---      The food ratio shifts the rest of the workforce toward foraging when stocks run low.
+-- PURE: choose a job for an idle colonist, driven by the colony's priority matrix (design §4.1, #27).
+--   1. Logistics first: while hauling is enabled and below its share, keep the colony hauling or houses starve.
+--   2. Otherwise take the best-ranked enabled harvest job that still has a free tooled slot. Jobs sharing a
+--      rank are one group and split the workforce by the food ratio (so the default matrix behaves as before).
+--   3. If no harvest slot is free, haul (rather than stand around); idle only if hauling is off too.
 local M = {}
-M.JOBS = {"haul", "forage", "chop", "mine"}   -- haul first: wins ties (keeps houses supplied)
+local jobs = require("scripts.model.jobs")
+
+M.JOBS = jobs.JOBS          -- haul first: wins ties (keeps houses supplied)
 M.HAUL_SHARE = 0.3
+M.HARVEST = {"forage", "chop", "mine"}
 
 -- food_ratio = stock/target; returns the share of non-hauling colonists each hut job should get.
 function M.desired_shares(food_ratio)
@@ -21,22 +24,31 @@ function M.haul_target(pop)
 end
 
 -- s = {food_ratio=, counts={job->n}, slots={job->free tooled slots}, capacity={job->tooled slots},
---      pop=, haul=bool}. `pop` excludes the colonist being assigned. Returns a job name or nil.
+--      pop=, haul=bool, priority={job->rank}}. `pop` excludes the colonist being assigned.
+-- Returns a job name or nil.
 function M.choose(s)
   local counts, slots, capacity = s.counts or {}, s.slots or {}, s.capacity or {}
   local pop = s.pop or 0
-  if s.haul and pop > 0 and (counts.haul or 0) < M.haul_target(pop) then return "haul" end
-  local shares = M.desired_shares(s.food_ratio)
-  local best, best_gap
-  for _, job in ipairs(M.JOBS) do
-    if job ~= "haul" and (slots[job] or 0) > 0 then
-      local wanted = math.max(shares[job] * (1 - M.HAUL_SHARE) * pop, math.min(1, capacity[job] or 0))
-      local gap = wanted - (counts[job] or 0)
-      if not best_gap or gap > best_gap then best, best_gap = job, gap end
+  local priority = s.priority
+  local haul_on = jobs.enabled(priority, "haul")
+
+  if haul_on and s.haul and pop > 0 and (counts.haul or 0) < M.haul_target(pop) then return "haul" end
+
+  local rank = jobs.best_rank(priority, M.HARVEST, slots)
+  if rank then
+    local shares = M.desired_shares(s.food_ratio)
+    local best, best_gap
+    for _, job in ipairs(M.HARVEST) do
+      if (slots[job] or 0) > 0 and jobs.rank(priority, job) == rank then
+        local wanted = math.max(shares[job] * (1 - M.HAUL_SHARE) * pop, math.min(1, capacity[job] or 0))
+        local gap = wanted - (counts[job] or 0)
+        if not best_gap or gap > best_gap then best, best_gap = job, gap end
+      end
     end
+    if best then return best end
   end
-  if best then return best end
-  if s.haul and pop > 0 then return "haul" end   -- no free hut slot: haul rather than stand around
+
+  if haul_on and s.haul and pop > 0 then return "haul" end
   return nil
 end
 

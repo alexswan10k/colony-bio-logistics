@@ -12,6 +12,8 @@ local gui = require("scripts.gui")
 local M = {}
 
 M.HALL = "colony-town-hall"
+M.WATCHTOWER = "colony-watchtower"
+M.TOWER_RADIUS = 1              -- chunks a watchtower claims around itself (design §2.1)
 M.HUT_RADIUS = 30               -- working radius around a labour hut (harvesting also needs territory)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
 M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not regrow in lockstep
@@ -165,7 +167,8 @@ function M.evaluate(data)
     scenic = 0.3, leisure = rated > 0 and score_sum / rated or 0, pollution = 0, deaths = colony.deaths,
   })
   colony.d, colony.d_parts = d, parts
-  if d > desirability.defaults.migrate_in and pop < capacity then
+  local pop_target = math.min(capacity, colony.pop_target or capacity)
+  if colony.accept_migrants ~= false and d > desirability.defaults.migrate_in and pop < pop_target then
     if spawn_colonist(colony) and settings.global["colony-debug-log"].value then
       game.print("[colony " .. colony.id .. "] migrant arrived, D=" .. string.format("%.2f", d))
     end
@@ -228,7 +231,19 @@ end)
 scheduler.register("colony.seed_all", function()
   for _, colony in pairs(storage.colonies) do M.seed_forage(colony) end
 end)
-events.on_configuration_changed(function() scheduler.after(1, "colony.seed_all", {}) end)
+
+-- Re-create alt-mode badges for machines opted in before badges existed (#34).
+scheduler.register("colony.rebadge", function()
+  for _, colony in pairs(storage.colonies) do
+    for _, m in pairs(colony.machines) do
+      if m.enabled and m.entity.valid then M.set_machine(colony, m.entity, true) end
+    end
+  end
+end)
+events.on_configuration_changed(function()
+  scheduler.after(1, "colony.seed_all", {})
+  scheduler.after(1, "colony.rebadge", {})
+end)
 
 local function on_built(ev)
   local e = ev.entity or ev.created_entity
@@ -238,7 +253,8 @@ local function on_built(ev)
     local owner = territory.owner_at(e.surface.index, e.position)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
-    local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
+    local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
+      towers = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
     storage.colonies[id] = colony
     territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)
     M.seed_forage(colony)   -- the claimed land already has berries on it
@@ -248,6 +264,18 @@ local function on_built(ev)
       right_bottom = {(cx + M.CLAIM_RADIUS + 1) * 32, (cy + M.CLAIM_RADIUS + 1) * 32}}
     script.register_on_object_destroyed(e)
     scheduler.after(M.interval(), "colony.evaluate", {colony_id = id})
+  elseif name == M.WATCHTOWER and e.type ~= "entity-ghost" then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.towers[e.unit_number] = e
+    territory.claim_around(e.surface.index, colony.id, e.position, M.TOWER_RADIUS)
+    local cx, cy = territory.chunk_of(e.position)
+    rendering.draw_rectangle{color = {0.2, 0.8, 0.3, 0.6}, width = 2, filled = false, surface = e.surface,
+      left_top = {(cx - M.TOWER_RADIUS) * 32, (cy - M.TOWER_RADIUS) * 32},
+      right_bottom = {(cx + M.TOWER_RADIUS + 1) * 32, (cy + M.TOWER_RADIUS + 1) * 32},
+      only_in_alt_mode = true}
+    script.register_on_object_destroyed(e)
   elseif (M.HOUSES[name] or labour.HUTS[name]) and e.type ~= "entity-ghost" then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -272,6 +300,79 @@ events.on(defines.events.on_robot_built_entity, on_built)
 events.on(defines.events.script_raised_built, on_built)
 events.on(defines.events.script_raised_revive, on_built)
 
+-- A watchtower's claim is re-derived when it is destroyed, so removing one shrinks the territory back to
+-- what the hall and the remaining towers cover instead of leaving orphaned chunks owned forever.
+function M.recompute_territory(colony)
+  territory.release_colony(colony.id)
+  if colony.hall.valid then
+    territory.claim_around(colony.surface_index, colony.id, colony.hall.position, M.CLAIM_RADIUS)
+  end
+  for _, t in pairs(colony.towers or {}) do
+    if t.valid then territory.claim_around(colony.surface_index, colony.id, t.position, M.TOWER_RADIUS) end
+  end
+end
+
+events.on(defines.events.on_object_destroyed, function(ev)
+  local un = ev.useful_id
+  if not un then return end
+  for _, colony in pairs(storage.colonies) do
+    if colony.towers and colony.towers[un] then
+      colony.towers[un] = nil
+      M.recompute_territory(colony)
+      return
+    end
+  end
+end)
+
 work.bind(M); gui.bind(M)   -- avoids a require cycle (runtime require is illegal)
+
+-- ---------- opt-in machine registry (#34) ----------
+-- The badge is alt-mode only: a small Town Hall icon over every machine the colony serves, so the player
+-- can see coverage without opening each one. Rendering objects whose entity target is destroyed are
+-- destroyed by the engine, so no cleanup is needed when a machine is mined.
+M.BADGE_SPRITE = "entity/colony-town-hall"   -- SpritePath: the Town Hall's icon
+
+function M.set_machine(colony, e, enabled)
+  local m = colony.machines[e.unit_number]
+  if enabled then
+    m = m or {entity = e, requests = {}, collect = true, inflight = {}}
+    m.entity = e
+    m.enabled = true
+    colony.machines[e.unit_number] = m
+    if not (m.badge and m.badge.valid) then
+      m.badge = rendering.draw_sprite{sprite = M.BADGE_SPRITE, target = {entity = e, offset = {0, -1.3}},
+        surface = e.surface, x_scale = 0.3, y_scale = 0.3, only_in_alt_mode = true}
+    end
+  elseif m then
+    m.enabled = false
+    if m.badge and m.badge.valid then m.badge.destroy() end
+    m.badge = nil
+  end
+  return m
+end
+
+-- Colony overview for the Town Hall panel (#38). Plain data, computed on demand (GUI refresh only).
+function M.stats(colony)
+  local pop = M.live_colonists(colony)
+  local capacity = M.capacity(colony)
+  local target = math.max(pop * M.FOOD_PER_COLONIST * M.TARGET_STOCK_INTERVALS, 1)
+  local food = M.total_food(colony)
+  local tents, cabins = 0, 0
+  for _, h in ipairs(M.house_list(colony)) do
+    if h.kind == "tent" then tents = tents + 1 else cabins = cabins + 1 end
+  end
+  local chunks = 0
+  for _, col in pairs(storage.colony_chunks[colony.surface_index] or {}) do
+    for _, owner in pairs(col) do if owner == colony.id then chunks = chunks + 1 end end
+  end
+  local huts, machines = 0, 0
+  for _, h in pairs(colony.huts) do if h.entity.valid then huts = huts + 1 end end
+  for _, m in pairs(colony.machines) do if m.enabled and m.entity.valid then machines = machines + 1 end end
+  local towers = 0
+  for _, t in pairs(colony.towers or {}) do if t.valid then towers = towers + 1 end end
+  return {pop = pop, capacity = capacity, food = food, food_target = target, food_ratio = food / target,
+    tents = tents, cabins = cabins, huts = huts, machines = machines, towers = towers, chunks = chunks,
+    d = colony.d or 0, parts = colony.d_parts or {}}
+end
 
 return M

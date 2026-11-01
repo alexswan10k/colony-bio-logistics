@@ -112,6 +112,23 @@ def em_pick(d, px):
     d.line(S(px / 2 - 10, 58, px / 2 + 10, 34), fill=(110, 75, 40, 255), width=4 * SS)
     d.arc(S(px / 2 - 18, 26, px / 2 + 18, 50), 200, 340, fill=(210, 210, 220, 255), width=4 * SS)
 
+def watchtower(px=128):
+    img, d = canvas(px, px)
+    shadow(d, (14, px * .82, px - 14, px - 6))
+    for (x1, x2) in ((36, 28), (px - 36, px - 28)):
+        d.line(S(x1, 58, x2, px - 16), fill=(120, 85, 50, 255), width=5 * SS)
+    d.line(S(px / 2 - 8, 52, px / 2 - 8, px - 20), fill=(150, 110, 70, 255), width=3 * SS)
+    outline_rect(d, (16, 42, px - 16, 60), (170, 130, 85, 255))                              # platform
+    for x in range(22, px - 16, 16):                                                          # railing
+        d.line(S(x, 42, x, 28), fill=(120, 85, 50, 255), width=3 * SS)
+    d.line(S(18, 30, px - 18, 30), fill=(120, 85, 50, 255), width=3 * SS)
+    d.polygon(S(10, 32, px / 2, 6, px - 10, 32), fill=(120, 70, 55, 255), outline=(30, 25, 20, 255), width=3 * SS)
+    d.line(S(px / 2, 6, px / 2, -8), fill=(40, 30, 20, 255), width=3 * SS)
+    d.polygon(S(px / 2, -6, px / 2 + 22, 2, px / 2, 10), fill=(240, 200, 40, 255))            # flag
+    save(img, "watchtower.png", px, px)
+    Image.open(os.path.join(OUT, "watchtower.png")).resize((64, 64), Image.LANCZOS).save(os.path.join(OUT, "icon-watchtower.png"))
+
+
 def bush(px=64):
     img, d = canvas(px, px)
     shadow(d, (10, 40, 54, 58))
@@ -130,7 +147,7 @@ def icon_basket():
 hut("forager-hut", (80, 140, 70, 255), (190, 160, 100, 255), em_basket)
 hut("woodcutter-hut", (110, 75, 50, 255), (170, 125, 80, 255), em_log)
 hut("miner-hut", (100, 100, 110, 255), (150, 150, 155, 255), em_pick)
-bush(); icon_basket()
+bush(); icon_basket(); watchtower()
 hall(); tent(); cabin(); rack(); icon_axe(); icon_pick(); icon_forage(); colonist()
 icon_building("icon-town-hall.png", "hall"); icon_building("icon-tent.png", "tent")
 icon_building("icon-cabin.png", "cabin"); icon_building("icon-tool-rack.png", "rack")

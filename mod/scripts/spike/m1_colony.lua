@@ -3,6 +3,7 @@
 local core = require("scripts.spike.core")
 local colony = require("scripts.colony")
 local territory = require("scripts.territory")
+local work = require("scripts.work")
 
 core.register("m1_colony", {
   issue = 28, auto = true, desc = "town hall + housing + hauling + tools", usage = "",
@@ -29,11 +30,43 @@ core.register("m1_colony", {
     ctx.check("houses registered", tent and cabin and c.houses[tent.unit_number] and c.houses[cabin.unit_number] ~= nil)
     ctx.check("capacity 10", colony.capacity(c) == 10, colony.capacity(c))
     ctx.check("hut does not spawn forage patches", #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30} == 0)
+    ctx.check("logistics marker item and recipe exist",
+      prototypes.item["colony-logistics-marker"] ~= nil and prototypes.recipe["colony-logistics-marker"] ~= nil)
+    local st = colony.stats(c)
+    ctx.check("colony stats: 9 chunks, capacity 10", st.chunks == 9 and st.capacity == 10, st.chunks .. "/" .. st.capacity)
+    -- watchtower (design §2.1): built inside territory, claims the chunks around itself; removing it gives them back
+    local outside = build("colony-watchtower", {p.x + 70, p.y})
+    ctx.check("watchtower outside territory rejected", not (outside and outside.valid))
+    local tower = build("colony-watchtower", {p.x + 40, p.y})
+    ctx.check("watchtower built inside territory", tower and tower.valid)
+    ctx.check("watchtower expands territory 9 -> 12 chunks", colony.stats(c).chunks == 12, colony.stats(c).chunks)
+    ctx.check("colony stats counts the watchtower", colony.stats(c).towers == 1, colony.stats(c).towers)
+    ctx.after(5, function() if tower.valid then tower.destroy() end end)
+    ctx.after(15, function()
+      ctx.check("removing a watchtower releases its chunks", colony.stats(c).chunks == 9, colony.stats(c).chunks)
+    end)
+    local wh = c.huts[woodcutter.unit_number]
+    woodcutter.insert{name = "colony-axe", count = 3}
+    wh.limit = 0
+    local _, _, allowed0 = work.hut_info(wh)
+    ctx.check("hut worker limit can pause a hut", allowed0 == 0, allowed0)
+    wh.limit = 1
+    local _, _, allowed1 = work.hut_info(wh)
+    ctx.check("hut worker limit caps workers", allowed1 == 1, allowed1)
+    wh.limit = nil
+    local _, _, allowed_all = work.hut_info(wh)
+    ctx.check("hut without a limit uses its tool count", allowed_all == 3, allowed_all)
     -- natural forage patches exist in the world already; the hut harvests them
     for i = 0, 5 do s.create_entity{name = "colony-forage-patch", position = {p.x - 10 + i, p.y + 1}} end
     local furnace = s.create_entity{name = "stone-furnace", position = {p.x - 8, p.y + 12}, force = "player"}
-    c.machines[furnace.unit_number] = {entity = furnace, enabled = true, collect = true, inflight = {},
-      requests = {{item = "iron-ore", count = 20}, {item = "wood", count = 10}}}
+    local fm = colony.set_machine(c, furnace, true)
+    fm.requests = {{item = "iron-ore", count = 20}, {item = "wood", count = 10}}
+    ctx.check("opted-in machine gets an alt-mode badge", fm.badge ~= nil and fm.badge.valid)
+    local probe = s.create_entity{name = "stone-furnace", position = {p.x + 18, p.y - 18}, force = "player"}
+    local pm = colony.set_machine(c, probe, true)
+    colony.set_machine(c, probe, false)
+    ctx.check("opting out destroys the badge", pm.badge == nil and not pm.enabled)
+    probe.destroy()
     hall.insert{name = "iron-ore", count = 100}
     hall.insert{name = "raw-fish", count = 200}
     hall.insert{name = "wood", count = 100}

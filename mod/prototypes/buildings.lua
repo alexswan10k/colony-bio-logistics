@@ -39,6 +39,9 @@ local cabin = chest_clone("steel-chest", "colony-housing-cabin", "cabin", 6, 1.5
 local forager = chest_clone("iron-chest", "colony-forager-hut", "forager-hut", 4, 1)
 local woodcutter = chest_clone("iron-chest", "colony-woodcutter-hut", "woodcutter-hut", 4, 1)
 local miner = chest_clone("iron-chest", "colony-miner-hut", "miner-hut", 4, 1)
+-- Watchtower (#37-adjacent, design §2.1): built inside territory, claims a ring of chunks around itself,
+-- so the colony's work area (and therefore its huts and opted-in machines) can creep outward.
+local watchtower = chest_clone("steel-chest", "colony-watchtower", "watchtower", 4, 1)
 
 -- Forage patch: a natural world feature (autoplaced on grass), not something a hut spawns.
 -- Foragers harvest patches that already exist in their territory; a harvested patch grows back in place
@@ -79,21 +82,37 @@ local function tool(name, icon)
     order = "z[colony]-" .. name, stack_size = 20, localised_name = {"item-name." .. name}}
 end
 
+-- Selection tool (#35): drag over machines to opt them into colony supply, alt-drag to opt out.
+-- Saves opening every machine's panel just to tick one checkbox.
+local marker = {
+  type = "selection-tool", name = "colony-logistics-marker",
+  icon = G .. "icon-town-hall.png", icon_size = 64,
+  localised_name = {"item-name.colony-logistics-marker"},
+  localised_description = {"item-description.colony-logistics-marker"},
+  subgroup = "tool", order = "z[colony]-g[marker]", stack_size = 1,
+  flags = {"not-stackable", "spawnable"},
+  select = {mode = {"any-entity"}, cursor_box_type = "entity", border_color = {0.2, 0.9, 0.3}},
+  alt_select = {mode = {"any-entity"}, cursor_box_type = "entity", border_color = {0.9, 0.3, 0.2}},
+}
+
 data:extend({
-  hall, tent, cabin, forager, woodcutter, miner, bush, sink,
+  hall, tent, cabin, forager, woodcutter, miner, watchtower, bush, sink, marker,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
   item_of(cabin, "cabin", "z[colony]-c[housing-cabin]"),
   item_of(forager, "forager-hut", "z[colony]-d[forager-hut]"),
   item_of(woodcutter, "woodcutter-hut", "z[colony]-e[woodcutter-hut]"),
   item_of(miner, "miner-hut", "z[colony]-f[miner-hut]"),
+  item_of(watchtower, "watchtower", "z[colony]-g[watchtower]"),
   recipe("colony-town-hall", {wood = 50, ["iron-plate"] = 50}, 5),
   recipe("colony-housing-tent", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-housing-cabin", {wood = 40, ["stone-brick"] = 10, ["iron-plate"] = 10}, 4),
   recipe("colony-forager-hut", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-woodcutter-hut", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-miner-hut", {wood = 20, ["iron-plate"] = 10}, 2),
+  recipe("colony-watchtower", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 4),
   recipe("colony-basket", {wood = 4}, 1),
+  recipe("colony-logistics-marker", {wood = 2, ["iron-plate"] = 2}, 1),
   tool("colony-basket", "icon-basket.png"), tool("colony-axe", "icon-axe.png"), tool("colony-pickaxe", "icon-pickaxe.png"),
   recipe("colony-axe", {wood = 2, ["iron-plate"] = 3}, 1),
   recipe("colony-pickaxe", {wood = 2, ["iron-plate"] = 3}, 1),

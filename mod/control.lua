@@ -5,6 +5,7 @@ require("scripts.scheduler")
 require("scripts.territory")
 require("scripts.colony")
 require("scripts.work")
+require("scripts.marker")
 require("scripts.debug")
 
 events.on_init(store.init)

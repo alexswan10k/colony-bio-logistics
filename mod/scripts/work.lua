@@ -5,18 +5,17 @@ local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local work_plan = require("scripts.model.work_plan")
 local housing = require("scripts.model.housing")
+local labour = require("scripts.model.labour")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
 
-M.SEARCH_RADIUS = 48
-M.WORK_TICKS = 240
-M.RETRY_TICKS = 180
-M.YIELD = {forage = {item = "colony-forage", count = 3}, chop = {item = "wood", count = 4}, mine = {count = 3}}
+M.WORK_TICKS = 480
+M.RETRY_TICKS = 300
+M.YIELD = {forage = {item = "colony-forage", count = 4}, chop = {item = "wood", count = 4}, mine = {count = 3}}
 M.CARRY_CAP = 20
-M.TOOL_USES = 25
-M.TOOLS = {chop = {key = "axe", item = "colony-axe"}, mine = {key = "pick", item = "colony-pickaxe"}}
 M.ORES = {"iron-ore", "copper-ore", "coal", "stone"}
+M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", haul = "hauler"}
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
 
@@ -29,31 +28,66 @@ local function job_counts(colony)
   return counts
 end
 
--- Foraging happens on open ground near the hall (virtual site, nothing is consumed); chop/mine use real entities.
-local function find_forage_spot(colony, e)
-  local hall = colony.hall
-  colony.rng = colony.rng or game.create_random_generator(colony.id * 7919)
-  for _ = 1, 8 do
-    local ang = colony.rng() * 2 * math.pi
-    local r = 8 + colony.rng() * (M.SEARCH_RADIUS - 12)
-    local pos = {x = hall.position.x + math.cos(ang) * r, y = hall.position.y + math.sin(ang) * r}
-    if e.surface.can_place_entity{name = "colony-colonist", position = pos} then return {valid = true, position = pos} end
-  end
+-- Floating job label above each colonist (makes the colony legible).
+local function set_label(e, text)
+  local obj = storage.unit_labels[e.unit_number]
+  if obj and obj.valid then obj.text = text; return end
+  storage.unit_labels[e.unit_number] = rendering.draw_text{text = text, surface = e.surface, target = {entity = e, offset = {0, -1.4}},
+    color = {1, 1, 1}, scale = 0.7, alignment = "center", only_in_alt_mode = true}
 end
 
-local function find_site(colony, e, job)
-  if job == "forage" then return find_forage_spot(colony, e) end
-  local filter
-  if job == "mine" then filter = {position = colony.hall.position, radius = M.SEARCH_RADIUS, type = "resource", name = M.ORES}
-  else filter = {position = colony.hall.position, radius = M.SEARCH_RADIUS, type = "tree"} end
+local function popup(surface, pos, text)
+  rendering.draw_text{text = text, surface = surface, target = pos, color = {0.8, 1, 0.8},
+    scale = 0.8, time_to_live = 90, alignment = "center"}
+end
+
+-- Labour buildings -------------------------------------------------------------------------------
+local function hut_list(colony)
+  local ids = {}
+  for un, h in pairs(colony.huts) do if h.entity.valid then ids[#ids + 1] = un else colony.huts[un] = nil end end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.huts[un] end
+  return out
+end
+
+local function worker_count(h)
+  local n = 0
+  for _ in pairs(h.workers) do n = n + 1 end
+  return n
+end
+
+function M.hut_info(h)
+  local def = labour.HUTS[h.entity.name]
+  local tools = h.entity.get_item_count(def.tool)
+  return def, tools, labour.allowed(def.capacity, tools), worker_count(h)
+end
+
+local function free_slots(colony)
+  local list = {}
+  for _, h in ipairs(hut_list(colony)) do
+    local _, _, allowed, workers = M.hut_info(h)
+    list[#list + 1] = {job = h.job, allowed = allowed, workers = workers, hut = h}
+  end
+  return labour.free_slots(list), list
+end
+
+local function find_site(colony, e, hut)
+  local job = hut.job
+  colony.rng = colony.rng or game.create_random_generator(colony.id * 7919)
+  if job == "forage" then
+    for _, p in ipairs(hut.patches) do
+      if p.valid and not colony.claimed[key(p)] then return p end
+    end
+    return nil
+  end
+  local filter = {position = hut.entity.position, radius = colony_mod.HUT_RADIUS}
+  if job == "mine" then filter.type = "resource"; filter.name = M.ORES else filter.type = "tree" end
   local list = e.surface.find_entities_filtered(filter)
   if #list == 0 then return nil end
-  colony.rng = colony.rng or game.create_random_generator(colony.id * 7919)
   for _ = 1, 8 do
     local t = list[colony.rng(1, #list)]
-    if job == "chop" or job == "mine" then
-      if not colony.claimed[key(t)] or job == "mine" then return t end
-    else return t end
+    if job == "mine" or not colony.claimed[key(t)] then return t end
   end
   return nil
 end
@@ -61,44 +95,6 @@ end
 local function go(e, pos, radius)
   e.commandable.set_command{type = defines.command.go_to_location, destination = pos,
     radius = radius, distraction = defines.distraction.none}
-end
-
--- Tools: per-colonist wear counters; replacements come from the Town Hall or any Tool Rack.
-local function tool_sources(colony)
-  local list = {colony.hall}
-  local ids = {}
-  for un, r in pairs(colony.racks) do if r.valid then ids[#ids + 1] = un else colony.racks[un] = nil end end
-  table.sort(ids)
-  for _, un in ipairs(ids) do list[#list + 1] = colony.racks[un] end
-  return list
-end
-
-local function tool_available(colony, un, job)
-  local t = M.TOOLS[job]
-  if not t then return true end
-  local u = storage.unit_tools[un]
-  if u and (u[t.key] or 0) > 0 then return true end
-  for _, src in ipairs(tool_sources(colony)) do
-    if src.get_item_count(t.item) > 0 then return true end
-  end
-  return false
-end
-
-local function take_tool(colony, un, job)
-  local t = M.TOOLS[job]
-  if not t then return end
-  local u = storage.unit_tools[un] or {}
-  storage.unit_tools[un] = u
-  if (u[t.key] or 0) > 0 then return end
-  for _, src in ipairs(tool_sources(colony)) do
-    if src.remove_item{name = t.item, count = 1} > 0 then u[t.key] = M.TOOL_USES; return end
-  end
-end
-
-local function wear_tool(un, job)
-  local t = M.TOOLS[job]
-  local u = t and storage.unit_tools[un]
-  if u then u[t.key] = math.max((u[t.key] or 0) - 1, 0) end
 end
 
 -- Haul targets: houses (need-driven) and opted-in machines (player requests). Items leave the hall now (inflight-reserved).
@@ -129,6 +125,14 @@ local function find_haul_task(colony)
     local stock = colony_mod.house_stock(h)
     local t, item, n = try_target(colony, h, housing.demand(housing.TIERS[h.kind], stock, h.inflight, colony_mod.is_powered(h)))
     if t then return t, item, n end
+  end
+  for _, h in ipairs(hut_list(colony)) do
+    local def, tools = M.hut_info(h)
+    local want = def.capacity - tools - (h.inflight[def.tool] or 0)
+    if want >= 1 then
+      local t, item, n = try_target(colony, h, {{item = def.tool, count = want}})
+      if t then return t, item, n end
+    end
   end
   local ids = {}
   for un, m in pairs(colony.machines) do
@@ -161,16 +165,48 @@ local function find_collect_task(colony)
   end
 end
 
+local function start_trip(colony, un, hut)
+  local e = colony.colonists[un]
+  local site = find_site(colony, e, hut)
+  if not site then
+    hut.workers[un] = nil
+    colony.no_site[hut.job] = game.tick + 600
+    return false
+  end
+  if hut.job ~= "mine" then colony.claimed[key(site)] = true end
+  storage.unit_state[un] = {colony_id = colony.id, job = hut.job, hut = hut, state = "to_site", site = site}
+  set_label(e, M.LABELS[hut.job])
+  go(e, site.position, 1.5)
+  return true
+end
+
+local function idle(colony, un, e)
+  storage.unit_state[un] = {colony_id = colony.id, state = "idle"}
+  set_label(e, "idle")
+  scheduler.after(M.RETRY_TICKS, "work.retry", {un = un})
+end
+
 function M.assign(colony, un)
   local e = colony.colonists[un]
   if not (e and e.valid and colony.hall.valid) then return end
+  local st = storage.unit_state[un]
+  -- keep an existing labour post while the hut stands and still has tools for us
+  if st and st.hut then
+    local h = st.hut
+    if h.entity.valid and h.workers[un] then
+      local _, _, allowed, workers = M.hut_info(h)
+      if workers <= allowed and start_trip(colony, un, h) then return end
+    end
+    h.workers[un] = nil
+  end
   local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
   local counts = job_counts(colony)
-  local st = storage.unit_state[un]
   if st and st.job then counts[st.job] = math.max((counts[st.job] or 1) - 1, 0) end
+  local slots, slot_list = free_slots(colony)
   local disabled = {}
-  for j, until_tick in pairs(colony.no_site) do if until_tick > game.tick then disabled[j] = true end end
-  for job in pairs(M.TOOLS) do if not tool_available(colony, un, job) then disabled[job] = true end end
+  for _, j in ipairs({"forage", "chop", "mine"}) do
+    if (slots[j] or 0) <= 0 or (colony.no_site[j] or 0) > game.tick then disabled[j] = true end
+  end
   local house, haul_item, haul_n = find_haul_task(colony)
   local collect_m, collect_item, collect_n, collect_q
   if not house then
@@ -178,33 +214,29 @@ function M.assign(colony, un)
     if not collect_m then disabled.haul = true end
   end
   local job = work_plan.choose(colony_mod.total_food(colony) / target, counts, disabled)
-  if job == "haul" and collect_m then
-    local removed = collect_m.entity.remove_item{name = collect_item, count = collect_n, quality = collect_q}
-    storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = "to_hall", carry = {item = collect_item, count = removed}}
-    go(e, colony.hall.position, 3)
-    return
-  end
+  if not job then idle(colony, un, e); return end
   if job == "haul" then
-    colony.hall.remove_item{name = haul_item, count = haul_n}
-    house.inflight[haul_item] = (house.inflight[haul_item] or 0) + haul_n
-    storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = "to_house", house = house,
-      carry = {item = haul_item, count = haul_n}}
-    go(e, house.entity.position, 2.5)
+    if collect_m then
+      local removed = collect_m.entity.remove_item{name = collect_item, count = collect_n, quality = collect_q}
+      storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = "to_hall", carry = {item = collect_item, count = removed}}
+      set_label(e, "hauler"); go(e, colony.hall.position, 3)
+    else
+      colony.hall.remove_item{name = haul_item, count = haul_n}
+      house.inflight[haul_item] = (house.inflight[haul_item] or 0) + haul_n
+      storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = "to_house", house = house,
+        carry = {item = haul_item, count = haul_n}}
+      set_label(e, "hauler"); go(e, house.entity.position, 2.5)
+    end
     return
   end
-  if job then take_tool(colony, un, job) end
-  local site = job and find_site(colony, e, job)
-  if not site then
-    if job then colony.no_site[job] = game.tick + 600 end
-    storage.unit_state[un] = {colony_id = colony.id, state = "idle"}
-    scheduler.after(M.RETRY_TICKS, "work.retry", {un = un})
-    return
+  for _, sl in ipairs(slot_list) do
+    if sl.job == job and sl.allowed > sl.workers then
+      sl.hut.workers[un] = true
+      if start_trip(colony, un, sl.hut) then return end
+      break
+    end
   end
-  local ore
-  if job == "mine" then ore = site.name end
-  if job == "chop" then colony.claimed[key(site)] = true end
-  storage.unit_state[un] = {colony_id = colony.id, job = job, state = "to_site", site = site, ore = ore}
-  go(e, site.position, 1.5)
+  idle(colony, un, e)
 end
 
 function M.release(st)
@@ -237,11 +269,23 @@ scheduler.register("work.finish", function(d)
   if not (e and e.valid and colony.hall.valid) then return end
   local site = st.site
   if site and site.valid then
-    wear_tool(d.un, st.job)
+    if st.hut and st.hut.entity and st.hut.entity.valid then
+      local hut = st.hut
+      local def = labour.HUTS[hut.entity.name]
+      if def then
+        local broke
+        hut.wear, broke = labour.wear(hut.wear or 0)
+        if broke then
+          hut.entity.remove_item{name = def.tool, count = 1}
+          popup(hut.entity.surface, hut.entity.position, "Tool broke!")
+        end
+      end
+    end
     if st.job == "chop" then
       colony.claimed[key(site)] = nil; site.destroy()
       st.carry = M.YIELD.chop
     elseif st.job == "forage" then
+      colony.claimed[key(site)] = nil; site.destroy()
       st.carry = M.YIELD.forage
     elseif st.job == "mine" then
       st.carry = {item = site.name, count = M.YIELD.mine.count}
@@ -249,7 +293,11 @@ scheduler.register("work.finish", function(d)
       if site.amount <= 0 then site.destroy() end
     end
   end
-  if not st.carry then M.assign(colony, d.un); return end   -- site vanished
+  if not st.carry then
+    if st.hut and st.hut.workers then st.hut.workers[d.un] = nil end
+    M.assign(colony, d.un)
+    return
+  end
   st.state = "to_hall"
   go(e, colony.hall.position, 3)
 end)
@@ -293,8 +341,16 @@ end)
 events.on(defines.events.on_object_destroyed, function(ev)
   local un = ev.useful_id
   local st = un and storage.unit_state[un]
-  if st then M.release(st); storage.unit_state[un] = nil end
-  if un then storage.unit_tools[un] = nil end
+  if st then
+    if st.hut and st.hut.workers then st.hut.workers[un] = nil end
+    M.release(st)
+    storage.unit_state[un] = nil
+  end
+  if un and storage.unit_labels and storage.unit_labels[un] then
+    local lbl = storage.unit_labels[un]
+    if lbl and lbl.valid then lbl.destroy() end
+    storage.unit_labels[un] = nil
+  end
 end)
 
 return M

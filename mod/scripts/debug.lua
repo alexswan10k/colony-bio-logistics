@@ -1,6 +1,6 @@
 -- Dev/testing helper: /colony-kit gives a starter set of colony items to the calling player.
 local KIT = {
-  ["colony-town-hall"] = 1, ["colony-housing-tent"] = 3, ["colony-housing-cabin"] = 2, ["colony-tool-rack"] = 1,
+  ["colony-town-hall"] = 1, ["colony-housing-tent"] = 3, ["colony-housing-cabin"] = 2, ["colony-forager-hut"] = 1, ["colony-woodcutter-hut"] = 1, ["colony-miner-hut"] = 1, ["colony-basket"] = 5,
   ["colony-axe"] = 10, ["colony-pickaxe"] = 10, ["wood"] = 200, ["iron-plate"] = 200, ["stone-brick"] = 50,
   ["raw-fish"] = 50, ["small-electric-pole"] = 10,
 }

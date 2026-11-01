@@ -4,13 +4,15 @@ local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local territory = require("scripts.territory")
 local housing = require("scripts.model.housing")
+local labour = require("scripts.model.labour")
+local work = require("scripts.work")
 local M = {}
 local colony_mod   -- injected via M.bind (runtime require is illegal)
 function M.bind(c) colony_mod = c end
 
 M.REQUEST_ROWS = 3
 M.DEFAULT_COUNT = 20
-local HOUSE_FRAME, MACHINE_FRAME = "colony_house_frame", "colony_machine_frame"
+local HOUSE_FRAME, MACHINE_FRAME, HUT_FRAME = "colony_house_frame", "colony_machine_frame", "colony_hut_frame"
 local MACHINE_GUIS = {
   ["assembling-machine"] = "assembling_machine_gui", ["furnace"] = "furnace_gui", ["boiler"] = "boiler_gui", ["lab"] = "lab_gui",
 }
@@ -71,6 +73,48 @@ scheduler.register("gui.refresh_house", function(d)
   scheduler.after(30, "gui.refresh_house", d)
 end)
 
+-- ---------- labour hut panel ----------
+local function fill_hut(frame, h)
+  frame.clear()
+  local def, tools, allowed, workers = work.hut_info(h)
+  frame.add{type = "label", caption = {"colony-gui-hut.workers", workers, allowed}}
+  frame.add{type = "label", caption = {"colony-gui-hut.tools", tools}}
+  frame.add{type = "label", caption = {"colony-gui-hut.tool-need", def.tool}}
+  if def.capacity > tools then
+    local want = def.capacity - tools - (h.inflight[def.tool] or 0)
+    if want > 0 then
+      frame.add{type = "label", caption = string.format("Colonists will deliver: [item=%s] %d", def.tool, want)}
+    end
+  end
+end
+
+local function open_hut(player, e)
+  local old = player.gui.relative[HUT_FRAME]; if old then old.destroy() end
+  local colony = colony_at(e)
+  local h = colony and colony.huts[e.unit_number]
+  if not h then return end
+  local hut_names = {}
+  for name in pairs(labour.HUTS) do hut_names[#hut_names + 1] = name end
+  local frame = player.gui.relative.add{type = "frame", name = HUT_FRAME, direction = "vertical",
+    caption = e.localised_name, anchor = {gui = defines.relative_gui_type.container_gui,
+      position = defines.relative_gui_position.right, names = hut_names}}
+  local body = frame.add{type = "flow", name = "body", direction = "vertical"}
+  fill_hut(body, h)
+  scheduler.after(30, "gui.refresh_hut", {player_index = player.index, un = e.unit_number, colony_id = colony.id})
+end
+
+scheduler.register("gui.refresh_hut", function(d)
+  local player = game.get_player(d.player_index)
+  local frame = player and player.valid and player.gui.relative[HUT_FRAME]
+  local e = player and player.opened
+  if not (frame and frame.valid and frame.visible and e and e.valid and e.unit_number == d.un) then return end
+  local colony = storage.colonies[d.colony_id]
+  local h = colony and colony.huts[d.un]
+  if not h then return end
+  fill_hut(frame.body, h)
+  scheduler.after(30, "gui.refresh_hut", d)
+end)
+
 -- ---------- machine supply panel ----------
 local function recipe_requests(e)
   local out = {}
@@ -121,6 +165,7 @@ events.on(defines.events.on_gui_opened, function(ev)
   local e = ev.entity
   if not (player and e and e.valid and ev.gui_type == defines.gui_type.entity) then return end
   if colony_mod.HOUSES[e.name] then open_house(player, e)
+  elseif labour.HUTS[e.name] then open_hut(player, e)
   elseif MACHINE_GUIS[e.type] then open_machine(player, e) end
 end)
 

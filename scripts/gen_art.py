@@ -92,6 +92,45 @@ def colonist(px=64):
     d.pieslice(S(21, 4, 43, 24), 180, 360, fill=(120, 80, 40, 255))                                       # hair
     save(img, "colonist.png", px, px)
 
+def hut(name, roof, wall, emblem, px=128):
+    img, d = canvas(px, px)
+    shadow(d, (8, px * .8, px - 8, px - 4))
+    outline_rect(d, (18, 58, px - 18, px - 20), wall)
+    d.polygon(S(8, 62, px / 2, 16, px - 8, 62), fill=roof, outline=(30, 25, 20, 255), width=3 * SS)
+    outline_rect(d, (px / 2 - 12, px - 52, px / 2 + 12, px - 20), (70, 48, 32, 255), w=2)
+    emblem(d, px)
+    save(img, name + ".png", px, px)
+    Image.open(os.path.join(OUT, name + ".png")).resize((64, 64), Image.LANCZOS).save(os.path.join(OUT, "icon-" + name + ".png"))
+
+def em_basket(d, px):
+    d.ellipse(S(px / 2 - 14, 36, px / 2 + 14, 56), fill=(200, 150, 70, 255), outline=(30, 25, 20, 255), width=2 * SS)
+    d.ellipse(S(px / 2 - 5, 28, px / 2 + 5, 38), fill=(190, 40, 90, 255))
+def em_log(d, px):
+    for i in range(3):
+        d.ellipse(S(px / 2 - 22 + i * 14, 40, px / 2 - 6 + i * 14, 58), fill=(140, 95, 55, 255), outline=(30, 25, 20, 255), width=2 * SS)
+def em_pick(d, px):
+    d.line(S(px / 2 - 10, 58, px / 2 + 10, 34), fill=(110, 75, 40, 255), width=4 * SS)
+    d.arc(S(px / 2 - 18, 26, px / 2 + 18, 50), 200, 340, fill=(210, 210, 220, 255), width=4 * SS)
+
+def bush(px=64):
+    img, d = canvas(px, px)
+    shadow(d, (10, 40, 54, 58))
+    for (x, y) in ((22, 34), (40, 34), (31, 24)):
+        d.ellipse(S(x - 14, y - 12, x + 14, y + 14), fill=(60, 140, 60, 255), outline=(25, 70, 30, 255), width=2 * SS)
+    for (x, y) in ((24, 36), (38, 30), (32, 42), (30, 26)):
+        d.ellipse(S(x - 4, y - 4, x + 4, y + 4), fill=(210, 50, 100, 255))
+    save(img, "bush.png", px, px)
+
+def icon_basket():
+    img, d = canvas(64, 64)
+    d.arc(S(14, 8, 50, 44), 180, 360, fill=(120, 80, 40, 255), width=4 * SS)
+    d.polygon(S(10, 32, 54, 32, 46, 56, 18, 56), fill=(200, 150, 70, 255), outline=(30, 25, 20, 255), width=2 * SS)
+    save(img, "icon-basket.png", 64, 64)
+
+hut("forager-hut", (80, 140, 70, 255), (190, 160, 100, 255), em_basket)
+hut("woodcutter-hut", (110, 75, 50, 255), (170, 125, 80, 255), em_log)
+hut("miner-hut", (100, 100, 110, 255), (150, 150, 155, 255), em_pick)
+bush(); icon_basket()
 hall(); tent(); cabin(); rack(); icon_axe(); icon_pick(); icon_forage(); colonist()
 icon_building("icon-town-hall.png", "hall"); icon_building("icon-tent.png", "tent")
 icon_building("icon-cabin.png", "cabin"); icon_building("icon-tool-rack.png", "rack")

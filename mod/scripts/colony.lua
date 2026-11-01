@@ -6,19 +6,28 @@ local scheduler = require("scripts.scheduler")
 local territory = require("scripts.territory")
 local desirability = require("scripts.model.desirability")
 local housing = require("scripts.model.housing")
+local labour = require("scripts.model.labour")
 local work = require("scripts.work")
 local gui = require("scripts.gui")
 local M = {}
 
-M.HALL, M.RACK = "colony-town-hall", "colony-tool-rack"
+M.HALL = "colony-town-hall"
+M.HUT_RADIUS = 30
+M.HUT_BUSHES = 10               -- forage patches kept around each Forager's Hut
+M.REGROW_TICKS = 450            -- one patch regrows per this many ticks per hut
 M.HOUSES = {["colony-housing-tent"] = "tent", ["colony-housing-cabin"] = "cabin"}
 M.CLAIM_RADIUS = 1              -- chunks, Chebyshev => 3x3 chunks
 M.STARVE_AFTER = 4              -- consecutive evaluations with unmet critical need before a colonist dies
 M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
-M.INTERVAL = 600                -- ticks between evaluations
 M.FOOD_PER_COLONIST = 1         -- food items per interval
 M.FOOD_ITEMS = {"colony-forage", "raw-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
+M.INTERVAL = 600                -- default ticks between evaluations
 M.TARGET_STOCK_INTERVALS = 5
+
+-- Ticks between evaluations (food use, migration, starvation). Runtime-global setting; tests may set storage.interval_override.
+function M.interval()
+  return storage.interval_override or (settings.global["colony-interval-seconds"] and settings.global["colony-interval-seconds"].value * 60) or M.INTERVAL
+end
 
 local function name_of(e) return e.type == "entity-ghost" and e.ghost_name or e.name end
 
@@ -115,7 +124,7 @@ function M.evaluate(data)
   local colony = storage.colonies[data.colony_id]
   if not colony then return end
   if not colony.hall.valid then return end    -- hall gone; colony dormant
-  scheduler.after(M.INTERVAL, "colony.evaluate", data)
+  scheduler.after(M.interval(), "colony.evaluate", data)
 
   local pop = M.live_colonists(colony)
   local houses = M.house_list(colony)
@@ -162,6 +171,32 @@ function M.evaluate(data)
 end
 scheduler.register("colony.evaluate", M.evaluate)
 
+-- Forager's Hut keeps visible forage patches around itself; colonists harvest (destroy) them, one regrows per REGROW_TICKS.
+function M.grow_patch(colony, hut)
+  local live = {}
+  for _, p in ipairs(hut.patches) do if p.valid then live[#live + 1] = p end end
+  hut.patches = live
+  if #live >= M.HUT_BUSHES then return end
+  local e = hut.entity
+  colony.rng = colony.rng or game.create_random_generator(colony.id * 7919)
+  for _ = 1, 10 do
+    local ang = colony.rng() * 2 * math.pi
+    local r = 4 + colony.rng() * 14
+    local pos = {x = e.position.x + math.cos(ang) * r, y = e.position.y + math.sin(ang) * r}
+    if e.surface.can_place_entity{name = "colony-forage-patch", position = pos} then
+      local p = e.surface.create_entity{name = "colony-forage-patch", position = pos}
+      if p then hut.patches[#hut.patches + 1] = p; return end
+    end
+  end
+end
+scheduler.register("colony.regrow", function(d)
+  local colony = storage.colonies[d.colony_id]
+  local hut = colony and colony.huts[d.hut]
+  if not (hut and hut.entity.valid) then return end
+  M.grow_patch(colony, hut)
+  scheduler.after(M.REGROW_TICKS, "colony.regrow", d)
+end)
+
 local function on_built(ev)
   local e = ev.entity or ev.created_entity
   if not (e and e.valid) then return end
@@ -170,19 +205,29 @@ local function on_built(ev)
     local owner = territory.owner_at(e.surface.index, e.position)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
-    storage.colonies[id] = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, racks = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
+    storage.colonies[id] = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
     territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)
     local cx, cy = territory.chunk_of(e.position)
     rendering.draw_rectangle{color = {0.2, 0.8, 0.3, 0.8}, width = 3, filled = false, surface = e.surface,
       left_top = {(cx - M.CLAIM_RADIUS) * 32, (cy - M.CLAIM_RADIUS) * 32},
       right_bottom = {(cx + M.CLAIM_RADIUS + 1) * 32, (cy + M.CLAIM_RADIUS + 1) * 32}}
     script.register_on_object_destroyed(e)
-    scheduler.after(M.INTERVAL, "colony.evaluate", {colony_id = id})
-  elseif (M.HOUSES[name] or name == M.RACK) and e.type ~= "entity-ghost" then
+    scheduler.after(M.interval(), "colony.evaluate", {colony_id = id})
+  elseif (M.HOUSES[name] or labour.HUTS[name]) and e.type ~= "entity-ghost" then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
     local colony = storage.colonies[owner]
-    if name == M.RACK then colony.racks[e.unit_number] = e; return end
+    if labour.HUTS[name] then
+      local hut = {entity = e, job = labour.HUTS[name].job, workers = {}, inflight = {}, wear = 0, patches = {}}
+      colony.huts[e.unit_number] = hut
+      rendering.draw_circle{color = {0.9, 0.9, 0.3, 0.5}, width = 2, filled = false, radius = M.HUT_RADIUS,
+        target = e, surface = e.surface, only_in_alt_mode = true}
+      if hut.job == "forage" then
+        for _ = 1, M.HUT_BUSHES do M.grow_patch(colony, hut) end
+        scheduler.after(M.REGROW_TICKS, "colony.regrow", {colony_id = colony.id, hut = e.unit_number})
+      end
+      return
+    end
     local h = {entity = e, kind = M.HOUSES[name], acc = {}, inflight = {}}
     if housing.needs_power(housing.TIERS[h.kind]) then
       h.sink = e.surface.create_entity{name = "colony-power-sink", position = e.position, force = e.force}

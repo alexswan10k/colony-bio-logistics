@@ -16,22 +16,26 @@ core.register("m1_colony", {
     local hall = build("colony-town-hall", {p.x, p.y})
     ctx.check("hall built", hall and hall.valid)
     ctx.check("overlapping hall rejected", not (build("colony-town-hall", {p.x + 10, p.y}) or {valid = false}).valid)
+    storage.interval_override = 600
     local c = storage.colonies[territory.owner_at(s.index, p)]
     local tent = build("colony-housing-tent", {p.x + 6, p.y})
     local cabin_pos = {p.x + 6, p.y + 8}
     ctx.power_at({x = cabin_pos[1], y = cabin_pos[2]})
     local cabin = build("colony-housing-cabin", cabin_pos)
-    build("colony-tool-rack", {p.x - 6, p.y})
+    local forager = build("colony-forager-hut", {p.x - 6, p.y})
+    local woodcutter = build("colony-woodcutter-hut", {p.x - 6, p.y + 6})
+    local miner = build("colony-miner-hut", {p.x - 6, p.y - 6})
     ctx.check("houses registered", tent and cabin and c.houses[tent.unit_number] and c.houses[cabin.unit_number] ~= nil)
     ctx.check("capacity 10", colony.capacity(c) == 10, colony.capacity(c))
-    local furnace = s.create_entity{name = "stone-furnace", position = {p.x - 8, p.y + 6}, force = "player"}
+    local furnace = s.create_entity{name = "stone-furnace", position = {p.x - 8, p.y + 12}, force = "player"}
     c.machines[furnace.unit_number] = {entity = furnace, enabled = true, collect = true, inflight = {},
       requests = {{item = "iron-ore", count = 20}, {item = "wood", count = 10}}}
     hall.insert{name = "iron-ore", count = 100}
     hall.insert{name = "raw-fish", count = 100}
     hall.insert{name = "wood", count = 100}
-    hall.insert{name = "colony-axe", count = 2}
-    hall.insert{name = "colony-pickaxe", count = 2}
+    hall.insert{name = "colony-basket", count = 3}
+    hall.insert{name = "colony-axe", count = 3}
+    hall.insert{name = "colony-pickaxe", count = 3}
     for i = 1, 12 do s.create_entity{name = "tree-01", position = {p.x + 12 + i * 2, p.y + 8}} end
     s.create_entity{name = "iron-ore", position = {p.x - 14, p.y - 6}, amount = 500}
     s.create_entity{name = "iron-ore", position = {p.x - 15, p.y - 6}, amount = 500}
@@ -52,7 +56,7 @@ core.register("m1_colony", {
       ctx.log("furnace: ore=" .. furnace.get_item_count("iron-ore") .. " plates=" .. furnace.get_item_count("iron-plate") ..
         " hall plates=" .. hall.get_item_count("iron-plate"))
       ctx.check("opt-in furnace supplied and output collected to hall", hall.get_item_count("iron-plate") > 0, hall.get_item_count("iron-plate"))
-      ctx.check("colonists took tools", hall.get_item_count("colony-axe") < 2 or hall.get_item_count("colony-pickaxe") < 2)
+      ctx.check("tools hauled to huts", hall.get_item_count("colony-axe") < 3 or hall.get_item_count("colony-pickaxe") < 3 or hall.get_item_count("colony-basket") < 3)
       ctx.check("colonists alive", colony.live_colonists(c) >= 1, colony.live_colonists(c))
       ctx.check("hall received resources", hall.get_item_count("iron-ore") + hall.get_item_count("colony-forage") > 0 or hall.get_item_count("wood") > 100)
       ctx.finish()

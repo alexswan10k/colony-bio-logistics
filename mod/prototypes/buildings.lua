@@ -36,7 +36,17 @@ end
 local hall = chest_clone("steel-chest", "colony-town-hall", "town-hall", 48, 1.5)
 local tent = chest_clone("iron-chest", "colony-housing-tent", "tent", 4, 1)
 local cabin = chest_clone("steel-chest", "colony-housing-cabin", "cabin", 6, 1.5)
-local rack = chest_clone("iron-chest", "colony-tool-rack", "tool-rack", 8, 0.5)
+local forager = chest_clone("iron-chest", "colony-forager-hut", "forager-hut", 4, 1)
+local woodcutter = chest_clone("iron-chest", "colony-woodcutter-hut", "woodcutter-hut", 4, 1)
+local miner = chest_clone("iron-chest", "colony-miner-hut", "miner-hut", 4, 1)
+
+-- Forage patch: spawned/regrown by the Forager's Hut (see scripts/colony.lua). Visible, harvested by colonists.
+local bush = {
+  type = "simple-entity", name = "colony-forage-patch", localised_name = {"entity-name.colony-forage-patch"},
+  icon = G .. "bush.png", icon_size = 64, flags = {"placeable-neutral", "not-on-map"},
+  collision_box = {{-0.3, -0.3}, {0.3, 0.3}}, selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
+  picture = {filename = G .. "bush.png", size = 64, scale = 0.7}, render_layer = "object",
+}
 
 -- Hidden electric consumer used to detect whether a powered house is on a live network (read sink.energy).
 local sink = table.deepcopy(data.raw["electric-energy-interface"]["electric-energy-interface"])
@@ -58,16 +68,21 @@ local function tool(name, icon)
 end
 
 data:extend({
-  hall, tent, cabin, rack, sink,
+  hall, tent, cabin, forager, woodcutter, miner, bush, sink,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
   item_of(cabin, "cabin", "z[colony]-c[housing-cabin]"),
-  item_of(rack, "tool-rack", "z[colony]-d[tool-rack]"),
+  item_of(forager, "forager-hut", "z[colony]-d[forager-hut]"),
+  item_of(woodcutter, "woodcutter-hut", "z[colony]-e[woodcutter-hut]"),
+  item_of(miner, "miner-hut", "z[colony]-f[miner-hut]"),
   recipe("colony-town-hall", {wood = 50, ["iron-plate"] = 50}, 5),
   recipe("colony-housing-tent", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-housing-cabin", {wood = 40, ["stone-brick"] = 10, ["iron-plate"] = 10}, 4),
-  recipe("colony-tool-rack", {wood = 10, ["iron-plate"] = 5}, 2),
-  tool("colony-axe", "icon-axe.png"), tool("colony-pickaxe", "icon-pickaxe.png"),
+  recipe("colony-forager-hut", {wood = 20, ["iron-plate"] = 5}, 2),
+  recipe("colony-woodcutter-hut", {wood = 20, ["iron-plate"] = 5}, 2),
+  recipe("colony-miner-hut", {wood = 20, ["iron-plate"] = 10}, 2),
+  recipe("colony-basket", {wood = 4}, 1),
+  tool("colony-basket", "icon-basket.png"), tool("colony-axe", "icon-axe.png"), tool("colony-pickaxe", "icon-pickaxe.png"),
   recipe("colony-axe", {wood = 2, ["iron-plate"] = 3}, 1),
   recipe("colony-pickaxe", {wood = 2, ["iron-plate"] = 3}, 1),
   {type = "item", name = "colony-forage", icon = G .. "icon-forage.png", icon_size = 64,

@@ -26,3 +26,20 @@ for p = 0, 2, 0.25 do
   local c = cm.new{pop = 12, capacity = 16, food_stock = 1000, foragers_output = 50, pollution = p}
   cm.run(c, 80); print(string.format("pollution %.2f -> pop %d  D=%.2f", p, c.pop, c.d))
 end
+
+local hauling = require("scripts.model.hauling")
+print("\n== Q4 (#10/#11, design §3.1+§5): hauling delay vs spoilage. produce 12/min, 16 colonists eat 10/min, capacity 10/trip, 600 min")
+print("shelf  delay  haulers  waste%  unmet%  avg_age_at_meal")
+for _, shelf in ipairs({6, 10, 30}) do
+  for _, delay in ipairs({1, 3, 6}) do
+    for _, haulers in ipairs({2, 4, 8}) do
+      local r = hauling.run{produce = 12, consume = 10, haulers = haulers, capacity = 10, delay = delay, shelf = shelf, steps = 600, stock_buffer_start = 20}
+      print(string.format("%5d  %5d  %7d  %5.1f%%  %5.1f%%  %6.1f", shelf, delay, haulers, 100 * r.waste_frac, 100 * r.unmet_frac, r.avg_age))
+    end
+  end
+end
+print("\n== Q5: wait-for-full-load policy vs dispatch-immediately (shelf 10, delay 3, 4 haulers, capacity 20)")
+for _, wait in ipairs({false, true}) do
+  local r = hauling.run{produce = 12, consume = 10, haulers = 4, capacity = 20, delay = 3, shelf = 10, steps = 600, stock_buffer_start = 20, wait_for_full = wait}
+  print(string.format("wait_for_full=%-5s waste %.1f%% unmet %.1f%% avg_age %.1f", tostring(wait), 100 * r.waste_frac, 100 * r.unmet_frac, r.avg_age))
+end

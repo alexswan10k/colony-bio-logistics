@@ -40,12 +40,24 @@ local forager = chest_clone("iron-chest", "colony-forager-hut", "forager-hut", 4
 local woodcutter = chest_clone("iron-chest", "colony-woodcutter-hut", "woodcutter-hut", 4, 1)
 local miner = chest_clone("iron-chest", "colony-miner-hut", "miner-hut", 4, 1)
 
--- Forage patch: spawned/regrown by the Forager's Hut (see scripts/colony.lua). Visible, harvested by colonists.
+-- Forage patch: a natural world feature (autoplaced on grass), not something a hut spawns.
+-- Foragers harvest patches that already exist in their territory; a harvested patch grows back in place
+-- (scripts/colony.lua). Chunks generated before this autoplace existed are seeded once on load.
 local bush = {
   type = "simple-entity", name = "colony-forage-patch", localised_name = {"entity-name.colony-forage-patch"},
   icon = G .. "bush.png", icon_size = 64, flags = {"placeable-neutral", "not-on-map"},
   collision_box = {{-0.3, -0.3}, {0.3, 0.3}}, selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
   picture = {filename = G .. "bush.png", size = 64, scale = 0.7}, render_layer = "object",
+  minable = {mining_time = 0.5, result = "colony-forage", count = 2},
+  autoplace = {
+    order = "a[colony]-a[forage]",
+    -- Forage patches are vegetation, so they ride the vanilla "trees" map-gen control
+    -- (modded autoplace controls are not placed by the generator). Density scales with
+    -- the vegetation size slider and matches colony.FORAGE_PER_CHUNK (~3 per 32x32 chunk).
+    control = "trees",
+    probability_expression = "0.005 * control:trees:size",
+    tile_restriction = {"grass-1", "grass-2", "grass-3", "grass-4"},
+  },
 }
 
 -- Hidden electric consumer used to detect whether a powered house is on a live network (read sink.energy).

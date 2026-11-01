@@ -98,16 +98,59 @@ end)
 
 describe("work_plan", function()
   local wp = require("scripts.model.work_plan")
+  local function s(o)
+    local t = {food_ratio = 2, counts = {}, slots = {forage = 3, chop = 3, mine = 3},
+      capacity = {forage = 3, chop = 3, mine = 3}, pop = 3, haul = false}
+    for k, v in pairs(o or {}) do t[k] = v end
+    return t
+  end
   it("prioritises foraging when hungry", function()
-    eq(wp.choose(0.1, {}, {haul = true}), "forage")
+    eq(wp.choose(s{food_ratio = 0.1, slots = {forage = 3}, capacity = {forage = 3}}), "forage")
   end)
-  it("balances toward desired shares", function()
-    eq(wp.choose(2, {forage = 5, chop = 0, mine = 0}, {haul = true}), "chop")
-    eq(wp.choose(2, {forage = 1, chop = 4, mine = 0}, {haul = true}), "mine")
-    eq(wp.choose(2, {forage = 2, chop = 2, mine = 2}), "haul")
+  it("keeps a share of the colony hauling while there is haul work", function()
+    eq(wp.choose(s{pop = 6, haul = true}), "haul")
   end)
-  it("skips disabled jobs", function()
-    eq(wp.choose(0.1, {}, {forage = true, haul = true}) ~= "forage", true)
+  it("staffs every tooled hut before over-staffing one", function()
+    eq(wp.choose(s{pop = 3, counts = {forage = 1}}), "chop")
+    eq(wp.choose(s{pop = 3, counts = {forage = 1, chop = 1}}), "mine")
+  end)
+  it("never assigns a job with no free tooled slot", function()
+    eq(wp.choose(s{pop = 2, slots = {forage = 0, chop = 1, mine = 0}, capacity = {forage = 0, chop = 1, mine = 0}}), "chop")
+  end)
+  it("idles when there is no tooled slot and nothing to haul", function()
+    eq(wp.choose(s{pop = 2, slots = {}, capacity = {}}), nil)
+  end)
+end)
+
+describe("haul_plan", function()
+  local hp = require("scripts.model.haul_plan")
+  it("splits the carry cap across a destination's requests (ore + fuel in one trip)", function()
+    local load = hp.load({{item = "iron-ore", count = 20}, {item = "wood", count = 10}}, {["iron-ore"] = 100, wood = 100}, 20)
+    local by = {}; for _, x in ipairs(load) do by[x.item] = x.count end
+    eq(by["iron-ore"], 10); eq(by.wood, 10); eq(hp.total(load), 20)
+  end)
+  it("fills a single request to the cap", function()
+    local load = hp.load({{item = "wood", count = 50}}, {wood = 50}, 20)
+    eq(hp.total(load), 20)
+  end)
+  it("never carries more than is on hand", function()
+    local load = hp.load({{item = "wood", count = 20}}, {wood = 3}, 20)
+    eq(hp.total(load), 3)
+  end)
+  it("picks whichever interchangeable option the hall has (forage or fish)", function()
+    local load = hp.load({{need = "food", count = 12, items = {"colony-forage", "raw-fish"}}}, {["raw-fish"] = 9}, 20)
+    eq(#load, 1); eq(load[1].item, "raw-fish"); eq(load[1].count, 9)
+  end)
+  it("serves higher priority first, then the biggest deficit", function()
+    local offers = {
+      {priority = hp.PRIORITY.buffer, key = 1, demands = {{item = "wood", count = 50}}},
+      {priority = hp.PRIORITY.request, key = 2, demands = {{item = "iron-ore", count = 5}}},
+      {priority = hp.PRIORITY.request, key = 3, demands = {{item = "coal", count = 9}}},
+    }
+    hp.order(offers)
+    eq(offers[1].key, 3); eq(offers[2].key, 2); eq(offers[3].key, 1)
+    local pick = hp.choose(offers, {["iron-ore"] = 9, coal = 9, wood = 9}, 20)
+    eq(pick.key, 3)
   end)
 end)
 
@@ -135,12 +178,22 @@ describe("housing", function()
     for _ = 1, 4 do local c = h.step(h.TIERS.tent, 1, stock, false, acc); used = used + (c.wood or 0) end
     eq(used, 2)
   end)
+  local function by_need(demand)
+    local by = {}
+    for _, x in ipairs(demand) do by[x.need] = x end
+    return by
+  end
   it("demands up to buffer, discounting stock and inflight, none for powered heat", function()
-    local d = h.demand(h.TIERS.cabin, {wood = 5}, {wood = 4}, false)
-    local by = {}; for _, x in ipairs(d) do by[x.item] = x.count end
-    eq(by.wood, 18 - 9); eq(by["colony-forage"], 36)
+    local d = by_need(h.demand(h.TIERS.cabin, {wood = 5}, {wood = 4}, false))
+    eq(d.heat.count, 18 - 9); eq(d.food.count, 36)
+    eq(d.food.items[1], "colony-forage"); eq(d.food.items[2], "raw-fish")
     local d2 = h.demand(h.TIERS.cabin, {}, {}, true)
     eq(#d2, 1)
+  end)
+  it("sizes the buffer by occupants, so an empty house does not hoard", function()
+    eq(#h.demand(h.TIERS.cabin, {}, {}, false, 0), 0)
+    local d = by_need(h.demand(h.TIERS.cabin, {}, {}, false, 2))
+    eq(d.food.count, 12)
   end)
   it("distributes colonists", function()
     local o, homeless = h.distribute(7, {4, 4})
@@ -158,8 +211,15 @@ describe("labour", function()
     for _ = 1, l.TOOL_USES do c, broke = l.wear(c) end
     eq(broke, true); eq(c, 0)
   end)
+  it("reports remaining uses for the hut GUI", function()
+    eq(l.uses_left(0), l.TOOL_USES); eq(l.uses_left(l.TOOL_USES - 2), 2); eq(l.uses_left(nil), l.TOOL_USES)
+  end)
   it("sums free slots by job", function()
     local f = l.free_slots({{job = "mine", allowed = 3, workers = 1}, {job = "mine", allowed = 1, workers = 1}, {job = "chop", allowed = 0, workers = 0}})
     eq(f.mine, 2); eq(f.chop, nil)
+  end)
+  it("sums tooled capacity by job", function()
+    local c = l.capacity_by_job({{job = "mine", allowed = 3}, {job = "mine", allowed = 1}, {job = "chop", allowed = 0}})
+    eq(c.mine, 4); eq(c.chop, 0)
   end)
 end)

@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 5
+local SCHEMA = 6
 
 local migrations = {
   [1] = function()
@@ -24,6 +24,13 @@ local migrations = {
     for _, c in pairs(storage.colonies) do c.huts = c.huts or {}; c.racks = nil end   -- labour buildings replace racks/per-colonist tools
     storage.unit_tools = nil
     storage.unit_labels = storage.unit_labels or {}
+  end,
+  [6] = function()
+    -- forage patches are world entities now (no per-hut spawned bushes); seed existing colonies once on load
+    for id, c in pairs(storage.colonies) do
+      c.forage_seeded = nil
+      for _, h in pairs(c.huts or {}) do h.patches = nil; h.wear = h.wear or 0; h.colony_id = h.colony_id or id end
+    end
   end,
 }
 

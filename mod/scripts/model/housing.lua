@@ -66,22 +66,27 @@ function M.step(tier, occupants, stock, powered, acc)
   return consumed, sat, total > 0 and met / total or 1, crit_unmet
 end
 
--- What to haul to this house: {{item=, count=}}. stock/inflight are {item->count}.
-function M.demand(tier, stock, inflight, powered)
+-- What to haul to this house: {{need=, count=, items={...}}} - `items` are interchangeable options
+-- (food = forage OR fish), so the hauler brings whatever the hall actually has.
+-- `occupants` (default: full capacity) sizes the buffer, so an empty house does not hoard supplies
+-- that machines and other houses are waiting for.
+function M.demand(tier, stock, inflight, powered, occupants)
   local out = {}
+  local n = occupants or tier.capacity
   for _, need in ipairs(tier.needs) do
-    local skip, first = false, nil
-    local have = 0
+    local skip, first, items, have = false, nil, {}, 0
     for _, opt in ipairs(need.options) do
-      if opt.power then if powered then skip = true end
+      if opt.power then
+        if powered then skip = true end
       else
         first = first or opt
+        items[#items + 1] = opt.item
         have = have + (stock[opt.item] or 0) + (inflight[opt.item] or 0)
       end
     end
-    if not skip and first then
-      local want = math.ceil(tier.capacity * first.per * tier.buffer_intervals) - have
-      if want >= 1 then out[#out + 1] = {item = first.item, count = want, need = need.id} end
+    if not skip and first and n > 0 then
+      local want = math.ceil(n * first.per * tier.buffer_intervals) - have
+      if want >= 1 then out[#out + 1] = {need = need.id, count = want, items = items} end
     end
   end
   return out

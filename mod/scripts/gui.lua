@@ -5,6 +5,7 @@ local scheduler = require("scripts.scheduler")
 local territory = require("scripts.territory")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
+local haul_plan = require("scripts.model.haul_plan")
 local work = require("scripts.work")
 local M = {}
 local colony_mod   -- injected via M.bind (runtime require is illegal)
@@ -38,11 +39,15 @@ local function fill_house(frame, h)
     end
     frame.add{type = "label", caption = "    " .. table.concat(parts, "  |  ")}
   end
-  local demand = housing.demand(tier, stock, h.inflight, powered)
+  local demand = housing.demand(tier, stock, h.inflight, powered, h.occupants or 0)
   if #demand == 0 then frame.add{type = "label", caption = {"colony-gui.fully-stocked"}}
   else
     local want = {}
-    for _, d in ipairs(demand) do want[#want + 1] = string.format("[item=%s] %d", d.item, d.count) end
+    for _, d in ipairs(demand) do
+      local names = {}
+      for _, item in ipairs(haul_plan.demand_items(d)) do names[#names + 1] = "[item=" .. item .. "]" end
+      want[#want + 1] = table.concat(names, "/") .. " " .. d.count
+    end
     frame.add{type = "label", caption = {"", {"colony-gui.requesting"}, " ", table.concat(want, "  ")}}
   end
   frame.add{type = "label", caption = {"colony-gui.house-hint"}}
@@ -79,12 +84,21 @@ local function fill_hut(frame, h)
   local def, tools, allowed, workers = work.hut_info(h)
   frame.add{type = "label", caption = {"colony-gui-hut.workers", workers, allowed}}
   frame.add{type = "label", caption = {"colony-gui-hut.tools", tools}}
+  if tools > 0 then
+    frame.add{type = "label", caption = {"colony-gui-hut.condition", labour.uses_left(h.wear), labour.TOOL_USES}}
+  end
   frame.add{type = "label", caption = {"colony-gui-hut.tool-need", def.tool}}
   if def.capacity > tools then
     local want = def.capacity - tools - (h.inflight[def.tool] or 0)
     if want > 0 then
-      frame.add{type = "label", caption = string.format("Colonists will deliver: [item=%s] %d", def.tool, want)}
+      frame.add{type = "label", caption = {"colony-gui-hut.delivering", def.tool, want}}
     end
+  end
+  local sites = work.site_count(h)
+  if sites == 0 then
+    frame.add{type = "label", caption = {"colony-gui-hut.no-sites"}}
+  else
+    frame.add{type = "label", caption = {"colony-gui-hut.sites", sites}}
   end
 end
 

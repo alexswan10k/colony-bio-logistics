@@ -12,9 +12,11 @@ local gui = require("scripts.gui")
 local M = {}
 
 M.HALL = "colony-town-hall"
-M.HUT_RADIUS = 30
-M.HUT_BUSHES = 10               -- forage patches kept around each Forager's Hut
-M.REGROW_TICKS = 450            -- one patch regrows per this many ticks per hut
+M.HUT_RADIUS = 30               -- working radius around a labour hut (harvesting also needs territory)
+M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
+M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not regrow in lockstep
+M.FORAGE_PER_CHUNK = 3          -- natural forage patches seeded per already-generated territory chunk
+M.FORAGE_TILES = {["grass-1"] = true, ["grass-2"] = true, ["grass-3"] = true, ["grass-4"] = true}
 M.HOUSES = {["colony-housing-tent"] = "tent", ["colony-housing-cabin"] = "cabin"}
 M.CLAIM_RADIUS = 1              -- chunks, Chebyshev => 3x3 chunks
 M.STARVE_AFTER = 4              -- consecutive evaluations with unmet critical need before a colonist dies
@@ -171,31 +173,62 @@ function M.evaluate(data)
 end
 scheduler.register("colony.evaluate", M.evaluate)
 
--- Forager's Hut keeps visible forage patches around itself; colonists harvest (destroy) them, one regrows per REGROW_TICKS.
-function M.grow_patch(colony, hut)
-  local live = {}
-  for _, p in ipairs(hut.patches) do if p.valid then live[#live + 1] = p end end
-  hut.patches = live
-  if #live >= M.HUT_BUSHES then return end
-  local e = hut.entity
-  colony.rng = colony.rng or game.create_random_generator(colony.id * 7919)
-  for _ = 1, 10 do
-    local ang = colony.rng() * 2 * math.pi
-    local r = 4 + colony.rng() * 14
-    local pos = {x = e.position.x + math.cos(ang) * r, y = e.position.y + math.sin(ang) * r}
-    if e.surface.can_place_entity{name = "colony-forage-patch", position = pos} then
-      local p = e.surface.create_entity{name = "colony-forage-patch", position = pos}
-      if p then hut.patches[#hut.patches + 1] = p; return end
+-- Forage patches are part of the world: autoplaced on grass in new chunks (see prototypes/buildings.lua),
+-- and seeded once into chunks that were generated before the mod added them. The Forager's Hut only ever
+-- harvests patches that already exist nearby - it never conjures bushes out of thin air.
+local function chunk_seed(colony, cx, cy)
+  local seed = (cx * 73856093 + cy * 19349663 + colony.id * 83492791) % 4294967296
+  return math.floor(math.abs(seed))
+end
+
+function M.seed_forage(colony)
+  if colony.forage_seeded then return 0 end
+  colony.forage_seeded = true
+  local hall = colony.hall
+  if not (hall and hall.valid) then return 0 end
+  local s = hall.surface
+  local n = 0
+  for cx, col in pairs(storage.colony_chunks[colony.surface_index] or {}) do
+    for cy, owner in pairs(col) do
+      if owner == colony.id and s.is_chunk_generated({x = cx, y = cy}) then
+        local rng = game.create_random_generator(chunk_seed(colony, cx, cy))
+        for _ = 1, M.FORAGE_PER_CHUNK do
+          local x = cx * 32 + rng(0, 31) + 0.5
+          local y = cy * 32 + rng(0, 31) + 0.5
+          local tile = s.get_tile(x, y)
+          if tile and M.FORAGE_TILES[tile.name]
+            and s.can_place_entity{name = "colony-forage-patch", position = {x, y}}
+            and s.create_entity{name = "colony-forage-patch", position = {x, y}, force = "neutral"} then
+            n = n + 1
+          end
+        end
+      end
     end
   end
+  return n
 end
-scheduler.register("colony.regrow", function(d)
+
+-- A harvested patch regrows where it was, if the spot is still free and still ours.
+function M.on_forage_harvested(colony, pos)
+  colony.rng = colony.rng or game.create_random_generator(colony.id * 7919)
+  scheduler.after(M.REGROW_TICKS + colony.rng(0, M.REGROW_JITTER), "colony.regrow_patch",
+    {colony_id = colony.id, pos = {x = pos.x, y = pos.y}})
+end
+
+scheduler.register("colony.regrow_patch", function(d)
   local colony = storage.colonies[d.colony_id]
-  local hut = colony and colony.huts[d.hut]
-  if not (hut and hut.entity.valid) then return end
-  M.grow_patch(colony, hut)
-  scheduler.after(M.REGROW_TICKS, "colony.regrow", d)
+  if not (colony and colony.hall.valid) then return end
+  local s = colony.hall.surface
+  if territory.owner_at(colony.surface_index, d.pos) ~= colony.id then return end
+  if not s.can_place_entity{name = "colony-forage-patch", position = d.pos} then return end
+  s.create_entity{name = "colony-forage-patch", position = d.pos, force = "neutral"}
 end)
+
+-- Chunks generated before the mod's autoplace existed have no patches yet: seed them once, on load.
+scheduler.register("colony.seed_all", function()
+  for _, colony in pairs(storage.colonies) do M.seed_forage(colony) end
+end)
+events.on_configuration_changed(function() scheduler.after(1, "colony.seed_all", {}) end)
 
 local function on_built(ev)
   local e = ev.entity or ev.created_entity
@@ -205,8 +238,10 @@ local function on_built(ev)
     local owner = territory.owner_at(e.surface.index, e.position)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
-    storage.colonies[id] = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
+    local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
+    storage.colonies[id] = colony
     territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)
+    M.seed_forage(colony)   -- the claimed land already has berries on it
     local cx, cy = territory.chunk_of(e.position)
     rendering.draw_rectangle{color = {0.2, 0.8, 0.3, 0.8}, width = 3, filled = false, surface = e.surface,
       left_top = {(cx - M.CLAIM_RADIUS) * 32, (cy - M.CLAIM_RADIUS) * 32},
@@ -218,14 +253,10 @@ local function on_built(ev)
     if not owner then refund(ev, e, name); e.destroy(); return end
     local colony = storage.colonies[owner]
     if labour.HUTS[name] then
-      local hut = {entity = e, job = labour.HUTS[name].job, workers = {}, inflight = {}, wear = 0, patches = {}}
+      local hut = {entity = e, job = labour.HUTS[name].job, colony_id = colony.id, workers = {}, inflight = {}, wear = 0}
       colony.huts[e.unit_number] = hut
       rendering.draw_circle{color = {0.9, 0.9, 0.3, 0.5}, width = 2, filled = false, radius = M.HUT_RADIUS,
         target = e, surface = e.surface, only_in_alt_mode = true}
-      if hut.job == "forage" then
-        for _ = 1, M.HUT_BUSHES do M.grow_patch(colony, hut) end
-        scheduler.after(M.REGROW_TICKS, "colony.regrow", {colony_id = colony.id, hut = e.unit_number})
-      end
       return
     end
     local h = {entity = e, kind = M.HOUSES[name], acc = {}, inflight = {}}

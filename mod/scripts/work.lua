@@ -1,18 +1,23 @@
 -- Colonist work loop (#30-#32 simplified): idle -> choose job -> walk to site -> work N ticks -> carry yield to hall.
 -- Driven by on_ai_command_completed + scheduler; no per-tick polling per unit.
--- Jobs: haul (hall -> house needs), forage (open ground near hall, nothing consumed), chop (tree destroyed -> wood), mine (ore -1 per trip).
+-- Jobs: haul (hall -> houses / tooled huts / opted-in machines, machine output -> hall),
+--       forage (natural forage patches in territory), chop (tree destroyed -> wood), mine (ore depleted 1:1).
 local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
+local territory = require("scripts.territory")
 local work_plan = require("scripts.model.work_plan")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
+local haul_plan = require("scripts.model.haul_plan")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
 
 M.WORK_TICKS = 480
 M.RETRY_TICKS = 300
-M.YIELD = {forage = {item = "colony-forage", count = 4}, chop = {item = "wood", count = 4}, mine = {count = 3}}
+M.YIELD = {forage = {item = "colony-forage", count = 4}, chop = {item = "wood", count = 4}}
+M.MINE_PER_TRIP = 5         -- resource units mined per trip; each unit becomes exactly one item (design §4.2)
+M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still feeds the biters
 M.CARRY_CAP = 20
 M.ORES = {"iron-ore", "copper-ore", "coal", "stone"}
 M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", haul = "hauler"}
@@ -41,6 +46,17 @@ local function popup(surface, pos, text)
     scale = 0.8, time_to_live = 90, alignment = "center"}
 end
 
+-- A ring that lives exactly as long as the work: you can see WHICH tree/patch/ore tile is being worked.
+local function work_ring(e, pos)
+  rendering.draw_circle{surface = e.surface, target = pos, radius = 0.9, color = {1, 0.85, 0.3, 0.8},
+    width = 2, filled = false, time_to_live = M.WORK_TICKS}
+end
+
+local function item_name(item)
+  if prototypes.item[item] then return {"item-name." .. item} end
+  return item
+end
+
 -- Labour buildings -------------------------------------------------------------------------------
 local function hut_list(colony)
   local ids = {}
@@ -48,6 +64,17 @@ local function hut_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.huts[un] end
+  return out
+end
+
+local function machine_list(colony)
+  local ids = {}
+  for un, m in pairs(colony.machines) do
+    if m.entity.valid then ids[#ids + 1] = un else colony.machines[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.machines[un] end
   return out
 end
 
@@ -63,56 +90,101 @@ function M.hut_info(h)
   return def, tools, labour.allowed(def.capacity, tools), worker_count(h)
 end
 
-local function free_slots(colony)
+local function job_slots(colony)
   local list = {}
   for _, h in ipairs(hut_list(colony)) do
     local _, _, allowed, workers = M.hut_info(h)
     list[#list + 1] = {job = h.job, allowed = allowed, workers = workers, hut = h}
   end
-  return labour.free_slots(list), list
+  local slots = labour.free_slots(list)
+  for _, job in ipairs({"forage", "chop", "mine"}) do
+    if (colony.no_site[job] or 0) > game.tick then slots[job] = 0 end   -- nothing to harvest: don't thrash
+  end
+  return slots, labour.capacity_by_job(list), list
 end
 
+-- Sites ------------------------------------------------------------------------------------------
+local function dist2(a, b) local dx, dy = a.x - b.x, a.y - b.y; return dx * dx + dy * dy end
+
+-- Nearest valid candidate, ties broken by unit_number so the choice is deterministic.
+local function nearest(list, pos, accept)
+  local best, best_d
+  for _, e in ipairs(list) do
+    if e.valid and (not accept or accept(e)) then
+      local d = dist2(e.position, pos)
+      if not best_d or d < best_d or (d == best_d and (e.unit_number or 0) < (best.unit_number or 0)) then best, best_d = e, d end
+    end
+  end
+  return best
+end
+
+-- Harvest only inside colony territory (design §2.1) and prefer the nearest site, so colonists visibly
+-- work the forest / berry patch / ore next to their hut instead of teleporting to a random tree 30 tiles away.
 local function find_site(colony, e, hut)
-  local job = hut.job
-  colony.rng = colony.rng or game.create_random_generator(colony.id * 7919)
-  if job == "forage" then
-    for _, p in ipairs(hut.patches) do
-      if p.valid and not colony.claimed[key(p)] then return p end
-    end
-    return nil
+  local s, base, radius = e.surface, hut.entity.position, colony_mod.HUT_RADIUS
+  local in_territory = function(t) return territory.owner_at(colony.surface_index, t.position) == colony.id end
+  local free = function(t) return in_territory(t) and not colony.claimed[key(t)] end
+  if hut.job == "forage" then
+    return nearest(s.find_entities_filtered{name = "colony-forage-patch", position = base, radius = radius}, base, free)
+  elseif hut.job == "chop" then
+    return nearest(s.find_entities_filtered{position = base, radius = radius, type = "tree"}, base, free)
+  elseif hut.job == "mine" then
+    return nearest(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = M.ORES}, base, in_territory)
   end
-  local filter = {position = hut.entity.position, radius = colony_mod.HUT_RADIUS}
-  if job == "mine" then filter.type = "resource"; filter.name = M.ORES else filter.type = "tree" end
-  local list = e.surface.find_entities_filtered(filter)
-  if #list == 0 then return nil end
-  for _ = 1, 8 do
-    local t = list[colony.rng(1, #list)]
-    if job == "mine" or not colony.claimed[key(t)] then return t end
-  end
-  return nil
 end
 
-local function go(e, pos, radius)
-  e.commandable.set_command{type = defines.command.go_to_location, destination = pos,
-    radius = radius, distraction = defines.distraction.none}
+-- How many harvestable sites the hut can currently see (GUI feedback for "nothing in range").
+function M.site_count(h)
+  local colony = storage.colonies[h.colony_id]
+  if not (colony and h.entity.valid) then return 0 end
+  local s, base, radius = h.entity.surface, h.entity.position, colony_mod.HUT_RADIUS
+  local in_territory = function(t) return territory.owner_at(colony.surface_index, t.position) == colony.id end
+  local free = function(t) return in_territory(t) and not colony.claimed[key(t)] end
+  local list
+  if h.job == "forage" then list = s.find_entities_filtered{name = "colony-forage-patch", position = base, radius = radius}
+  elseif h.job == "chop" then list = s.find_entities_filtered{position = base, radius = radius, type = "tree"}
+  else list = s.find_entities_filtered{position = base, radius = radius, type = "resource", name = M.ORES} end
+  local n = 0
+  for _, e in ipairs(list) do if e.valid and free(e) then n = n + 1 end end
+  return n
 end
 
--- Haul targets: houses (need-driven) and opted-in machines (player requests). Items leave the hall now (inflight-reserved).
-local function try_target(colony, target, demands)
-  local hall = colony.hall
-  for _, d in ipairs(demands) do
-    local items = {d.item}
-    if d.need == "food" then items = {}; for _, o in ipairs(housing.FOOD) do items[#items + 1] = o.item end end
-    for _, item in ipairs(items) do
-      local have = hall.get_item_count(item)
-      if have > 0 then return target, item, math.min(d.count, have, M.CARRY_CAP) end
+local function go(e, dest, radius)
+  local cmd = {type = defines.command.go_to_location, radius = radius, distraction = defines.distraction.none}
+  if type(dest) == "table" and dest.x then cmd.destination = dest else cmd.destination_entity = dest end
+  e.commandable.set_command(cmd)
+end
+
+-- Haul planning ----------------------------------------------------------------------------------
+-- House demand: critical (already unmet / never evaluated) beats buffering a well-stocked house.
+local function house_offer(colony, h)
+  local tier = housing.TIERS[h.kind]
+  local occupants = h.occupants or 0
+  local stock = colony_mod.house_stock(h)
+  local demands = housing.demand(tier, stock, h.inflight, colony_mod.is_powered(h), occupants)
+  if #demands == 0 then return nil end
+  local critical = false
+  for _, need in ipairs(tier.needs) do
+    if need.critical then
+      local ok = h.sat and h.sat[need.id]
+      if ok == false or (ok == nil and occupants > 0) then critical = true end
     end
   end
+  return {kind = "supply", house = h, priority = critical and haul_plan.PRIORITY.critical or haul_plan.PRIORITY.buffer,
+    key = h.entity.unit_number, demands = demands}
+end
+
+local function hut_offer(h)
+  local def, tools = M.hut_info(h)
+  local want = def.capacity - tools - (h.inflight[def.tool] or 0)
+  if want < 1 then return nil end
+  return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
+    demands = {{item = def.tool, count = want}}}
 end
 
 local function machine_demands(m)
   local out = {}
-  for _, req in pairs(m.requests) do
+  for _, req in pairs(m.requests or {}) do
     local want = req.count - m.entity.get_item_count(req.item) - (m.inflight[req.item] or 0)
     if want >= 1 then out[#out + 1] = {item = req.item, count = want} end
   end
@@ -120,51 +192,87 @@ local function machine_demands(m)
   return out
 end
 
+local function machine_offer(m)
+  if not m.enabled or (m.blocked_until or 0) > game.tick then return nil end
+  local demands = machine_demands(m)
+  if #demands == 0 then return nil end
+  return {kind = "supply", machine = m, priority = haul_plan.PRIORITY.request, key = m.entity.unit_number, demands = demands}
+end
+
+-- Finished products leave the machine now; the load is filled from the machine, not the hall.
+local function collect_offer(m)
+  if not m.enabled or not m.collect then return nil end
+  local inv = m.entity.get_output_inventory()
+  if not inv or inv.is_empty() then return nil end
+  local demands, available = {}, {}
+  for _, c in ipairs(inv.get_contents()) do
+    demands[#demands + 1] = {item = c.name, count = c.count}
+    available[c.name] = (available[c.name] or 0) + c.count
+  end
+  return {kind = "collect", machine = m, priority = haul_plan.PRIORITY.collect, key = m.entity.unit_number,
+    demands = demands, available = available}
+end
+
+-- One destination per trip, possibly several item types. Returns an offer with `.load` filled in.
 local function find_haul_task(colony)
+  local offers = {}
   for _, h in ipairs(colony_mod.house_list(colony)) do
-    local stock = colony_mod.house_stock(h)
-    local t, item, n = try_target(colony, h, housing.demand(housing.TIERS[h.kind], stock, h.inflight, colony_mod.is_powered(h)))
-    if t then return t, item, n end
+    local o = house_offer(colony, h); if o then offers[#offers + 1] = o end
   end
   for _, h in ipairs(hut_list(colony)) do
-    local def, tools = M.hut_info(h)
-    local want = def.capacity - tools - (h.inflight[def.tool] or 0)
-    if want >= 1 then
-      local t, item, n = try_target(colony, h, {{item = def.tool, count = want}})
-      if t then return t, item, n end
+    local o = hut_offer(h); if o then offers[#offers + 1] = o end
+  end
+  for _, m in ipairs(machine_list(colony)) do
+    local o = machine_offer(m); if o then offers[#offers + 1] = o end
+    local c = collect_offer(m); if c then offers[#offers + 1] = c end
+  end
+  if #offers == 0 then return nil end
+  haul_plan.order(offers)
+  local hall = {}
+  for _, o in ipairs(offers) do
+    for _, d in ipairs(o.demands) do
+      for _, item in ipairs(haul_plan.demand_items(d)) do
+        if hall[item] == nil then hall[item] = colony.hall.get_item_count(item) end
+      end
     end
   end
-  local ids = {}
-  for un, m in pairs(colony.machines) do
-    if m.entity.valid then if m.enabled then ids[#ids + 1] = un end else colony.machines[un] = nil end
+  local offer, load = haul_plan.choose(offers, hall, M.CARRY_CAP)
+  if not offer then return nil end
+  offer.load = load
+  return offer
+end
+
+-- Take the load out of its source. The returned stacks hold the amounts that really left, so a
+-- partially filled request can never duplicate items.
+local function take_load(colony, offer)
+  local taken = {}
+  for _, s in ipairs(offer.load) do
+    local n
+    if offer.kind == "collect" then n = offer.machine.entity.remove_item{name = s.item, count = s.count}
+    else n = colony.hall.remove_item{name = s.item, count = s.count} end
+    if n and n > 0 then taken[#taken + 1] = {item = s.item, count = n} end
   end
-  table.sort(ids)
-  for _, un in ipairs(ids) do
-    local m = colony.machines[un]
-    if (m.blocked_until or 0) <= game.tick then
-      local t, item, n = try_target(colony, m, machine_demands(m))
-      if t then return t, item, n end
+  if #taken == 0 then return nil end
+  if offer.kind == "supply" then
+    local target = offer.house or offer.machine or offer.hut
+    for _, s in ipairs(taken) do target.inflight[s.item] = (target.inflight[s.item] or 0) + s.count end
+    return taken, target
+  end
+  return taken, nil
+end
+
+local function return_to_hall(colony, stacks)
+  local hall = colony.hall
+  for _, s in ipairs(stacks) do
+    if not (hall and hall.valid) then return end
+    local n = hall.insert{name = s.item, count = s.count}
+    if n < s.count then
+      hall.surface.spill_item_stack{position = hall.position, stack = {name = s.item, count = s.count - n}, allow_belts = false}
     end
   end
 end
 
--- Collect: first opted-in machine with finished product; items leave the machine now and walk to the hall.
-local function find_collect_task(colony)
-  local ids = {}
-  for un, m in pairs(colony.machines) do
-    if m.entity.valid and m.enabled and m.collect then ids[#ids + 1] = un end
-  end
-  table.sort(ids)
-  for _, un in ipairs(ids) do
-    local inv = colony.machines[un].entity.get_output_inventory()
-    if inv and not inv.is_empty() then
-      local contents = inv.get_contents()
-      local c = contents[1]
-      if c then return colony.machines[un], c.name, math.min(c.count, M.CARRY_CAP), c.quality end
-    end
-  end
-end
-
+-- Trip start / finish ----------------------------------------------------------------------------
 local function start_trip(colony, un, hut)
   local e = colony.colonists[un]
   local site = find_site(colony, e, hut)
@@ -173,10 +281,10 @@ local function start_trip(colony, un, hut)
     colony.no_site[hut.job] = game.tick + 600
     return false
   end
-  if hut.job ~= "mine" then colony.claimed[key(site)] = true end
+  if hut.job ~= "mine" then colony.claimed[key(site)] = true end   -- resources are shared, trees/patches are not
   storage.unit_state[un] = {colony_id = colony.id, job = hut.job, hut = hut, state = "to_site", site = site}
   set_label(e, M.LABELS[hut.job])
-  go(e, site.position, 1.5)
+  go(e, site, 1.5)
   return true
 end
 
@@ -199,34 +307,27 @@ function M.assign(colony, un)
     end
     h.workers[un] = nil
   end
-  local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
   local counts = job_counts(colony)
   if st and st.job then counts[st.job] = math.max((counts[st.job] or 1) - 1, 0) end
-  local slots, slot_list = free_slots(colony)
-  local disabled = {}
-  for _, j in ipairs({"forage", "chop", "mine"}) do
-    if (slots[j] or 0) <= 0 or (colony.no_site[j] or 0) > game.tick then disabled[j] = true end
-  end
-  local house, haul_item, haul_n = find_haul_task(colony)
-  local collect_m, collect_item, collect_n, collect_q
-  if not house then
-    collect_m, collect_item, collect_n, collect_q = find_collect_task(colony)
-    if not collect_m then disabled.haul = true end
-  end
-  local job = work_plan.choose(colony_mod.total_food(colony) / target, counts, disabled)
+  local slots, capacity, slot_list = job_slots(colony)
+  local task = find_haul_task(colony)
+  local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
+  local job = work_plan.choose{food_ratio = colony_mod.total_food(colony) / target, counts = counts,
+    slots = slots, capacity = capacity, pop = math.max(colony_mod.live_colonists(colony) - 1, 0), haul = task ~= nil}
   if not job then idle(colony, un, e); return end
   if job == "haul" then
-    if collect_m then
-      local removed = collect_m.entity.remove_item{name = collect_item, count = collect_n, quality = collect_q}
-      storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = "to_hall", carry = {item = collect_item, count = removed}}
-      set_label(e, "hauler"); go(e, colony.hall.position, 3)
-    else
-      colony.hall.remove_item{name = haul_item, count = haul_n}
-      house.inflight[haul_item] = (house.inflight[haul_item] or 0) + haul_n
-      storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = "to_house", house = house,
-        carry = {item = haul_item, count = haul_n}}
-      set_label(e, "hauler"); go(e, house.entity.position, 2.5)
-    end
+    if not task then idle(colony, un, e); return end
+    local taken, inflight_target = take_load(colony, task)
+    if not taken then idle(colony, un, e); return end
+    local dest
+    if task.kind == "collect" then dest = colony.hall.position
+    elseif task.house then dest = task.house.entity.position
+    elseif task.machine then dest = task.machine.entity.position
+    else dest = task.hut.entity.position end
+    storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = task.kind == "collect" and "to_hall" or "to_house",
+      target = inflight_target or (task.kind == "collect" and task.machine or nil), inflight_target = inflight_target, carry = taken}
+    set_label(e, "hauler")
+    go(e, dest, 3)
     return
   end
   for _, sl in ipairs(slot_list) do
@@ -239,16 +340,21 @@ function M.assign(colony, un)
   idle(colony, un, e)
 end
 
+-- Aborted trip: release reservations, claims and carried goods.
 function M.release(st)
-  if st and st.job == "haul" and st.carry then
-    -- trip aborted: release reservation and return goods to the hall
-    if st.house then st.house.inflight[st.carry.item] = math.max((st.house.inflight[st.carry.item] or 0) - st.carry.count, 0) end
-    local colony = storage.colonies[st.colony_id]
-    if colony and colony.hall.valid then colony.hall.insert{name = st.carry.item, count = st.carry.count} end
+  if not st then return end
+  local colony = storage.colonies[st.colony_id]
+  if st.site and st.site.valid and (st.job == "chop" or st.job == "forage") and colony then
+    colony.claimed[key(st.site)] = nil
+  end
+  if st.carry and colony then
+    if st.inflight_target and st.inflight_target.inflight then
+      for _, s in ipairs(st.carry) do
+        st.inflight_target.inflight[s.item] = math.max((st.inflight_target.inflight[s.item] or 0) - s.count, 0)
+      end
+    end
+    return_to_hall(colony, st.carry)
     st.carry = nil
-  elseif st and st.job == "chop" and st.site and st.site.valid then
-    local colony = storage.colonies[st.colony_id]
-    if colony then colony.claimed[key(st.site)] = nil end
   end
 end
 
@@ -256,9 +362,7 @@ scheduler.register("work.retry", function(d)
   local st = storage.unit_state[d.un]
   if not st then return end
   local colony = storage.colonies[st.colony_id]
-  if colony then
-    M.assign(colony, d.un)
-  end
+  if colony then M.assign(colony, d.un) end
 end)
 
 scheduler.register("work.finish", function(d)
@@ -267,37 +371,47 @@ scheduler.register("work.finish", function(d)
   local colony = storage.colonies[st.colony_id]
   local e = colony and colony.colonists[d.un]
   if not (e and e.valid and colony.hall.valid) then return end
-  local site = st.site
-  if site and site.valid then
-    if st.hut and st.hut.entity and st.hut.entity.valid then
-      local hut = st.hut
-      local def = labour.HUTS[hut.entity.name]
-      if def then
-        local broke
-        hut.wear, broke = labour.wear(hut.wear or 0)
-        if broke then
-          hut.entity.remove_item{name = def.tool, count = 1}
-          popup(hut.entity.surface, hut.entity.position, "Tool broke!")
-        end
-      end
-    end
-    if st.job == "chop" then
-      colony.claimed[key(site)] = nil; site.destroy()
-      st.carry = M.YIELD.chop
-    elseif st.job == "forage" then
-      colony.claimed[key(site)] = nil; site.destroy()
-      st.carry = M.YIELD.forage
-    elseif st.job == "mine" then
-      st.carry = {item = site.name, count = M.YIELD.mine.count}
-      site.amount = site.amount - 1
-      if site.amount <= 0 then site.destroy() end
-    end
-  end
-  if not st.carry then
-    if st.hut and st.hut.workers then st.hut.workers[d.un] = nil end
+  local hut, site = st.hut, st.site
+  if not (hut and hut.entity.valid and site and site.valid) then
+    -- tree cut by the player, ore exhausted or hut removed while we were working: no yield, retry
+    if hut and hut.workers then hut.workers[d.un] = nil end
+    M.release(st)
     M.assign(colony, d.un)
     return
   end
+  -- one completed trip = one use of the hut's tool
+  local def = labour.HUTS[hut.entity.name]
+  if def then
+    local broke
+    hut.wear, broke = labour.wear(hut.wear or 0)
+    if broke and hut.entity.remove_item{name = def.tool, count = 1} > 0 then
+      popup(hut.entity.surface, hut.entity.position, {"", "Tool broke: ", item_name(def.tool)})
+    end
+  end
+  local pos, k, item, n = site.position, key(site), site.name, 0
+  if st.job == "chop" then
+    colony.claimed[k] = nil; site.destroy()
+    item, n = M.YIELD.chop.item, M.YIELD.chop.count
+  elseif st.job == "forage" then
+    colony.claimed[k] = nil; site.destroy()
+    item, n = M.YIELD.forage.item, M.YIELD.forage.count
+    colony_mod.on_forage_harvested(colony, pos)     -- the patch grows back in place, later
+  elseif st.job == "mine" then
+    n = math.min(M.MINE_PER_TRIP, site.amount or 0)
+    if n > 0 then
+      site.amount = site.amount - n
+      if site.amount <= 0 then site.destroy() end
+      e.surface.pollute(pos, M.MINE_POLLUTION)       -- 1:1 depletion, zero electricity, but not zero pollution
+    end
+  end
+  if n <= 0 then
+    if hut.workers then hut.workers[d.un] = nil end
+    M.release(st)
+    M.assign(colony, d.un)
+    return
+  end
+  popup(e.surface, pos, {"", "+" .. n .. " ", item_name(item)})
+  st.carry = {{item = item, count = n}}
   st.state = "to_hall"
   go(e, colony.hall.position, 3)
 end)
@@ -313,26 +427,31 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     return
   end
   if st.state == "to_house" then
-    local h = st.house
-    if h and h.entity.valid and st.carry then
-      local inserted = h.entity.insert{name = st.carry.item, count = st.carry.count}
-      h.inflight[st.carry.item] = math.max((h.inflight[st.carry.item] or 0) - st.carry.count, 0)
-      if inserted < st.carry.count then colony.hall.insert{name = st.carry.item, count = st.carry.count - inserted} end
-      if inserted == 0 then h.blocked_until = game.tick + 600 end   -- machine refuses this item: stop retrying for a while
+    local target = st.target
+    if target and target.entity.valid and st.carry then
+      local inserted, refused = 0, {}
+      for _, s in ipairs(st.carry) do
+        local n = target.entity.insert{name = s.item, count = s.count}
+        inserted = inserted + n
+        if n < s.count then refused[#refused + 1] = {item = s.item, count = s.count - n} end
+      end
+      if st.inflight_target and st.inflight_target.inflight then
+        for _, s in ipairs(st.carry) do
+          st.inflight_target.inflight[s.item] = math.max((st.inflight_target.inflight[s.item] or 0) - s.count, 0)
+        end
+      end
+      if #refused > 0 then return_to_hall(colony, refused) end
+      if inserted == 0 then target.blocked_until = game.tick + 600 end   -- machine refuses these items: stop retrying for a while
       st.carry = nil
     else M.release(st) end
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_site" then
     st.state = "working"
+    local e = colony.colonists[ev.unit_number]
+    if e and e.valid and st.site.valid then work_ring(e, st.site.position) end
     scheduler.after(M.WORK_TICKS, "work.finish", {un = ev.unit_number})
   elseif st.state == "to_hall" then
-    local hall = colony.hall
-    if hall.valid and st.carry then
-      local inserted = hall.insert{name = st.carry.item, count = st.carry.count}
-      if inserted < st.carry.count then
-        hall.surface.spill_item_stack{position = hall.position, stack = {name = st.carry.item, count = st.carry.count - inserted}}
-      end
-    end
+    if st.carry then return_to_hall(colony, st.carry) end
     st.carry = nil
     M.assign(colony, ev.unit_number)
   end

@@ -5,7 +5,9 @@ M.HUTS = {
   ["colony-woodcutter-hut"] = {job = "chop", tool = "colony-axe", capacity = 3},
   ["colony-miner-hut"] = {job = "mine", tool = "colony-pickaxe", capacity = 3},
 }
-M.TOOL_USES = 25    -- worker trips before one tool in the hut wears out
+-- Worker trips before one tool in the hut wears out. A trip is ~10s of walking + 8s of work, so a hut
+-- with three workers loses a tool roughly every 1-2 minutes: fast enough to see, slow enough to be logistics.
+M.TOOL_USES = 12
 
 function M.allowed(capacity, tools_in_hut) return math.max(0, math.min(capacity, tools_in_hut)) end
 
@@ -16,6 +18,9 @@ function M.wear(counter)
   return counter, false
 end
 
+-- Remaining uses for the tool currently in service (for the hut GUI).
+function M.uses_left(wear) return math.max(0, M.TOOL_USES - (wear or 0)) end
+
 -- Free slots per job: huts = array of {job=, allowed=, workers=} -> {job -> n}
 function M.free_slots(huts)
   local out = {}
@@ -23,6 +28,13 @@ function M.free_slots(huts)
     local free = h.allowed - h.workers
     if free > 0 then out[h.job] = (out[h.job] or 0) + free end
   end
+  return out
+end
+
+-- Total tooled slots per job (used to give every built hut at least one worker).
+function M.capacity_by_job(huts)
+  local out = {}
+  for _, h in ipairs(huts) do out[h.job] = (out[h.job] or 0) + h.allowed end
   return out
 end
 

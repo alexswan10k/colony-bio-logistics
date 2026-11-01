@@ -64,6 +64,7 @@ Targeting **Factorio: Space Age** allows us to use native `spoil_ticks` and `spo
 ### 3.1 Production Tiers & Shelf Life
 1. **Early Game (Foraging, Hunting & Fishing - Short Shelf Life):**
    * **Foraging Post, Hunting Lodge & Fishing Dock:** Harvest wild berries, game meat, and coastal fish.
+   * **Natural forage patches:** Berries grow as world entities autoplaced on grass (they ride the vanilla vegetation/`trees` map-gen control, so density follows that slider). A Forager's Hut never spawns bushes: it harvests patches that already exist inside colony territory, and a picked patch grows back in place after $40\text{--}70$ seconds. Chunks generated before the patches existed are seeded once on load, so old saves behave like new ones ($\approx 3$ patches per $32 \times 32$ chunk).
    * **Spoilage:** Raw foods spoil quickly ($5\text{--}10\text{ minutes}$).
 2. **Mid Game (Agriculture & Salt/Smoke Preservation - Medium Shelf Life):**
    * **Farms / Greenhouses:** Require water, seeds, and fertilizer (yielding $2\times$ crops when built on lush/fertile soil tiles).
@@ -86,6 +87,10 @@ Players configure a per-colony **Priority Matrix** (ranked $1$ to $4$, or disabl
 3. **Construct & Repair:** Deliver materials to `entity-ghost` blueprints within territory, construct them, and repair damaged buildings/walls.
 4. **Haul (Logistics):** Move items between Colony Crates and opted-in machines, including **hand-feeding ammo into Gun Turrets** and fuel into burner machines.
 5. **Harvest / Mine / Chop:** Mine ore patches, chop trees, fish, or tend farms within territory.
+
+**M1 behaviour (until the #17 Priority Matrix exists):** building a hut and filling it with tools *is* the player's instruction, so the work planner (1) keeps roughly 30% of the colony hauling while there is haul work (at least one colonist), (2) staffs every built hut that has a free tooled slot with at least one worker, and (3) splits the rest by the food ratio, shifting toward foraging when stocks are below target. Harvest sites are chosen nearest-first inside territory, so colonists visibly work the forest or patch beside their hut.
+
+**Haul priority (implemented in `model/haul_plan.lua`):** unmet critical need (food/heat) $\rightarrow$ tools for huts $\rightarrow$ explicit machine requests $\rightarrow$ collecting machine output $\rightarrow$ buffering a well-stocked house. One trip serves one destination but may carry several item types at once (e.g. iron ore **and** fuel for a furnace), with the carry cap split across the destination's demands, so a multi-input machine is never starved one ingredient at a time. House buffers are sized by occupants, so empty houses do not hoard supplies.
 
 ### 4.2 Explicit Tooling, 1:1 Mining & Pollution
 * **The Bootstrap Loop:** The player starts by hand-crafting **Iron Axes** and **Iron Pickaxes** and placing them in the Town Hall or a **Tool Rack**.

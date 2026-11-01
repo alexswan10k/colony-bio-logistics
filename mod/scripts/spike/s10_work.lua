@@ -45,9 +45,9 @@ core.register("s10_work", {
     local fluid = s.find_entities_filtered{position = p, radius = 100, type = "resource"}
     for _, o in ipairs(fluid) do if o.prototype.mineable_properties.fluid_amount then ctx.log("fluid resource present: " .. o.name .. " (must be excluded from colonist mining)") break end end
     -- Pollution
-    ctx.probe("pollute{source,amount} + get_pollution", function()
+    ctx.probe("pollute(source, amount) + get_pollution", function()
       local before = s.get_pollution(p)
-      s.pollute{source = p, amount = 100}
+      s.pollute(p, 100)
       return before .. " -> " .. s.get_pollution(p)
     end)
     ctx.probe("pollution_statistics input_counts", function() return serpent.line(s.pollution_statistics.input_counts) end)

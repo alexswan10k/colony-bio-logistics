@@ -1,5 +1,5 @@
 # AGENTS.md
-Factorio 2.0 + Space Age (hard dep) colony mod. Design: `docs/factorio_colony_mod_design_document.md`. Work tracked in GitHub issues/milestones (M0 spikes+decisions gate M1-M4). Repo: alexswan10k/colony-bio-logistics. Owner uses macOS + Steam.
+Factorio 2.0 + Space Age (hard dep) colony mod. Design: `docs/factorio_colony_mod_design_document.md`. Work tracked in GitHub issues/milestones (M0 spikes+decisions gate M1-M4). Repo: alexswan10k/colony-bio-logistics. Owner uses macOS + Steam. API docs: https://lua-api.factorio.com/latest/ (always verify 2.0 signatures here).
 
 ## Layout
 `mod/` mod (Lua 5.2 runtime) · `mod/scripts/model/` PURE logic · `mod/scripts/spike/` dev-only API spikes · `tests/` · `sim/` balance · `scripts/` tooling · `docs/` (SPIKES, TESTING, DEPLOYMENT, ART) · `spike-results/` run reports.
@@ -10,10 +10,10 @@ Always run test.sh + lint-determinism.sh + `luajit -bl` on changed Lua before co
 
 ## Rules
 - Game rules go in `model/` with NO Factorio globals (`game/storage/script/defines/surface`); in-game code is a thin adapter. Test models offline; engine behaviour only via in-game spikes. Mocks encode beliefs, not evidence.
+- Factorio 2.0 Lua API: Reference https://lua-api.factorio.com/latest/ for exact classes, parameters, and signatures.
 - Lua 5.2: no `|`, `&`, `//`, `goto` ok. No `math.random`/`os`/`io` outside spikes (use `game.create_random_generator`). Never store functions in `storage`. Register events via `scripts.events` at load time only. Schema changes need a `store.lua` migration.
 - Do not edit vanilla prototypes (opt-in design pillar). Don't scan entities per tick; use registries + `scheduler`.
-- Factorio API was written from memory, unverified against an install until spike results exist. Treat `[ERR]` in spike reports as findings; fix spike, re-run.
-- Spike/decision outcomes: record on the GitHub issue (comment + close), update docs/design doc if the design changes.
+- Spike/decision outcomes: record on the GitHub issue (comment + close), update docs/design doc if the design changes. Track progress via `gh issue` and project milestones.
 
 ## Decisions made
 Territory = chunk-granular 32x32 (#15). Space Age required (#12). Open: #16-#22 (desirability, individuality, housing, science, disease, tourism, perf budget).

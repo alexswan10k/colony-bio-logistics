@@ -54,7 +54,7 @@ core.register("s11_biters", {
     local f = game.forces.enemy
     local ev0, evp0
     ctx.probe("enemy.get_evolution_factor_by_pollution before", function() evp0 = f.get_evolution_factor_by_pollution(s); return evp0 end)
-    for _ = 1, 100 do s.pollute{source = p, amount = 10000} end
+    for _ = 1, 100 do s.pollute(p, 10000) end
     ctx.probe("enemy.get_evolution_factor_by_pollution after 1M pollute()", function() return f.get_evolution_factor_by_pollution(s) end)
     ctx.log("Compare: evolution only changes if pollute() counts as production-side pollution. If unchanged, colonist mining won't drive evolution (balance issue).")
   end,

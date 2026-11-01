@@ -1,6 +1,6 @@
 -- Colonist work loop (#30-#32 simplified): idle -> choose job -> walk to site -> work N ticks -> carry yield to hall.
 -- Driven by on_ai_command_completed + scheduler; no per-tick polling per unit.
--- Jobs: haul (hall -> house needs), forage (trees = foraging spots, not consumed), chop (tree destroyed -> wood), mine (ore -1 per trip).
+-- Jobs: haul (hall -> house needs), forage (open ground near hall, nothing consumed), chop (tree destroyed -> wood), mine (ore -1 per trip).
 local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local work_plan = require("scripts.model.work_plan")
@@ -29,7 +29,20 @@ local function job_counts(colony)
   return counts
 end
 
+-- Foraging happens on open ground near the hall (virtual site, nothing is consumed); chop/mine use real entities.
+local function find_forage_spot(colony, e)
+  local hall = colony.hall
+  colony.rng = colony.rng or game.create_random_generator(colony.id * 7919)
+  for _ = 1, 8 do
+    local ang = colony.rng() * 2 * math.pi
+    local r = 8 + colony.rng() * (M.SEARCH_RADIUS - 12)
+    local pos = {x = hall.position.x + math.cos(ang) * r, y = hall.position.y + math.sin(ang) * r}
+    if e.surface.can_place_entity{name = "colony-colonist", position = pos} then return {valid = true, position = pos} end
+  end
+end
+
 local function find_site(colony, e, job)
+  if job == "forage" then return find_forage_spot(colony, e) end
   local filter
   if job == "mine" then filter = {position = colony.hall.position, radius = M.SEARCH_RADIUS, type = "resource", name = M.ORES}
   else filter = {position = colony.hall.position, radius = M.SEARCH_RADIUS, type = "tree"} end

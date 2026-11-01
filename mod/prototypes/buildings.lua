@@ -35,7 +35,7 @@ end
 
 local hall = chest_clone("steel-chest", "colony-town-hall", "town-hall", 48, 1.5)
 local tent = chest_clone("iron-chest", "colony-housing-tent", "tent", 4, 1)
-local cabin = chest_clone("steel-chest", "colony-housing-cabin", "cabin", 6, 1)
+local cabin = chest_clone("steel-chest", "colony-housing-cabin", "cabin", 6, 1.5)
 local rack = chest_clone("iron-chest", "colony-tool-rack", "tool-rack", 8, 0.5)
 
 -- Hidden electric consumer used to detect whether a powered house is on a live network (read sink.energy).

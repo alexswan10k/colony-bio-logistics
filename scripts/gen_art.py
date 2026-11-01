@@ -48,6 +48,7 @@ def cabin(px=128):
     outline_rect(d, (30, 76, 52, px - 20), (60, 40, 28, 255), w=2)                           # door
     d.rectangle(S(px - 36, 14, px - 24, 36), fill=(110, 110, 110, 255))                      # chimney
     save(img, "cabin.png", px, px)
+    Image.open(os.path.join(OUT, "cabin.png")).resize((192, 192), Image.LANCZOS).save(os.path.join(OUT, "cabin.png"))   # 3x3 tiles
 
 def rack(px=64):
     img, d = canvas(px, px)

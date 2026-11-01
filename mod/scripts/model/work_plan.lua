@@ -8,13 +8,13 @@ local jobs = require("scripts.model.jobs")
 
 M.JOBS = jobs.JOBS          -- haul first: wins ties (keeps houses supplied)
 M.HAUL_SHARE = 0.3
-M.HARVEST = {"forage", "chop", "mine"}
+M.HARVEST = {"forage", "farm", "chop", "mine"}
 
 -- food_ratio = stock/target; returns the share of non-hauling colonists each hut job should get.
 function M.desired_shares(food_ratio)
-  if food_ratio < 0.5 then return {forage = 0.6, chop = 0.2, mine = 0.2}
-  elseif food_ratio < 1 then return {forage = 0.4, chop = 0.3, mine = 0.3}
-  else return {forage = 0.2, chop = 0.4, mine = 0.4} end
+  if food_ratio < 0.5 then return {forage = 0.35, farm = 0.3, chop = 0.175, mine = 0.175}
+  elseif food_ratio < 1 then return {forage = 0.25, farm = 0.25, chop = 0.25, mine = 0.25}
+  else return {forage = 0.15, farm = 0.2, chop = 0.35, mine = 0.3} end
 end
 
 -- How many colonists should be hauling at this population (at least one, or nothing gets delivered).

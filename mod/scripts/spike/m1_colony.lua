@@ -4,12 +4,13 @@ local core = require("scripts.spike.core")
 local colony = require("scripts.colony")
 local territory = require("scripts.territory")
 local work = require("scripts.work")
+local farm = require("scripts.model.farm")
 
 core.register("m1_colony", {
   issue = 28, auto = true, desc = "town hall + housing + hauling + tools", usage = "",
   run = function(ctx)
     local s, p = ctx.surface, ctx.position
-    ctx.flat_area(100)
+    ctx.flat_area(100, "grass-1")   -- farmland for the farm-hut checks (#44)
     local function build(name, pos)
       return s.create_entity{name = name, position = pos, force = "player", raise_built = true}
     end
@@ -24,12 +25,24 @@ core.register("m1_colony", {
     local cabin_pos = {p.x + 6, p.y + 8}
     ctx.power_at({x = cabin_pos[1], y = cabin_pos[2]})
     local cabin = build("colony-housing-cabin", cabin_pos)
+    local patches_pre = #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30}
     local forager = build("colony-forager-hut", {p.x - 6, p.y})
+    local farmhut = build("colony-farm-hut", {p.x + 6, p.y - 8})
     local woodcutter = build("colony-woodcutter-hut", {p.x - 6, p.y + 6})
     local miner = build("colony-miner-hut", {p.x - 6, p.y - 6})
+    farmhut.insert{name = "colony-hoe", count = 3}
+    local plots = {}
+    for i = 0, 5 do plots[#plots + 1] = build("colony-farm-plot", {p.x + 4 + i, p.y - 12}) end
+    local plot_count = 0
+    for _ in pairs(c.plots or {}) do plot_count = plot_count + 1 end
+    ctx.check("farm plots registered", plot_count == 6, plot_count)
+    s.set_tiles{{name = "refined-concrete", position = {p.x + 24, p.y + 24}}}
+    local badplot = build("colony-farm-plot", {p.x + 24, p.y + 24})
+    ctx.check("farm plot rejected on paving", not (badplot and badplot.valid))
     ctx.check("houses registered", tent and cabin and c.houses[tent.unit_number] and c.houses[cabin.unit_number] ~= nil)
     ctx.check("capacity 10", colony.capacity(c) == 10, colony.capacity(c))
-    ctx.check("hut does not spawn forage patches", #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30} == 0)
+    ctx.check("hut does not spawn forage patches",
+      #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30} == patches_pre, patches_pre)
     ctx.check("logistics marker item and recipe exist",
       prototypes.item["colony-logistics-marker"] ~= nil and prototypes.recipe["colony-logistics-marker"] ~= nil)
     local st = colony.stats(c)
@@ -78,9 +91,16 @@ core.register("m1_colony", {
     local ore2 = s.create_entity{name = "iron-ore", position = {p.x - 15, p.y - 6}, amount = 500}
     local trees_before = #s.find_entities_filtered{type = "tree", position = {p.x + 12, p.y + 8}, radius = 30}
     local ore_before = (ore1 and ore1.amount or 0) + (ore2 and ore2.amount or 0)
-    local patches_before = 6
-    local saw = {ore = false, wood = false, food = false}
-    for i = 1, 26 do
+    local patches_before = #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30}
+    local saw = {ore = false, wood = false, food = false, planted = false, ripe = false, produce = false}
+    local function produce_total()
+      local n = hall.get_item_count("colony-produce")
+      for _, h in pairs(c.houses) do
+        if h.entity.valid then n = n + h.entity.get_item_count("colony-produce") end
+      end
+      return n
+    end
+    for i = 1, 40 do
       ctx.after(300 * i, function()
         if furnace.valid then
           if furnace.get_item_count("iron-ore") > 0 then saw.ore = true end
@@ -93,9 +113,14 @@ core.register("m1_colony", {
           return n
         end
         if (th and food(th) > 0) or (ch and food(ch) > 0) then saw.food = true end
+        for _, plot in pairs(c.plots or {}) do
+          if plot.stage == farm.GROWING then saw.planted = true elseif plot.stage == farm.RIPE then saw.ripe = true end
+        end
+        if produce_total() > 0 then saw.produce = true end
+
       end)
     end
-    ctx.after(colony.INTERVAL * 14, function()
+    ctx.after(colony.INTERVAL * 20, function()
       local tcnt = function(e, i) return e.get_inventory(defines.inventory.chest).get_item_count(i) end
       local th, ch = c.houses[tent.unit_number], c.houses[cabin.unit_number]
       local wh, fh, mh = c.huts[woodcutter.unit_number], c.huts[forager.unit_number], c.huts[miner.unit_number]
@@ -108,7 +133,7 @@ core.register("m1_colony", {
         colony.live_colonists(c), c.d or 0, tcnt(tent, "raw-fish"), tcnt(tent, "wood"), tostring(th.score),
         tcnt(cabin, "raw-fish"), tcnt(cabin, "wood"), tostring(ch.score), tostring(colony.is_powered(ch))))
       ctx.log("hall: fish=" .. hall.get_item_count("raw-fish") .. " forage=" .. hall.get_item_count("colony-forage") .. " wood=" .. hall.get_item_count("wood") ..
-        " iron-ore=" .. hall.get_item_count("iron-ore") .. " axes=" .. hall.get_item_count("colony-axe") ..
+        " iron-ore=" .. hall.get_item_count("iron-ore") .. " produce=" .. produce_total() .. " axes=" .. hall.get_item_count("colony-axe") ..
         " picks=" .. hall.get_item_count("colony-pickaxe"))
       ctx.log(string.format("trees %d -> %d | patches %d -> %d | ore %d -> %d | wear chop=%s forage=%s mine=%s",
         trees_before, trees_after, patches_before, patches_after, ore_before, ore_after,
@@ -130,6 +155,27 @@ core.register("m1_colony", {
       ctx.check("tools wear out with use", (wh and wh.wear or 0) + (fh and fh.wear or 0) + (mh and mh.wear or 0) > 0)
       ctx.check("tools hauled to huts", hall.get_item_count("colony-axe") < 3 or hall.get_item_count("colony-pickaxe") < 3 or hall.get_item_count("colony-basket") < 3)
       ctx.check("colonists alive", colony.live_colonists(c) >= 1, colony.live_colonists(c))
+      local stages = {}
+      for _, plot in pairs(c.plots or {}) do stages[#stages + 1] = tostring(plot.stage) end
+      local jc, js = work.job_counts(c), {}
+      for job, n in pairs(jc) do js[#js + 1] = job .. "=" .. n end
+      ctx.log("plots: " .. table.concat(stages, ",") .. " | jobs: " .. table.concat(js, " "))
+      for un, plot in pairs(c.plots or {}) do
+        local pe = plot.entity
+        if pe.valid then
+          local k = pe.surface.index .. ":" .. pe.position.x .. "," .. pe.position.y
+          ctx.log("plot " .. un .. " stage=" .. plot.stage .. " claimed=" .. tostring(c.claimed[k]))
+        end
+      end
+      for un, st in pairs(storage.unit_state) do
+        if st.job == "farm" then
+          ctx.log("unit " .. un .. " job=farm state=" .. tostring(st.state) .. " site_valid="
+            .. tostring(st.site and st.site.valid) .. " hut=" .. tostring(st.hut and st.hut.entity.valid))
+        end
+      end
+      ctx.check("farmers planted crops", saw.planted)
+      ctx.check("crops ripened", saw.ripe)
+      ctx.check("farmers harvested produce", saw.produce, produce_total())
       ctx.check("hall received resources", hall.get_item_count("iron-ore") + hall.get_item_count("colony-forage") > 0 or hall.get_item_count("wood") > 100)
       ctx.finish()
     end)

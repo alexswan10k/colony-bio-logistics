@@ -118,6 +118,9 @@ local function fill_hut(frame, h)
       frame.add{type = "label", caption = {"colony-gui-hut.delivering", def.tool, want}}
     end
   end
+  if h.job == "farm" then
+    frame.add{type = "label", caption = {"colony-gui-hut.farm-hint"}}
+  end
   local sites = work.site_count(h)
   if sites == 0 then
     frame.add{type = "label", caption = {"colony-gui-hut.no-sites"}}
@@ -236,7 +239,7 @@ local function fill_info(frame, colony)
     local name = row.add{type = "label", caption = {"colony-gui-info.colonist", i, {"colony-gui-info.job-" .. job}}}
     name.style.width = 110
     local lock = colony.locks[un]
-    for _, opt in ipairs({{"auto", "A"}, {"haul", "H"}, {"forage", "F"}, {"chop", "C"}, {"mine", "M"}}) do
+    for _, opt in ipairs({{"auto", "A"}, {"haul", "H"}, {"forage", "F"}, {"chop", "C"}, {"mine", "M"}, {"farm", "G"}}) do
       local locked = (lock or "auto") == opt[1]
       local b = row.add{type = "button", name = "colony_lock_" .. un .. "_" .. opt[1],
         caption = locked and "[" .. opt[2] .. "]" or opt[2], tooltip = {"colony-gui-info.lock-" .. opt[1]}}

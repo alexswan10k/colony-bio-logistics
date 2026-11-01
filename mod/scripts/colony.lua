@@ -4,6 +4,7 @@
 local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local territory = require("scripts.territory")
+local farm = require("scripts.model.farm")
 local desirability = require("scripts.model.desirability")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
@@ -13,6 +14,7 @@ local M = {}
 
 M.HALL = "colony-town-hall"
 M.WATCHTOWER = "colony-watchtower"
+M.PLOT = "colony-farm-plot"
 M.TOWER_RADIUS = 1              -- chunks a watchtower claims around itself (design §2.1)
 M.HUT_RADIUS = 30               -- working radius around a labour hut (harvesting also needs territory)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
@@ -24,7 +26,7 @@ M.CLAIM_RADIUS = 1              -- chunks, Chebyshev => 3x3 chunks
 M.STARVE_AFTER = 4              -- consecutive evaluations with unmet critical need before a colonist dies
 M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
 M.FOOD_PER_COLONIST = 1         -- food items per interval
-M.FOOD_ITEMS = {"colony-forage", "raw-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
+M.FOOD_ITEMS = {"colony-forage", "colony-produce", "raw-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
 M.INTERVAL = 600                -- default ticks between evaluations
 M.TARGET_STOCK_INTERVALS = 5
 
@@ -35,11 +37,11 @@ end
 
 local function name_of(e) return e.type == "entity-ghost" and e.ghost_name or e.name end
 
-local function refund(ev, e, name)
+local function refund(ev, e, name, message)
   local player = ev.player_index and game.get_player(ev.player_index)
   if player then
     player.insert{name = name, count = 1, quality = e.quality}
-    player.create_local_flying_text{text = {"colony-message.outside-territory"}, position = e.position}
+    player.create_local_flying_text{text = message or {"colony-message.outside-territory"}, position = e.position}
   else
     e.surface.spill_item_stack{position = e.position, stack = {name = name, count = 1}}
   end
@@ -264,6 +266,19 @@ local function on_built(ev)
       right_bottom = {(cx + M.CLAIM_RADIUS + 1) * 32, (cy + M.CLAIM_RADIUS + 1) * 32}}
     script.register_on_object_destroyed(e)
     scheduler.after(M.interval(), "colony.evaluate", {colony_id = id})
+  elseif name == M.PLOT and e.type ~= "entity-ghost" then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    local tile = e.surface.get_tile(e.position)
+    if not owner or not farm.plantable(tile.name) then
+      refund(ev, e, name, owner and {"colony-message.bad-farmland"} or nil)
+      e.destroy()
+      return
+    end
+    local colony = storage.colonies[owner]
+    colony.plots = colony.plots or {}
+    colony.plots[e.unit_number] = {entity = e, colony_id = colony.id, stage = farm.FALLOW}
+    e.graphics_variation = farm.FALLOW
+    script.register_on_object_destroyed(e)
   elseif name == M.WATCHTOWER and e.type ~= "entity-ghost" then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -319,6 +334,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
     if colony.towers and colony.towers[un] then
       colony.towers[un] = nil
       M.recompute_territory(colony)
+      return
+    end
+    if colony.plots and colony.plots[un] then
+      colony.plots[un] = nil
       return
     end
   end

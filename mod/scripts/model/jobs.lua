@@ -5,10 +5,10 @@
 local M = {}
 
 -- Implemented roles. Guard/doctor/construct join this list when those jobs land (#47/#37).
-M.JOBS = {"haul", "forage", "chop", "mine"}
+M.JOBS = {"haul", "forage", "chop", "mine", "farm"}
 M.MAX_RANK = 4
 -- Haul rank 1, the three harvest roles in one rank-2 group (they then share by food ratio).
-M.DEFAULT = {haul = 1, forage = 2, chop = 2, mine = 2}
+M.DEFAULT = {haul = 1, forage = 2, chop = 2, mine = 2, farm = 2}
 
 function M.defaults()
   local out = {}

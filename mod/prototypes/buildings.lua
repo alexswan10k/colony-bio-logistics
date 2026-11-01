@@ -26,11 +26,11 @@ local function item_of(entity, art, order)
   }
 end
 
-local function recipe(name, ingredients, time)
+local function recipe(name, ingredients, time, amount)
   local ing = {}
   for item, n in pairs(ingredients) do ing[#ing + 1] = {type = "item", name = item, amount = n} end
   return {type = "recipe", name = name, enabled = true, energy_required = time,
-    ingredients = ing, results = {{type = "item", name = name, amount = 1}}}
+    ingredients = ing, results = {{type = "item", name = name, amount = amount or 1}}}
 end
 
 local hall = chest_clone("steel-chest", "colony-town-hall", "town-hall", 48, 1.5)
@@ -42,6 +42,27 @@ local miner = chest_clone("iron-chest", "colony-miner-hut", "miner-hut", 4, 1)
 -- Watchtower (#37-adjacent, design §2.1): built inside territory, claims a ring of chunks around itself,
 -- so the colony's work area (and therefore its huts and opted-in machines) can creep outward.
 local watchtower = chest_clone("steel-chest", "colony-watchtower", "watchtower", 4, 1)
+local farmhut = chest_clone("iron-chest", "colony-farm-hut", "farm-hut", 4, 1)
+
+-- Farm plot (#44 first slice): a 1x1 tilled tile the player places on farmland. Three graphics
+-- variations are the crop stages; the script switches graphics_variation as the crop grows.
+-- No collision: colonists and the player walk over the field.
+local plot = {
+  -- simple-entity-with-owner (not simple-entity): it has a unit_number, which the plot registry and
+  -- destruction events are keyed by.
+  type = "simple-entity-with-owner", name = "colony-farm-plot", localised_name = {"entity-name.colony-farm-plot"},
+  icon = G .. "farm-plot-ripe.png", icon_size = 64,
+  flags = {"placeable-neutral", "player-creation"},
+  collision_box = {{-0.2, -0.2}, {0.2, 0.2}}, collision_mask = {layers = {}},
+  selection_box = {{-0.5, -0.5}, {0.5, 0.5}}, selectable_in_game = true,
+  minable = {mining_time = 0.2, result = "colony-farm-plot"},
+  pictures = {
+    {filename = G .. "farm-plot-fallow.png", size = 64, scale = 1},
+    {filename = G .. "farm-plot-growing.png", size = 64, scale = 1},
+    {filename = G .. "farm-plot-ripe.png", size = 64, scale = 1},
+  },
+  random_variation_on_create = false, render_layer = "object", max_health = 100,
+}
 
 -- Forage patch: a natural world feature (autoplaced on grass), not something a hut spawns.
 -- Foragers harvest patches that already exist in their territory; a harvested patch grows back in place
@@ -96,7 +117,7 @@ local marker = {
 }
 
 data:extend({
-  hall, tent, cabin, forager, woodcutter, miner, watchtower, bush, sink, marker,
+  hall, tent, cabin, forager, woodcutter, miner, watchtower, farmhut, plot, bush, sink, marker,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
   item_of(cabin, "cabin", "z[colony]-c[housing-cabin]"),
@@ -104,6 +125,10 @@ data:extend({
   item_of(woodcutter, "woodcutter-hut", "z[colony]-e[woodcutter-hut]"),
   item_of(miner, "miner-hut", "z[colony]-f[miner-hut]"),
   item_of(watchtower, "watchtower", "z[colony]-g[watchtower]"),
+  item_of(farmhut, "farm-hut", "z[colony]-h[farm-hut]"),
+  {type = "item", name = "colony-farm-plot", icon = G .. "farm-plot-ripe.png", icon_size = 64,
+   subgroup = "storage", order = "z[colony]-i[farm-plot]", place_result = "colony-farm-plot", stack_size = 50,
+   localised_name = {"item-name.colony-farm-plot"}, localised_description = {"item-description.colony-farm-plot"}},
   recipe("colony-town-hall", {wood = 50, ["iron-plate"] = 50}, 5),
   recipe("colony-housing-tent", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-housing-cabin", {wood = 40, ["stone-brick"] = 10, ["iron-plate"] = 10}, 4),
@@ -111,12 +136,20 @@ data:extend({
   recipe("colony-woodcutter-hut", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-miner-hut", {wood = 20, ["iron-plate"] = 10}, 2),
   recipe("colony-watchtower", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 4),
+  recipe("colony-farm-hut", {wood = 20, ["iron-plate"] = 5}, 2),
+  recipe("colony-farm-plot", {wood = 2}, 0.5, 4),
   recipe("colony-basket", {wood = 4}, 1),
   recipe("colony-logistics-marker", {wood = 2, ["iron-plate"] = 2}, 1),
   tool("colony-basket", "icon-basket.png"), tool("colony-axe", "icon-axe.png"), tool("colony-pickaxe", "icon-pickaxe.png"),
+  tool("colony-hoe", "icon-hoe.png"),
   recipe("colony-axe", {wood = 2, ["iron-plate"] = 3}, 1),
   recipe("colony-pickaxe", {wood = 2, ["iron-plate"] = 3}, 1),
+  recipe("colony-hoe", {wood = 2, ["iron-plate"] = 3}, 1),
   {type = "item", name = "colony-forage", icon = G .. "icon-forage.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-a[forage]", stack_size = 100,
    spoil_ticks = 60 * 60 * 20, spoil_result = "spoilage", localised_name = {"item-name.colony-forage"}},
+  {type = "item", name = "colony-produce", icon = G .. "icon-produce.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-b[produce]", stack_size = 100,
+   spoil_ticks = 60 * 60 * 30, spoil_result = "spoilage", localised_name = {"item-name.colony-produce"},
+   localised_description = {"item-description.colony-produce"}},
 })

@@ -9,6 +9,7 @@ local work_plan = require("scripts.model.work_plan")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local haul_plan = require("scripts.model.haul_plan")
+local farm = require("scripts.model.farm")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
@@ -20,7 +21,7 @@ M.MINE_PER_TRIP = 5         -- resource units mined per trip; each unit becomes 
 M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still feeds the biters
 M.CARRY_CAP = 20
 M.ORES = {"iron-ore", "copper-ore", "coal", "stone"}
-M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", haul = "hauler"}
+M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", haul = "hauler"}
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
 
@@ -98,7 +99,7 @@ local function job_slots(colony)
     list[#list + 1] = {job = h.job, allowed = allowed, workers = workers, hut = h}
   end
   local slots = labour.free_slots(list)
-  for _, job in ipairs({"forage", "chop", "mine"}) do
+  for _, job in ipairs({"forage", "chop", "mine", "farm"}) do
     if (colony.no_site[job] or 0) > game.tick then slots[job] = 0 end   -- nothing to harvest: don't thrash
   end
   return slots, labour.capacity_by_job(list), list
@@ -131,6 +132,23 @@ local function find_site(colony, e, hut)
     return nearest(s.find_entities_filtered{position = base, radius = radius, type = "tree"}, base, free)
   elseif hut.job == "mine" then
     return nearest(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = M.ORES}, base, in_territory)
+  elseif hut.job == "farm" then
+    -- Ripe plots first (food now), then fallow plots (plant for later); nearest wins, ties by unit_number.
+    local best, best_ripe, best_d, r2 = nil, false, nil, radius * radius
+    for un, plot in pairs(colony.plots or {}) do
+      local pe = plot.entity
+      if not pe.valid then
+        colony.plots[un] = nil
+      elseif (plot.stage == farm.FALLOW or plot.stage == farm.RIPE) and not colony.claimed[key(pe)]
+          and in_territory(pe) and dist2(pe.position, base) <= r2 then
+        local ripe, d = plot.stage == farm.RIPE, dist2(pe.position, base)
+        if not best or (ripe and not best_ripe) or (ripe == best_ripe and
+            (d < best_d or (d == best_d and un < best.unit_number))) then
+          best, best_ripe, best_d = pe, ripe, d
+        end
+      end
+    end
+    return best
   end
 end
 
@@ -141,6 +159,13 @@ function M.site_count(h)
   local s, base, radius = h.entity.surface, h.entity.position, colony_mod.HUT_RADIUS
   local in_territory = function(t) return territory.owner_at(colony.surface_index, t.position) == colony.id end
   local free = function(t) return in_territory(t) and not colony.claimed[key(t)] end
+  if h.job == "farm" then
+    local n = 0
+    for _, plot in pairs(colony.plots or {}) do
+      if plot.entity.valid and (plot.stage == farm.FALLOW or plot.stage == farm.RIPE) and free(plot.entity) then n = n + 1 end
+    end
+    return n
+  end
   local list
   if h.job == "forage" then list = s.find_entities_filtered{name = "colony-forage-patch", position = base, radius = radius}
   elseif h.job == "chop" then list = s.find_entities_filtered{position = base, radius = radius, type = "tree"}
@@ -282,8 +307,9 @@ local function start_trip(colony, un, hut)
     colony.no_site[hut.job] = game.tick + 600
     return false
   end
-  if hut.job ~= "mine" then colony.claimed[key(site)] = true end   -- resources are shared, trees/patches are not
-  storage.unit_state[un] = {colony_id = colony.id, job = hut.job, hut = hut, state = "to_site", site = site}
+  if hut.job ~= "mine" then colony.claimed[key(site)] = true end   -- resources are shared, trees/patches/plots are not
+  storage.unit_state[un] = {colony_id = colony.id, job = hut.job, hut = hut, state = "to_site", site = site,
+    site_key = key(site)}
   set_label(e, M.LABELS[hut.job])
   go(e, site, 1.5)
   return true
@@ -359,8 +385,8 @@ end
 function M.release(st)
   if not st then return end
   local colony = storage.colonies[st.colony_id]
-  if st.site and st.site.valid and (st.job == "chop" or st.job == "forage") and colony then
-    colony.claimed[key(st.site)] = nil
+  if colony and st.site_key and (st.job == "chop" or st.job == "forage" or st.job == "farm") then
+    colony.claimed[st.site_key] = nil
   end
   if st.carry and colony then
     if st.inflight_target and st.inflight_target.inflight then
@@ -378,6 +404,16 @@ scheduler.register("work.retry", function(d)
   if not st then return end
   local colony = storage.colonies[st.colony_id]
   if colony then M.assign(colony, d.un) end
+end)
+
+-- Crops ripen on a scheduled event per planted plot (no per-tick scanning).
+scheduler.register("farm.ripen", function(d)
+  local colony = storage.colonies[d.colony_id]
+  local plot = colony and colony.plots and colony.plots[d.un]
+  if not (plot and plot.entity.valid) then return end
+  if plot.stage ~= farm.GROWING then return end
+  plot.stage, plot.ripe_at = farm.RIPE, nil
+  plot.entity.graphics_variation = farm.RIPE
 end)
 
 scheduler.register("work.finish", function(d)
@@ -411,6 +447,21 @@ scheduler.register("work.finish", function(d)
     colony.claimed[k] = nil; site.destroy()
     item, n = M.YIELD.forage.item, M.YIELD.forage.count
     colony_mod.on_forage_harvested(colony, pos)     -- the patch grows back in place, later
+  elseif st.job == "farm" then
+    colony.claimed[k] = nil
+    local plot = colony.plots and colony.plots[site.unit_number]
+    if plot and plot.entity.valid then
+      if plot.stage == farm.RIPE then
+        n = farm.yield_for(farm.fertility(site.surface.get_tile(site.position).name))
+        item = "colony-produce"
+        plot.stage, plot.ripe_at = farm.FALLOW, nil
+        site.graphics_variation = farm.FALLOW
+      elseif plot.stage == farm.FALLOW then
+        plot.stage, plot.ripe_at = farm.GROWING, game.tick + farm.GROW_TICKS
+        site.graphics_variation = farm.GROWING
+        scheduler.after(farm.GROW_TICKS, "farm.ripen", {colony_id = colony.id, un = site.unit_number})
+      end
+    end
   elseif st.job == "mine" then
     n = math.min(M.MINE_PER_TRIP, site.amount or 0)
     if n > 0 then

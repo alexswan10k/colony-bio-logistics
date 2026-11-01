@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 7
+local SCHEMA = 8
 
 local migrations = {
   [1] = function()
@@ -38,6 +38,10 @@ local migrations = {
       c.towers = c.towers or {}
       c.locks = c.locks or {}
     end
+  end,
+  [8] = function()
+    -- player-placed farm plots (#44): [unit_number] = {entity, colony_id, stage, ripe_at}
+    for _, c in pairs(storage.colonies) do c.plots = c.plots or {} end
   end,
 }
 

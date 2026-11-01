@@ -112,6 +112,44 @@ def em_pick(d, px):
     d.line(S(px / 2 - 10, 58, px / 2 + 10, 34), fill=(110, 75, 40, 255), width=4 * SS)
     d.arc(S(px / 2 - 18, 26, px / 2 + 18, 50), 200, 340, fill=(210, 210, 220, 255), width=4 * SS)
 
+def em_crop(d, px):
+    for x in (px / 2 - 16, px / 2, px / 2 + 16):
+        d.line(S(x, 58, x, 32), fill=(90, 150, 60, 255), width=3 * SS)
+        d.ellipse(S(x - 5, 24, x + 5, 38), fill=(230, 190, 60, 255), outline=(30, 25, 20, 255), width=2 * SS)
+
+def farm_plots(px=64):
+    def soil(d):
+        d.rectangle(S(2, 2, px - 2, px - 2), fill=(120, 85, 55, 255), outline=(70, 50, 30, 255), width=2 * SS)
+        for y in (14, 26, 38, 50):
+            d.line(S(6, y, px - 6, y), fill=(95, 66, 42, 255), width=3 * SS)
+    img, d = canvas(px, px); soil(d)
+    save(img, "farm-plot-fallow.png", px, px)
+    img, d = canvas(px, px); soil(d)
+    for (x, y) in ((16, 24), (32, 20), (48, 26), (20, 44), (36, 46), (50, 42)):
+        d.line(S(x, y + 10, x, y), fill=(80, 150, 60, 255), width=2 * SS)
+        d.ellipse(S(x - 4, y - 4, x + 4, y + 3), fill=(110, 180, 70, 255))
+    save(img, "farm-plot-growing.png", px, px)
+    img, d = canvas(px, px); soil(d)
+    for (x, y) in ((16, 22), (32, 18), (48, 24), (20, 42), (36, 44), (50, 40)):
+        d.line(S(x, y + 14, x, y), fill=(150, 170, 60, 255), width=3 * SS)
+        d.ellipse(S(x - 5, y - 6, x + 5, y + 4), fill=(235, 195, 60, 255), outline=(120, 90, 30, 255), width=2 * SS)
+    save(img, "farm-plot-ripe.png", px, px)
+
+def icon_hoe():
+    img, d = canvas(64, 64)
+    d.line(S(18, 56, 42, 16), fill=(130, 90, 50, 255), width=5 * SS)
+    d.line(S(36, 14, 54, 20), fill=(190, 190, 200, 255), width=5 * SS)
+    d.polygon(S(50, 20, 58, 34, 46, 30), fill=(190, 190, 200, 255), outline=(30, 25, 20, 255), width=2 * SS)
+    save(img, "icon-hoe.png", 64, 64)
+
+def icon_produce():
+    img, d = canvas(64, 64)
+    d.polygon(S(32, 16, 50, 32, 42, 54, 22, 54, 14, 32), fill=(230, 140, 50, 255), outline=(30, 25, 20, 255), width=2 * SS)
+    for y in (28, 36, 44):
+        d.line(S(20, y, 44, y), fill=(200, 110, 35, 255), width=2 * SS)
+    d.polygon(S(32, 16, 26, 6, 40, 10), fill=(90, 160, 70, 255), outline=(40, 90, 40, 255), width=2 * SS)
+    save(img, "icon-produce.png", 64, 64)
+
 def watchtower(px=128):
     img, d = canvas(px, px)
     shadow(d, (14, px * .82, px - 14, px - 6))
@@ -147,7 +185,8 @@ def icon_basket():
 hut("forager-hut", (80, 140, 70, 255), (190, 160, 100, 255), em_basket)
 hut("woodcutter-hut", (110, 75, 50, 255), (170, 125, 80, 255), em_log)
 hut("miner-hut", (100, 100, 110, 255), (150, 150, 155, 255), em_pick)
-bush(); icon_basket(); watchtower()
+hut("farm-hut", (150, 120, 60, 255), (205, 175, 115, 255), em_crop)
+bush(); icon_basket(); watchtower(); farm_plots(); icon_hoe(); icon_produce()
 hall(); tent(); cabin(); rack(); icon_axe(); icon_pick(); icon_forage(); colonist()
 icon_building("icon-town-hall.png", "hall"); icon_building("icon-tent.png", "tent")
 icon_building("icon-cabin.png", "cabin"); icon_building("icon-tool-rack.png", "rack")

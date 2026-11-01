@@ -1,5 +1,5 @@
 # AGENTS.md
-Factorio 2.0 + Space Age (hard dep) colony mod. Design: `factorio_colony_mod_design_document.md`. Work tracked in GitHub issues/milestones (M0 spikes+decisions gate M1-M4). Repo: alexswan10k/colony-bio-logistics. Owner uses macOS + Steam.
+Factorio 2.0 + Space Age (hard dep) colony mod. Design: `docs/factorio_colony_mod_design_document.md`. Work tracked in GitHub issues/milestones (M0 spikes+decisions gate M1-M4). Repo: alexswan10k/colony-bio-logistics. Owner uses macOS + Steam.
 
 ## Layout
 `mod/` mod (Lua 5.2 runtime) · `mod/scripts/model/` PURE logic · `mod/scripts/spike/` dev-only API spikes · `tests/` · `sim/` balance · `scripts/` tooling · `docs/` (SPIKES, TESTING, DEPLOYMENT, ART) · `spike-results/` run reports.

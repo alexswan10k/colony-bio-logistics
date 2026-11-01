@@ -4,3 +4,4 @@ require("prototypes.colonist")
 if settings.startup["colony-spike-protos"].value then
   require("prototypes.spikes")
 end
+require("prototypes.buildings")

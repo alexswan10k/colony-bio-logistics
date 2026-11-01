@@ -1,0 +1,11 @@
+# spike m1_colony (issue #28) tick 120
+start; args=
+[PASS] tent outside territory rejected 
+[PASS] hall built 
+[PASS] hall claims territory 
+[PASS] overlapping hall rejected 
+[PASS] tent inside territory kept 
+[PASS] capacity 4 - 4
+[PASS] migrants arrived (D > threshold) - pop=3 D=0.51
+[PASS] food consumed - 97
+SUMMARY pass=8 fail=0 unknown=0 errors=0

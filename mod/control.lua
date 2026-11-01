@@ -3,6 +3,7 @@ local events = require("scripts.events")
 local store = require("scripts.store")
 require("scripts.scheduler")
 require("scripts.territory")
+require("scripts.colony")
 
 events.on_init(store.init)
 events.on_configuration_changed(store.migrate)

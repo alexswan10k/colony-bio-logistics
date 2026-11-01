@@ -8,6 +8,8 @@ jobs:
       - uses: lunarmodules/luacheck@v1
         with: {args: "mod"}
       - run: scripts/lint-determinism.sh
+      - run: sudo apt-get install -y luajit
+      - run: scripts/test.sh
       - run: python3 -m json.tool mod/info.json >/dev/null
       - run: scripts/package.sh --release
       - uses: actions/upload-artifact@v4

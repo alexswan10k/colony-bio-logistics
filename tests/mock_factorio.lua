@@ -1,0 +1,27 @@
+-- Minimal Factorio API mock for running the real glue modules (events, scheduler, store, territory) under plain Lua.
+-- Usage: local env = require("tests.mock_factorio").install()  ; env.fire(defines.events.on_tick, {tick=1}) ; env.reset()
+local M = {}
+
+function M.install()
+  local env = {handlers = {}}
+  _G.storage = {}
+  _G.game = {tick = 0, print = function() end}
+  _G.defines = {events = setmetatable({}, {__index = function(t, k) local v = #t + 1000 + (rawlen and 0 or 0); rawset(t, k, k); return k end})}
+  _G.log = function() end
+  _G.script = {
+    on_event = function(ev, fn) env.handlers[ev] = fn end,
+    on_init = function(fn) env.on_init = fn end,
+    on_configuration_changed = function(fn) env.on_cfg = fn end,
+    register_on_object_destroyed = function() end,
+  }
+  function env.fire(ev, data) if env.handlers[ev] then env.handlers[ev](data or {}) end end
+  function env.tick(n) for _ = 1, n or 1 do game.tick = game.tick + 1; env.fire("on_tick", {tick = game.tick}) end end
+  function env.reset()
+    for k in pairs(package.loaded) do if k:match("^scripts%.") then package.loaded[k] = nil end end
+    return M.install()
+  end
+  _G.table_size = function(t) local n = 0 for _ in pairs(t) do n = n + 1 end return n end
+  return env
+end
+
+return M

@@ -8,8 +8,10 @@ MOD_VERSION=$(python3 -c "import json;print(json.load(open('$REPO_ROOT/mod/info.
 case "$(uname -s)" in
   Darwin)
     : "${FACTORIO_USER_DIR:=$HOME/Library/Application Support/factorio}"
-    for c in "$HOME/Library/Application Support/Steam/steamapps/common/Factorio/factorio.app/Contents/MacOS/factorio" \
-             "/Applications/factorio.app/Contents/MacOS/factorio"; do
+    for c in "/Volumes/RTL9210/SteamLibrary/steamapps/common/Factorio/factorio.app/Contents/MacOS/factorio" \
+             "$HOME/Library/Application Support/Steam/steamapps/common/Factorio/factorio.app/Contents/MacOS/factorio" \
+             "/Applications/factorio.app/Contents/MacOS/factorio" \
+             "/Applications/Factorio.app/Contents/MacOS/factorio"; do
       [ -x "$c" ] && : "${FACTORIO_BIN:=$c}"
     done ;;
   Linux)

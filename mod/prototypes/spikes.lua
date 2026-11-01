@@ -10,10 +10,10 @@ local function pod(name, type)
 end
 local function refresh(pod_name)
   return {
-    type = "recipe", name = pod_name .. "-refresh", category = "crafting", enabled = true,
-    energy_required = 1, result_is_always_fresh = true,
+    type = "recipe", name = pod_name .. "-refresh", categories = {"crafting"}, enabled = true,
+    energy_required = 1,
     ingredients = {{type = "item", name = pod_name, amount = 1}, {type = "item", name = "iron-plate", amount = 1}},
-    results = {{type = "item", name = pod_name, amount = 1}},
+    results = {{type = "item", name = pod_name, amount = 1, always_fresh = true}},
   }
 end
 data:extend({

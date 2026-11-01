@@ -1,0 +1,14 @@
+# spike s07_territory (issue #7) tick 120
+start; args=
+[PASS] claimed 3x3 chunks - 9
+script-built: stone-furnace allowed (colony 1)
+[PASS] script-built furnace inside territory kept 
+script-built: stone-furnace REJECTED outside territory at 101,0
+[PASS] script-built furnace outside territory rejected - nil
+script-built: stone-furnace REJECTED outside territory at 101,4
+script-built: stone-furnace REJECTED outside territory at 101,4
+[PASS] ghost outside territory rejected - nil
+[PROF] draw overlay rectangle (3x3 chunks) avg of 1: Duration: 0.030875ms
+INTERACTIVE: enforcement is armed. Place furnaces in/out of the green box (30s). Try: blueprint paste, construction robots (build ghost), cursor-ghost. Check log lines above for 'player-built'/'robot-built'.
+KNOWN LIMITS to confirm: no way to preview-block placement (only after-the-fact cancel); quality refunded via player.insert{quality=}; bots spill items on ground.
+SUMMARY pass=4 fail=0 unknown=0 errors=0

@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "title": "Bio-Logistics Colonies",
   "author": "alexswan10k",
-  "factorio_version": "2.0",
+  "factorio_version": "2.1",
   "description": "RimWorld/Settlers-style colony layer for Factorio Space Age. Pre-alpha.",
   "dependencies": ["base >= 2.0.0", "space-age >= 2.0.0"]
 }

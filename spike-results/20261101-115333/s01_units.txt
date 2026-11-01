@@ -1,0 +1,13 @@
+# spike s01_units (issue #1) tick 120
+start; args=300,20,0
+[PASS] trees nearby for test - 345 trees in radius
+[PASS] spawned requested colonists - 300/300
+[OK ] entity.commandable exists -> true
+running for 20s ...
+[PROF] work-dispatch handler avg per tick over 1201 ticks: Duration: 0.020238ms
+alive=300 spawned=300 jobs_done=290 path_fail=0 no_tree=10 killed=0
+[PASS] colonists complete work loop - 290 jobs
+[PASS] path failure rate < 10% - 0 fails
+[PASS] no unexpected deaths (biters=0 runs) - 0 killed
+NEXT: measure UPS with scripts/benchmark.sh; also look for stuck units (alive but no jobs_done growth) and wandering.
+SUMMARY pass=5 fail=0 unknown=0 errors=0

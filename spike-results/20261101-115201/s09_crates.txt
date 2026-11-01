@@ -1,0 +1,12 @@
+# spike s09_crates (issue #9) tick 120
+start; args=
+[PASS] entities placed 
+[OK ] requester.get_logistic_sections() -> [LuaLogisticSections]
+[OK ] set requester filter (variant 1) -> ok
+[OK ] requester.get_requester_point() -> [LuaLogisticPoint]
+[OK ] requester.get_logistic_point() -> table
+[OK ] logistic_network at requester -> 1
+[PASS] bots delivered to a mod-visible requester chest (interop is real/unavoidable) - 8 plates
+If PASS: using real logistic-containers means bots will service colony crates - decide whether that's a feature.
+If FAIL on API probes: crates need a custom container + own GUI/filters (plan B).
+SUMMARY pass=2 fail=0 unknown=0 errors=0

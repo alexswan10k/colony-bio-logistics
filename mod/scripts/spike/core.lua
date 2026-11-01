@@ -31,9 +31,14 @@ local function make_ctx(spec, player, args)
   }
   local pidx = player and player.index or 0
   local function write(line, append)
-    pcall(function()
-      helpers.write_file(out_path(spec.name), type(line) == "string" and (line .. "\n") or {"", line, "\n"}, append, pidx)
+    local ok, err = pcall(function()
+      if pidx and pidx > 0 then
+        helpers.write_file(out_path(spec.name), type(line) == "string" and (line .. "\n") or {"", line, "\n"}, append, pidx)
+      else
+        helpers.write_file(out_path(spec.name), type(line) == "string" and (line .. "\n") or {"", line, "\n"}, append)
+      end
     end)
+    if not ok then log("[spike:write_err] " .. tostring(err)) end
   end
   write("# spike " .. spec.name .. " (issue #" .. tostring(spec.issue) .. ") tick " .. game.tick, false)
 

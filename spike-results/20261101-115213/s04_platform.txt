@@ -1,0 +1,21 @@
+# spike s04_platform (issue #4) tick 120
+start; args=
+[OK ] force.create_space_platform -> [LuaSpacePlatform: index=1]
+[OK ] platform.apply_starter_pack -> true
+[PASS] platform surface valid 
+tile empty-space 6300
+tile space-platform-foundation 100
+[OK ] surface.platform ~= nil -> true
+[OK ] surface.get_property(pressure) -> 0
+[OK ] surface.get_property(gravity) -> 0
+[OK ] surface.get_property(magnetic-field) -> 0
+[OK ] surface.get_property(solar-power) -> 100
+[ERR] surface.get_property(temperature) -> Unknown surface-property name: temperature
+[OK ] platform.hub -> 0,0
+[OK ] find_non_colliding_position for colony-colonist near hub -> -1.5,4.5
+[OK ] create_entity colony-colonist on platform -> 2
+[OK ] request_path on platform -> true
+after 15s unit at -4.5859375 -0.46875 tile= space-platform-foundation health= 100
+[PASS] unit stayed on foundation (did not walk into space) - space-platform-foundation
+Also try manually: send platform out; does the unit survive transit / chunk unloading?
+SUMMARY pass=2 fail=0 unknown=0 errors=1

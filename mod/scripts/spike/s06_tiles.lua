@@ -34,10 +34,10 @@ core.register("s06_tiles", {
 
     s.request_to_generate_chunks(p, math.ceil(r / 32) + 1); s.force_generate_chunk_requests()
     local area = {{p.x - r, p.y - r}, {p.x + r, p.y + r}}
-    ctx.profile("count_tiles_filtered(water_tile)", function() s.count_tiles_filtered{area = area, collision_mask = "water_tile"} end, 50)
-    ctx.profile("count_entities_filtered(tree)", function() s.count_entities_filtered{area = area, type = "tree"} end, 50)
-    ctx.profile("find_entities_filtered(tree)", function() s.find_entities_filtered{area = area, type = "tree"} end, 50)
-    ctx.profile("find_tiles_filtered(all)", function() s.find_tiles_filtered{area = area} end, 10)
+    ctx.profile("count_tiles_filtered(water_tile)", function() local _ = s.count_tiles_filtered{area = area, collision_mask = "water_tile"} end, 50)
+    ctx.profile("count_entities_filtered(tree)", function() local _ = s.count_entities_filtered{area = area, type = "tree"} end, 50)
+    ctx.profile("find_entities_filtered(tree)", function() local _ = s.find_entities_filtered{area = area, type = "tree"} end, 50)
+    ctx.profile("find_tiles_filtered(all)", function() local _ = s.find_tiles_filtered{area = area} end, 10)
     ctx.profile("get_tile loop over area", function()
       for x = p.x - r, p.x + r do for y = p.y - r, p.y + r do local _ = s.get_tile(x, y).name end end
     end, 3)

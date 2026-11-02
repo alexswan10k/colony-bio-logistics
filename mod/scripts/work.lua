@@ -17,18 +17,19 @@ local hunting = require("scripts.model.hunting")
 local wildlife = require("scripts.wildlife")
 local fishing = require("scripts.model.fishing")
 local preserve = require("scripts.model.preserve")
+local yields = require("scripts.model.yields")
 local salt = require("scripts.model.salt")
 local construct = require("scripts.model.construct")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
 
-M.WORK_TICKS = 480
+M.WORK_TICKS = yields.WORK_TICKS
 M.RETRY_TICKS = 300
-M.YIELD = {forage = {item = "colony-forage", count = 4}, chop = {item = "wood", count = 4}}
-M.MINE_PER_TRIP = 5         -- resource units mined per trip; each unit becomes exactly one item (design §4.2)
+M.YIELD = {forage = yields.FORAGE, chop = yields.CHOP}
+M.MINE_PER_TRIP = yields.MINE_PER_TRIP   -- each unit becomes exactly one item (design §4.2)
 M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still feeds the biters
-M.CARRY_CAP = 20
+M.CARRY_CAP = yields.CARRY_CAP
 M.ORES = mine_plan.ORES   -- every ore a Miner's Hut can be pointed at
 M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", hunt = "hunter",
   fish = "fisher", preserve = "preserver", haul = "hauler", construct = "builder"}

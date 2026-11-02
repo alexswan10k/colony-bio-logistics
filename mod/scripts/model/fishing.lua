@@ -3,11 +3,13 @@
 -- The Fishing Dock is the first building whose placement is a real decision: it only works with water beside
 -- it. The rule is a count of water tiles in a fixed box, checked once when the dock is built, so the
 -- interesting part (the sampling) belongs to the adapter and the *policy* lives here where it can be tested.
+local yields = require("scripts.model.yields")
+
 local M = {}
 
 M.BOX = 15              -- half-size of the box sampled around the dock, in tiles
 M.MIN_WATER = 6         -- water tiles needed in that box for the dock to count as coastal
-M.FISH_PER_TRIP = 5     -- raw fish per trip: a little better than foraging, because water access is earned
+M.FISH_PER_TRIP = yields.FISH.count   -- a little better than foraging, because water access is earned
 M.ROD = "colony-rod"
 
 -- Enough water to call it a shore?

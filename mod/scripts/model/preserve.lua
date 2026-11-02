@@ -4,12 +4,14 @@
 -- preserved tier exists so a colony can stockpile food instead of eating what it brought home this minute.
 -- Keeping every food option at `per = 1` also keeps housing's demand sizing honest (it sizes a need from the
 -- first option's `per`, so mixing values inside one list would silently over- or under-request food).
+local yields = require("scripts.model.yields")
+
 local M = {}
 
 M.SALT = "colony-salt"
-M.SALT_PER_BATCH = 1
-M.RAW_PER_BATCH = 1
-M.PRODUCT_PER_BATCH = 1
+M.SALT_PER_BATCH = yields.CURE.salt
+M.RAW_PER_BATCH = yields.CURE.raw
+M.PRODUCT_PER_BATCH = yields.CURE.out
 M.SALT_STOCK = 4            -- what a Smokehouse wants on hand
 M.RAW_STOCK = 2             -- per raw item, so a smokehouse never strips the houses' dinner
 M.RAW = {"colony-meat", "colony-fish"}

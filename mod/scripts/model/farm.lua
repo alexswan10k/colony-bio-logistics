@@ -2,10 +2,12 @@
 -- Vanilla 2.0 exposes no per-tile fertility property (spike s06), so fertility is a table keyed by tile
 -- name: grass is best, dirt good, dry dirt/red desert poor, sand barely worth it. Anything unlisted
 -- (water, stone path, concrete, out-of-map) cannot be farmed at all.
+local yields = require("scripts.model.yields")
+
 local M = {}
 
 M.GROW_TICKS = 60 * 60          -- 60 s from planting to ripe
-M.YIELD_BASE = 8                -- produce per harvest at fertility 1.0
+M.YIELD_BASE = yields.FARM_BASE  -- produce per harvest at fertility 1.0
 M.MIN_FERTILITY = 0.35          -- below this the player cannot place a plot
 M.FALLOW, M.GROWING, M.RIPE = 1, 2, 3   -- also the 1-based graphics_variation of the plot sprite
 

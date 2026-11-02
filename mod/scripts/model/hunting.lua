@@ -1,8 +1,10 @@
 -- PURE: hunting rules (#79, design §3.1). A hunter is paid per kill, not per trip: the animal supplies the
 -- meat, the rifle supplies the reach. Everything here is a plain decision the adapter can apply.
+local yields = require("scripts.model.yields")
+
 local M = {}
 
-M.MEAT_PER_KILL = 6       -- raw meat from one animal
+M.MEAT_PER_KILL = yields.HUNT.count   -- raw meat from one animal
 M.RANGE = 30              -- tiles from the lodge a hunter looks for game (the standard hut radius)
 M.MAX_ATTEMPTS = 3        -- attack commands per trip before the hunter gives up and walks home
 

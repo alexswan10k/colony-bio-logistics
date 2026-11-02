@@ -1,4 +1,6 @@
 -- PURE: labour-building rules. A hut employs up to `capacity` colonists, but only as many as it holds tools for.
+local yields = require("scripts.model.yields")
+
 local M = {}
 M.HUTS = {
   ["colony-forager-hut"] = {job = "forage", tool = "colony-basket", capacity = 3},
@@ -14,7 +16,7 @@ M.HUTS = {
 }
 -- Worker trips before one tool in the hut wears out. A trip is ~10s of walking + 8s of work, so a hut
 -- with three workers loses a tool roughly every 1-2 minutes: fast enough to see, slow enough to be logistics.
-M.TOOL_USES = 12
+M.TOOL_USES = yields.TOOL_USES
 
 -- A hut employs up to `capacity` colonists, but only as many as it holds tools for and as the player's
 -- per-hut worker limit allows (`limit` nil = no player limit). A hut with no tool is supply-gated instead,

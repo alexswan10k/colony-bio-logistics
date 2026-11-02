@@ -14,6 +14,7 @@ local compost = require("scripts.model.compost")
 local wildlife = require("scripts.wildlife")
 local fishing = require("scripts.model.fishing")
 local salt = require("scripts.model.salt")
+local yields = require("scripts.model.yields")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local tags = require("scripts.model.tags")
@@ -53,7 +54,7 @@ M.POP_TTL = 5                   -- ticks a cached population count / food total 
 M.FOOD_TTL = 30
 M.STOCK_TTL = 30
 M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
-M.FOOD_PER_COLONIST = 1         -- food items per interval
+M.FOOD_PER_COLONIST = yields.FOOD_PER_INTERVAL   -- food items per interval
 M.FOOD_ITEMS = {"colony-forage", "colony-fish", "colony-meat", "colony-produce", "raw-fish",
   "colony-preserved-meat", "colony-preserved-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
 M.INTERVAL = 600                -- default ticks between evaluations

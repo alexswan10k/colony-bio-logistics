@@ -117,6 +117,39 @@ def em_crop(d, px):
         d.line(S(x, 58, x, 32), fill=(90, 150, 60, 255), width=3 * SS)
         d.ellipse(S(x - 5, 24, x + 5, 38), fill=(230, 190, 60, 255), outline=(30, 25, 20, 255), width=2 * SS)
 
+def em_hunt(d, px):
+    for sgn in (-1, 1):                                            # antlers
+        d.line(S(px / 2 + sgn * 4, 40, px / 2 + sgn * 16, 22), fill=(220, 210, 190, 255), width=3 * SS)
+        d.line(S(px / 2 + sgn * 10, 31, px / 2 + sgn * 20, 30), fill=(220, 210, 190, 255), width=3 * SS)
+        d.line(S(px / 2 + sgn * 14, 26, px / 2 + sgn * 22, 19), fill=(220, 210, 190, 255), width=3 * SS)
+
+def boar(px=64):
+    img, d = canvas(px, px)
+    shadow(d, (8, px * .78, px - 8, px - 6))
+    outline_rect(d, (14, 26, px - 14, 46), (120, 90, 60, 255))       # body
+    for x in (18, 30, 40, 50):                                      # legs
+        outline_rect(d, (x, 44, x + 5, px - 10), (95, 70, 45, 255), w=2)
+    d.ellipse(S(px - 26, 20, px - 6, 40), fill=(130, 100, 70, 255), outline=(30, 25, 20, 255), width=2 * SS)  # head
+    d.ellipse(S(px - 6, 28, px - 1, 34), fill=(90, 60, 45, 255))    # snout
+    d.line(S(px - 22, 18, px - 18, 10), fill=(220, 210, 190, 255), width=2 * SS)   # tusk
+    save(img, "boar.png", px, px)
+    Image.open(os.path.join(OUT, "boar.png")).resize((64, 64), Image.LANCZOS).save(
+        os.path.join(OUT, "icon-boar.png"))
+
+def icon_rifle():
+    img, d = canvas(64, 64)
+    d.line(S(10, 50, 54, 18), fill=(120, 80, 45, 255), width=5 * SS)            # stock
+    d.line(S(26, 38, 50, 20), fill=(90, 95, 105, 255), width=5 * SS)           # barrel
+    d.line(S(30, 34, 36, 44), fill=(70, 70, 75, 255), width=4 * SS)            # trigger guard
+    save(img, "icon-rifle.png", 64, 64)
+
+def icon_meat():
+    img, d = canvas(64, 64)
+    d.ellipse(S(12, 18, 48, 50), fill=(190, 70, 70, 255), outline=(90, 30, 30, 255), width=2 * SS)
+    d.ellipse(S(22, 26, 40, 42), fill=(225, 120, 110, 255))
+    d.line(S(44, 14, 56, 22), fill=(240, 235, 220, 255), width=4 * SS)          # bone
+    save(img, "icon-meat.png", 64, 64)
+
 def farm_plots(px=64):
     def soil(d):
         d.rectangle(S(2, 2, px - 2, px - 2), fill=(120, 85, 55, 255), outline=(70, 50, 30, 255), width=2 * SS)
@@ -243,10 +276,11 @@ hut("forager-hut", (80, 140, 70, 255), (190, 160, 100, 255), em_basket)
 hut("woodcutter-hut", (110, 75, 50, 255), (170, 125, 80, 255), em_log)
 hut("miner-hut", (100, 100, 110, 255), (150, 150, 155, 255), em_pick)
 hut("farm-hut", (150, 120, 60, 255), (205, 175, 115, 255), em_crop)
+hut("hunting-lodge", (95, 110, 70, 255), (170, 145, 95, 255), em_hunt)
 bush(); icon_basket(); watchtower(); farm_plots(); icon_hoe(); icon_produce()
 crate("supply-crate", (90, 190, 90, 255), em_out)
 crate("demand-crate", (90, 150, 220, 255), em_in)
-warehouse(); compost_bin(); icon_fertilizer()
+warehouse(); compost_bin(); icon_fertilizer(); boar(); icon_rifle(); icon_meat()
 hall(); tent(); cabin(); rack(); icon_axe(); icon_pick(); icon_forage(); colonist()
 icon_building("icon-town-hall.png", "hall"); icon_building("icon-tent.png", "tent")
 icon_building("icon-cabin.png", "cabin"); icon_building("icon-tool-rack.png", "rack")

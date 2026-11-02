@@ -19,12 +19,16 @@
 ## Regression gates (#39)
 Three headless gates cover the things the unit tests and the playable spike cannot:
 
-- `scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (58 checks).
+- `scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (63 checks).
 - `scripts/headless-spike.sh m1_desirability` - the desirability inputs and leaving (19 checks): migrants
   arrive on a fed/housed site, scenic rises when trees are planted in the sampled box, `pollute()` at the
   hall pushes the pollution component to -0.60, and with D under the leave line colonists pack up - proven
   distinct from starvation by checking the death list did not grow. Needs `TICKS=4000`; it shortens
   `storage.interval_override` to 150 so evaluations do not cost 3600 ticks each.
+- `scripts/headless-spike.sh s12_wildlife` - the #79 hunting spike (14 checks, `TICKS=1800`): game on its own
+  force, an idle colonist that does not shoot it, a commanded hunt that kills it from range, `ev.cause` naming
+  the hunter, no retaliation, and `wander` actually moving the animal. It exists because hunting is the one
+  feature whose core mechanism is engine AI rather than our own loop.
 - `scripts/headless-spike.sh m1_blueprint` - the #36 blueprint round-trip (26 checks): opt a furnace in and
   give a demand crate filters, `create_blueprint` the pair, tag it, build the blueprint elsewhere and
   `revive` the ghosts - the opt-in flag, `collect`, the supply rows and the crate filters all come back.
@@ -94,6 +98,15 @@ Each of these cost a debugging round in a spike; check them before assuming the 
   the ghost itself. `LuaEntity.tags` is **ghost-only** - a placed entity has no tags, so state written there
   is gone. Tags are basic Lua values, and a *sparse* table comes back with its numeric keys stringified
   (row 3 becomes `["3"]`), so serialise dense lists (`mod/scripts/model/tags.lua`).
+- **Units are AI, and `LuaEntity.commandable` is the only handle on them.** `commandable.set_command{type =
+  defines.command.wander}` is a real "chill" order the engine carries out (measured: ~6 tiles over 8 s), and a
+  colonist given `defines.command.attack` walks into its own weapon range and kills. `distraction = none` means
+  "keep doing this even while being attacked", which is how docile game stays docile. Units on a force with
+  `set_cease_fire` in both directions simply never fight, and a *scripted* attack still works (verified).
+- **`on_entity_died` is the only link between a kill and the killer**: `ev.cause` is the entity that dealt the
+  last damage (a colonist, here) and `ev.force` is the dead entity's force. Capture what you need *inside* the
+  handler - reading `ev.entity` 600 ticks later raises "LuaEntity API call when LuaEntity was invalid", which
+  is how the first version of `s12_wildlife` crashed.
 - **`revive` refuses to place an entity where a `unit` stands**, and it does not move that unit. A colonist
   that walks to its own ghost and stops on it blocks the build forever (#76).
 - **A headless server has no player and cannot make one** (`game.create_player` fails), so events that only

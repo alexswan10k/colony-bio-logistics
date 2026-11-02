@@ -274,6 +274,38 @@ describe("work_plan", function()
   it("keeps hauling below its share before starting a lower-ranked harvest job", function()
     eq(wp.choose(s{pop = 9, haul = true, priority = {haul = 1, forage = 4, chop = 4, mine = 4}}), "haul")
   end)
+  it("gives every harvest role a share, and the shares add up (a nil share would crash choose)", function()
+    for _, ratio in ipairs({0.1, 0.75, 2}) do
+      local shares, sum = wp.desired_shares(ratio), 0
+      for _, job in ipairs(wp.HARVEST) do
+        truthy(shares[job] ~= nil, job .. " has no share at food_ratio " .. ratio)
+        sum = sum + shares[job]
+      end
+      eq(math.abs(sum - 1) < 1e-9, true, "shares sum to " .. sum)
+    end
+  end)
+end)
+
+describe("hunting (#79)", function()
+  local hunting = require("scripts.model.hunting")
+  local function animal(un, x, y) return {unit_number = un, position = {x = x, y = y}} end
+  it("picks the nearest animal inside the lodge's reach", function()
+    local a = hunting.nearest({animal(1, 20, 0), animal(2, 5, 0)}, {x = 0, y = 0}, 30)
+    eq(a.unit_number, 2)
+  end)
+  it("ignores game outside the range", function()
+    eq(hunting.nearest({animal(1, 40, 0)}, {x = 0, y = 0}, 30), nil)
+  end)
+  it("breaks distance ties by unit_number, so the choice is stable", function()
+    local a = hunting.nearest({animal(7, 0, 10), animal(3, 10, 0)}, {x = 0, y = 0}, 30)
+    eq(a.unit_number, 3)
+  end)
+  it("returns nil with no game at all", function()
+    eq(hunting.nearest({}, {x = 0, y = 0}, 30), nil)
+  end)
+  it("a kill is worth meat", function()
+    truthy(hunting.MEAT_PER_KILL > 0)
+  end)
 end)
 
 describe("haul_plan", function()
@@ -344,7 +376,8 @@ describe("housing", function()
   it("demands up to buffer, discounting stock and inflight, none for powered heat", function()
     local d = by_need(h.demand(h.TIERS.cabin, {wood = 5}, {wood = 4}, false))
     eq(d.heat.count, 18 - 9); eq(d.food.count, 36)
-    eq(d.food.items[1], "colony-forage"); eq(d.food.items[2], "raw-fish"); eq(d.food.items[3], "colony-produce")
+    eq(d.food.items[1], "colony-forage"); eq(d.food.items[2], "colony-meat")
+    eq(d.food.items[3], "raw-fish"); eq(d.food.items[4], "colony-produce")
     local d2 = h.demand(h.TIERS.cabin, {}, {}, true)
     eq(#d2, 1)
   end)

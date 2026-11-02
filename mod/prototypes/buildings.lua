@@ -44,6 +44,9 @@ local miner = chest_clone("iron-chest", "colony-miner-hut", "miner-hut", 8, 1)
 -- so the colony's work area (and therefore its huts and opted-in machines) can creep outward.
 local watchtower = chest_clone("steel-chest", "colony-watchtower", "watchtower", 4, 1)
 local farmhut = chest_clone("iron-chest", "colony-farm-hut", "farm-hut", 8, 1)
+-- Hunting Lodge (#79): hunters work the roaming game around the lodge. The hut holds the rifles and the
+-- meat the hunters bring back, exactly like the other labour huts.
+local huntinglodge = chest_clone("iron-chest", "colony-hunting-lodge", "hunting-lodge", 8, 1)
 -- Colony logistics crates (#33, design §5.1). Plain containers, not logistic chests: inserters and belts
 -- still work on them, but colony hauling is driven by our own registry so bots and colonists never fight
 -- over the same request.
@@ -128,8 +131,8 @@ local marker = {
 }
 
 data:extend({
-  hall, tent, cabin, forager, woodcutter, miner, watchtower, farmhut, supply_crate, demand_crate, warehouse,
-  compost_bin,
+  hall, tent, cabin, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, supply_crate, demand_crate,
+  warehouse, compost_bin,
   plot, bush, sink, marker,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -139,6 +142,7 @@ data:extend({
   item_of(miner, "miner-hut", "z[colony]-f[miner-hut]"),
   item_of(watchtower, "watchtower", "z[colony]-g[watchtower]"),
   item_of(farmhut, "farm-hut", "z[colony]-h[farm-hut]"),
+  item_of(huntinglodge, "hunting-lodge", "z[colony]-i[hunting-lodge]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(warehouse, "warehouse", "z[colony]-l[warehouse]"),
@@ -158,6 +162,7 @@ data:extend({
   recipe("colony-miner-hut", {wood = 20, ["iron-plate"] = 10}, 2),
   recipe("colony-watchtower", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 4),
   recipe("colony-farm-hut", {wood = 20, ["iron-plate"] = 5}, 2),
+  recipe("colony-hunting-lodge", {wood = 20, ["iron-plate"] = 8}, 2),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1),
   recipe("colony-demand-crate", {wood = 10, ["iron-plate"] = 10}, 1),
@@ -166,13 +171,18 @@ data:extend({
   recipe("colony-basket", {wood = 4}, 1),
   recipe("colony-logistics-marker", {wood = 2, ["iron-plate"] = 2}, 1),
   tool("colony-basket", "icon-basket.png"), tool("colony-axe", "icon-axe.png"), tool("colony-pickaxe", "icon-pickaxe.png"),
-  tool("colony-hoe", "icon-hoe.png"),
+  tool("colony-hoe", "icon-hoe.png"), tool("colony-rifle", "icon-rifle.png"),
   recipe("colony-axe", {wood = 2, ["iron-plate"] = 3}, 1),
   recipe("colony-pickaxe", {wood = 2, ["iron-plate"] = 3}, 1),
   recipe("colony-hoe", {wood = 2, ["iron-plate"] = 3}, 1),
+  recipe("colony-rifle", {wood = 4, ["iron-plate"] = 6, ["copper-plate"] = 2}, 2),
   {type = "item", name = "colony-forage", icon = G .. "icon-forage.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-a[forage]", stack_size = 100,
    spoil_ticks = 60 * 60 * 20, spoil_result = "spoilage", localised_name = {"item-name.colony-forage"}},
+  {type = "item", name = "colony-meat", icon = G .. "icon-meat.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-a1[meat]", stack_size = 100,
+   spoil_ticks = 60 * 60 * 20, spoil_result = "spoilage", localised_name = {"item-name.colony-meat"},
+   localised_description = {"item-description.colony-meat"}},
   {type = "item", name = "colony-produce", icon = G .. "icon-produce.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-b[produce]", stack_size = 100,
    spoil_ticks = 60 * 60 * 30, spoil_result = "spoilage", localised_name = {"item-name.colony-produce"},

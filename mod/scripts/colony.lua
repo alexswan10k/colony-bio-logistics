@@ -11,6 +11,7 @@ local desirability = require("scripts.model.desirability")
 local colony_model = require("scripts.model.colony_model")
 local scenic = require("scripts.model.scenic")
 local compost = require("scripts.model.compost")
+local wildlife = require("scripts.wildlife")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local tags = require("scripts.model.tags")
@@ -50,7 +51,7 @@ M.FOOD_TTL = 30
 M.STOCK_TTL = 30
 M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
 M.FOOD_PER_COLONIST = 1         -- food items per interval
-M.FOOD_ITEMS = {"colony-forage", "colony-produce", "raw-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
+M.FOOD_ITEMS = {"colony-forage", "colony-meat", "colony-produce", "raw-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
 M.INTERVAL = 600                -- default ticks between evaluations
 M.TARGET_STOCK_INTERVALS = 5
 
@@ -340,6 +341,10 @@ function M.evaluate(data)
   if not colony then return end
   if not colony.hall.valid then return end    -- hall gone; colony dormant
   scheduler.after(M.interval(), "colony.evaluate", data)
+
+  -- Wildlife (#79): one evaluation's worth of herd work - prune the dead, nudge the wanderers, top the herd
+  -- up slowly. Bounded by wildlife.CAP, so this never grows with the town.
+  wildlife.tick(colony, game.tick)
 
   local pop = M.live_colonists(colony)
   local houses = M.house_list(colony)

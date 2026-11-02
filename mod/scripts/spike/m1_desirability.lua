@@ -76,7 +76,12 @@ core.register("m1_desirability", {
     -- Phase 4: with food gone and the air foul, D drops under the leave line and colonists pack up. The
     -- window is short enough (3 evaluations) that starvation has not started, so any population loss is
     -- people leaving, not dying.
-    local pop_before, deaths_before, left_seen
+    -- Track the *lowest* D seen rather than the value at one instant: the leaving itself eases the pressure, so
+    -- by the time the check runs D may already have climbed back towards the line.
+    local pop_before, deaths_before, left_seen, min_d
+    for t = 2850, 3300, 30 do
+      ctx.after(t, function() if c.d and (not min_d or c.d < min_d) then min_d = c.d end end)
+    end
     ctx.after(2850, function()
       pop_before = colony.live_colonists(c)
       deaths_before = #c.deaths
@@ -87,8 +92,8 @@ core.register("m1_desirability", {
     ctx.after(3300, function()
       local pop = colony.live_colonists(c)
       left_seen = pop_before - pop
-      ctx.check("D fell under the leave line", (c.d or 0) < desirability.defaults.leave_below,
-        string.format("%.2f", c.d or 0))
+      ctx.check("D fell under the leave line", (min_d or c.d or 0) < desirability.defaults.leave_below,
+        string.format("min %.2f", min_d or c.d or 0))
       ctx.check("colonists left", left_seen >= 1, left_seen)
       ctx.check("leaving is not starvation", #c.deaths == deaths_before and pop_before > 0,
         string.format("deaths %d -> %d", deaths_before, #c.deaths))

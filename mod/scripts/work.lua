@@ -13,6 +13,8 @@ local farm = require("scripts.model.farm")
 local mine_plan = require("scripts.model.mine_plan")
 local crates = require("scripts.model.crates")
 local compost = require("scripts.model.compost")
+local hunting = require("scripts.model.hunting")
+local wildlife = require("scripts.wildlife")
 local construct = require("scripts.model.construct")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
@@ -25,8 +27,8 @@ M.MINE_PER_TRIP = 5         -- resource units mined per trip; each unit becomes 
 M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still feeds the biters
 M.CARRY_CAP = 20
 M.ORES = mine_plan.ORES   -- every ore a Miner's Hut can be pointed at
-M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", haul = "hauler",
-  construct = "builder"}
+M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", hunt = "hunter",
+  haul = "hauler", construct = "builder"}
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
 
@@ -62,6 +64,18 @@ end
 local function item_name(item)
   if item and prototypes.item[item] then return {"item-name." .. item} end
   return item or "?"
+end
+
+-- One completed trip = one use of the hut's tool. Shared by `work.finish` (harvest) and the hunter, which
+-- completes its trip the moment the animal dies rather than after a work animation.
+local function use_tool(hut)
+  local def = labour.HUTS[hut.entity.name]
+  if not def then return end
+  local broke
+  hut.wear, broke = labour.wear(hut.wear or 0)
+  if broke and hut.entity.remove_item{name = def.tool, count = 1} > 0 then
+    popup(hut.entity.surface, hut.entity.position, {"", "Tool broke: ", item_name(def.tool)})
+  end
 end
 
 -- Labour buildings -------------------------------------------------------------------------------
@@ -258,6 +272,19 @@ local function find_site(colony, e, hut)
       if site then return site end
     end
     return nil
+  elseif hut.job == "hunt" then
+    -- Game roams, so it is picked by position *now*; the engine's attack command then does the chasing.
+    -- One animal is claimed at a time so three hunters do not all shoot the same boar.
+    local list = {}
+    for un, rec in pairs(colony.animals or {}) do
+      local a = rec.entity
+      if a.valid and not colony.claimed["boar:" .. un] and dist2(a.position, base) <= radius * radius
+          and in_territory(a) then
+        list[#list + 1] = {unit_number = un, position = a.position, entity = a}
+      end
+    end
+    local pick = hunting.nearest(list, base, radius)
+    return pick and pick.entity
   elseif hut.job == "farm" then
     -- Ripe plots first (food now), then fallow plots (plant for later); nearest wins, ties by unit_number.
     local best, best_ripe, best_d, r2 = nil, false, nil, radius * radius
@@ -313,6 +340,15 @@ local function go(e, dest, radius)
   local cmd = {type = defines.command.go_to_location, radius = radius, distraction = defines.distraction.none}
   if type(dest) == "table" and dest.x then cmd.destination = dest else cmd.destination_entity = dest end
   e.commandable.set_command(cmd)
+end
+
+-- Hunting (#79): the engine does the chasing and the shooting. The colonist prototype carries a ranged
+-- hitscan attack and the animal is on a force nobody is at war with, so this is a real kill, with real
+-- damage, and no aggro to the colony.
+function M.command_attack(e, animal)
+  if not (e and e.valid and animal and animal.valid) then return end
+  e.commandable.set_command{type = defines.command.attack, target = animal,
+    distraction = defines.distraction.none}
 end
 
 -- Haul planning ----------------------------------------------------------------------------------
@@ -658,7 +694,20 @@ local function start_trip(colony, un, hut)
     colony.no_site[hut.job] = game.tick + 600
     return false
   end
-  if hut.job ~= "mine" then colony.claimed[key(site)] = true end   -- resources are shared, trees/patches/plots are not
+  -- Resources are shared; trees/patches/plots are not; an animal is claimed by unit_number because its
+  -- position moves under our feet.
+  if hut.job == "hunt" then
+    colony.claimed["boar:" .. site.unit_number] = true
+  elseif hut.job ~= "mine" then
+    colony.claimed[key(site)] = true
+  end
+  if hut.job == "hunt" then
+    storage.unit_state[un] = {colony_id = colony.id, job = "hunt", hut = hut, state = "hunting", site = site,
+      site_key = "boar:" .. site.unit_number, attempts = 0}
+    set_label(e, M.LABELS.hunt)
+    M.command_attack(e, site)
+    return true
+  end
   storage.unit_state[un] = {colony_id = colony.id, job = hut.job, hut = hut, state = "to_site", site = site,
     site_key = key(site)}
   set_label(e, M.LABELS[hut.job])
@@ -744,7 +793,8 @@ end
 function M.release(st)
   if not st then return end
   local colony = storage.colonies[st.colony_id]
-  if colony and st.site_key and (st.job == "chop" or st.job == "forage" or st.job == "farm" or st.job == "construct") then
+  if colony and st.site_key and (st.job == "chop" or st.job == "forage" or st.job == "farm"
+      or st.job == "construct" or st.job == "hunt") then
     colony.claimed[st.site_key] = nil
   end
   if st.carry and colony then
@@ -789,15 +839,7 @@ scheduler.register("work.finish", function(d)
     M.assign(colony, d.un)
     return
   end
-  -- one completed trip = one use of the hut's tool
-  local def = labour.HUTS[hut.entity.name]
-  if def then
-    local broke
-    hut.wear, broke = labour.wear(hut.wear or 0)
-    if broke and hut.entity.remove_item{name = def.tool, count = 1} > 0 then
-      popup(hut.entity.surface, hut.entity.position, {"", "Tool broke: ", item_name(def.tool)})
-    end
-  end
+  use_tool(hut)   -- one completed trip = one use of the hut's tool
   local pos, k, item, n = site.position, key(site), site.name, 0
   if st.job == "chop" then
     colony.claimed[k] = nil; site.destroy()
@@ -923,8 +965,31 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   if not st then return end
   local colony = storage.colonies[st.colony_id]
   if not colony then return end
-  if ev.result ~= defines.behavior_result.success then
+  if ev.result ~= defines.behavior_result.success and st.job ~= "hunt" then
     M.release(st)
+    M.assign(colony, ev.unit_number)
+    return
+  end
+  if st.state == "hunting" then
+    -- The engine reports the attack command finished when the animal dies - or when it cannot be reached.
+    local animal = st.site
+    if st.site_key then colony.claimed[st.site_key] = nil; st.site_key = nil end
+    if animal and animal.valid and (st.attempts or 0) < hunting.MAX_ATTEMPTS then
+      st.attempts = (st.attempts or 0) + 1
+      st.site_key = "boar:" .. animal.unit_number
+      colony.claimed[st.site_key] = true
+      M.command_attack(colony.colonists[ev.unit_number], animal)
+      return
+    end
+    st.site = nil
+    local e = colony.colonists[ev.unit_number]
+    if st.carry and st.hut and st.hut.entity.valid and e and e.valid then
+      use_tool(st.hut)                          -- a kill is a completed trip: the rifle wears once
+      st.state = "to_hut"
+      go(e, st.hut.entity.position, 3)
+      return
+    end
+    if st.hut and st.hut.workers then st.hut.workers[ev.unit_number] = nil end
     M.assign(colony, ev.unit_number)
     return
   end
@@ -1021,6 +1086,22 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     if st.carry then return_to_hall(colony, st.carry) end
     st.carry = nil
     M.assign(colony, ev.unit_number)
+  end
+end)
+
+-- A hunter's kill is credited here, not in the work loop: the engine kills the animal, and `ev.cause` is the
+-- only link between the dying animal and the hut the meat belongs in.
+events.on(defines.events.on_entity_died, function(ev)
+  if ev.entity.name ~= wildlife.ANIMAL then return end
+  local cause = ev.cause
+  local un = cause and cause.valid and cause.unit_number
+  local st = un and storage.unit_state[un]
+  if not (st and st.job == "hunt") then return end
+  local n = hunting.MEAT_PER_KILL
+  st.carry = st.carry or {}
+  st.carry[#st.carry + 1] = {item = "colony-meat", count = n}
+  if ev.entity.surface and ev.entity.position then
+    popup(ev.entity.surface, ev.entity.position, {"", "+" .. n .. " ", item_name("colony-meat")})
   end
 end)
 

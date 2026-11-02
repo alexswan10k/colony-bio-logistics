@@ -23,7 +23,24 @@ colonist.flags = {"placeable-off-grid", "not-repairable", "breaths-air"}
 local person = {filename = "__colony-bio-logistics__/graphics/colonist.png", width = 64, height = 64,
   direction_count = 1, frame_count = 1, line_length = 1, scale = 0.6, animation_speed = 1}
 colonist.run_animation = table.deepcopy(person)
-colonist.attack_parameters.animation = table.deepcopy(person)
+-- Hunting (#79): a colonist can take a shot *when commanded*. Hitscan (`instant` delivery) rather than a
+-- projectile entity: nothing to spawn per shot, and a shot cannot miss a moving animal. The long range is what
+-- lets a hunter work from outside the animal's reach. `vision_distance` stays at 1 and nothing auto-targets,
+-- so a colonist still never starts a fight on its own.
+colonist.attack_parameters = {
+  type = "projectile",
+  range = 14,
+  cooldown = 40,
+  cooldown_deviation = 0.1,
+  ammo_category = "bullet",
+  ammo_type = {
+    target_type = "entity",
+    action = {type = "direct", action_delivery = {type = "instant",
+      target_effects = {type = "damage", damage = {amount = 20, type = "physical"}}}},
+  },
+  animation = table.deepcopy(person),
+  sound = {filename = "__base__/sound/fight/defender-gunshot-1.ogg", volume = 0.35},
+}
 colonist.icon = "__colony-bio-logistics__/graphics/colonist.png"; colonist.icon_size = 64; colonist.icons = nil
 colonist.selection_box = {{-0.4, -0.7}, {0.4, 0.4}}
 -- Spike #1 variant: does a unit load without attack_parameters at all?

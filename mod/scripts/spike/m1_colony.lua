@@ -5,6 +5,8 @@ local colony = require("scripts.colony")
 local territory = require("scripts.territory")
 local work = require("scripts.work")
 local farm = require("scripts.model.farm")
+local events = require("scripts.events")
+local wildlife = require("scripts.wildlife")
 
 core.register("m1_colony", {
   issue = 28, auto = true, desc = "town hall + housing + hauling + tools", usage = "",
@@ -25,6 +27,26 @@ core.register("m1_colony", {
     local cabin_pos = {p.x + 6, p.y + 8}
     ctx.power_at({x = cabin_pos[1], y = cabin_pos[2]})
     local cabin = build("colony-housing-cabin", cabin_pos)
+    -- Hunting Lodge (#79): real hunting - docile game on its own force, shot by colonists. Two boars are
+    -- placed beside the lodge so the hunt does not depend on where the herd happened to wander.
+    local lodge = build("colony-hunting-lodge", {p.x + 8, p.y + 12})
+    hall.insert{name = "colony-rifle", count = 3}
+    local boars = {}
+    for i = 1, 2 do
+      local b = wildlife.spawn(s, wildlife.ensure_force(), {p.x + 4 + i * 4, p.y + 16})
+      if b then
+        c.animals = c.animals or {}
+        c.animals[b.unit_number] = {entity = b, roam_at = 0}
+        wildlife.roam(b)
+        boars[#boars + 1] = b
+      end
+    end
+    local kills = 0
+    events.on(defines.events.on_entity_died, function(ev)
+      if ev.entity.name == wildlife.ANIMAL and ev.cause and ev.cause.name == "colony-colonist" then
+        kills = kills + 1
+      end
+    end)
     local patches_pre = #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30}
     local forager = build("colony-forager-hut", {p.x - 6, p.y})
     local farmhut = build("colony-farm-hut", {p.x + 6, p.y - 8})
@@ -52,6 +74,8 @@ core.register("m1_colony", {
     ctx.check("compost bin registered with the colony", bin and bin.valid and c.bins[bin.unit_number] ~= nil)
     local outside_bin = build("colony-compost-bin", {p.x + 210, p.y + 210})
     ctx.check("compost bin outside territory rejected", not (outside_bin and outside_bin.valid))
+    ctx.check("hunting lodge registered with the colony", lodge and lodge.valid and c.huts[lodge.unit_number] ~= nil)
+    ctx.check("game spawned inside territory", #boars == 2 and game.forces["colony-wildlife"] ~= nil, #boars)
     hall.insert{name = "spoilage", count = 10}
     tent.insert{name = "spoilage", count = 3}
     local outside_crate = build("colony-supply-crate", {p.x + 200, p.y + 200})
@@ -154,16 +178,27 @@ core.register("m1_colony", {
           if plot.stage == farm.GROWING then saw.planted = true elseif plot.stage == farm.RIPE then saw.ripe = true end
         end
         if produce_total() > 0 then saw.produce = true end
+        if hall.get_item_count("colony-meat") > 0 then saw.meat = true end
+        for _, h in pairs(c.huts) do
+          if h.entity.valid and h.entity.get_item_count("colony-meat") > 0 then saw.meat = true end
+        end
         -- Yield is deposited in the hut that employed the colonist (#72), not walked to the hall.
         for _, h in pairs(c.huts) do
           if h.entity.valid then
-            for _, item in ipairs({"wood", "iron-ore", "copper-ore", "coal", "stone", "colony-forage", "colony-produce"}) do
+            for _, item in ipairs({"wood", "iron-ore", "copper-ore", "coal", "stone", "colony-forage",
+                "colony-produce", "colony-meat"}) do
               if h.entity.get_item_count(item) > 0 then saw.hut_output = true end
             end
           end
         end
       end)
     end
+    ctx.after(colony.INTERVAL * 12, function()
+      -- Guarantee a hunter: the hunting share of the workforce is small, and a 12000-tick test should not
+      -- depend on the matrix happening to pick it. A player lock is the normal way to force a role (#38).
+      local ids = colony.colonist_ids(c)
+      if ids[1] then c.locks = c.locks or {}; c.locks[ids[1]] = "hunt" end
+    end)
     ctx.after(colony.INTERVAL * 20, function()
       local tcnt = function(e, i) return e.get_inventory(defines.inventory.chest).get_item_count(i) end
       local th, ch = c.houses[tent.unit_number], c.houses[cabin.unit_number]
@@ -230,6 +265,12 @@ core.register("m1_colony", {
       ctx.check("repair pack consumed", hall.get_item_count("repair-pack") == 0, hall.get_item_count("repair-pack"))
       ctx.check("ghost outside territory was not built", chest_at({x = p.x + 220, y = p.y + 220}) == nil)
       ctx.check("hall received resources", hall.get_item_count("iron-ore") + hall.get_item_count("colony-forage") > 0 or hall.get_item_count("wood") > 100)
+      ctx.check("hunters killed game", kills > 0, kills)
+      ctx.check("a hunter's kill reached colony stock", saw.meat)
+      local live_game = 0
+      for _, rec in pairs(c.animals or {}) do if rec.entity.valid then live_game = live_game + 1 end end
+      ctx.check("wildlife lives on its own force, in territory", game.forces["colony-wildlife"] ~= nil and live_game > 0,
+        live_game)
       ctx.check("spoilage was cleared out of the hall", hall.get_item_count("spoilage") == 0,
         hall.get_item_count("spoilage"))
       ctx.check("spoilage was cleared out of a house", tent.valid and tent.get_item_count("spoilage") == 0,

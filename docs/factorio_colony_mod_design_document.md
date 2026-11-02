@@ -73,6 +73,22 @@ Targeting **Factorio: Space Age** allows us to use native `spoil_ticks` and `spo
    * **Foraging Post, Hunting Lodge & Fishing Dock:** Harvest wild berries, game meat, and coastal fish.
    * **Natural forage patches:** Berries grow as world entities autoplaced on grass (they ride the vanilla vegetation/`trees` map-gen control, so density follows that slider). A Forager's Hut never spawns bushes: it harvests patches that already exist inside colony territory, and a picked patch grows back in place after $40\text{--}70$ seconds. Chunks generated before the patches existed are seeded once on load, so old saves behave like new ones ($\approx 3$ patches per $32 \times 32$ chunk).
    * **Spoilage:** Raw foods spoil quickly ($5\text{--}10\text{ minutes}$).
+
+**M1 hunting slice (implemented, #79):** hunting is **real engine combat** - a hunter is given an `attack`
+command and the engine does the chasing, the shooting and the kill - but the colony stays a non-combat faction
+by putting the game on its **own force**. `colony-wildlife` is at cease-fire with `player`, `enemy` and
+`neutral`, so nothing shoots a boar except a hunter, biters ignore it, and turrets have no reason to spend
+ammo on dinner. The **Hunting Lodge** (3 hunters, one **rifle** each, 30-tile radius, must be built inside
+territory) sends a hunter at the nearest live **Wild boar** inside the territory, claims it (by unit number,
+because it moves), and commands an attack. The colonist prototype carries a ranged *hitscan* attack (14 tiles,
+no projectile entity to spawn, no shot that can miss a moving animal) - `vision_distance` stays at 1, so a
+colonist still never picks a fight on its own; the gun only matters when a hunter is told to use it. A kill
+drops 6 **Wild game meat** (spoils in 20 min) which the hunter carries back to the lodge; the meat is credited
+from `on_entity_died`'s `ev.cause`, so the hut that employed the hunter is the hut that gets fed. Game is
+**docile by design**: it wanders (`defines.command.wander`), never retaliates, and is deliberately not
+dangerous - the interesting ramification (aggro, defence, hunters as soldiers) is left for the combat slice,
+which can flip the force relationship without touching the lodge. The herd is capped (`wildlife.CAP` = 12 per
+colony, `PER_CHUNK` = 0.5, one spawn per evaluation), so hunting never becomes a source of unbounded entities.
 2. **Mid Game (Agriculture & Salt/Smoke Preservation - Medium Shelf Life):**
    * **Farms / Greenhouses:** Require water, seeds, and fertilizer (yielding $2\times$ crops when built on lush/fertile soil tiles).
    * **Kitchens & Smokehouses:** Combine raw meat/fish with **Salt** (from coastal Salt Pans) or Wood Smoke, or bake grain into Bread, increasing nutrition $4\times$ and extending shelf life to $30\text{--}60\text{ minutes}$.
@@ -99,7 +115,7 @@ Players configure a per-colony **Priority Matrix** (ranked $1$ to $4$, or disabl
 4. **Haul (Logistics):** Move items between Colony Crates and opted-in machines, including **hand-feeding ammo into Gun Turrets** and fuel into burner machines.
 5. **Harvest / Mine / Chop:** Mine ore patches, chop trees, fish, or tend farms within territory.
 
-**M1 behaviour (implemented):** the Town Hall panel exposes the matrix for the live roles (haul, forage, chop, mine, farm; rank 1–4, 0 = off). Jobs sharing a rank form one priority group and split the workforce by the food ratio, so the default (`haul 1`, harvest roles `2`) behaves like the old rule set. The planner (1) keeps roughly 30% of the colony hauling while hauling is enabled and there is haul work (at least one colonist), (2) takes the best-ranked enabled harvest role with a free tooled slot, and (3) splits a group by the food ratio, shifting toward foraging when stocks are below target. Harvest sites are chosen nearest-first inside territory, so colonists visibly work the forest or patch beside their hut. A Miner's Hut additionally carries a per-ore priority (iron/copper/coal/stone, rank 1–4, 0 = off): the hut works the best-ranked ore that is in range and only falls back to distance between ores sharing a rank, so it no longer walks past iron to grab the closest stone.
+**M1 behaviour (implemented):** the Town Hall panel exposes the matrix for the live roles (haul, forage, chop, mine, farm, hunt; rank 1\u20134, 0 = off). Jobs sharing a rank form one priority group and split the workforce by the food ratio, so the default (`haul 1`, harvest roles `2`) behaves like the old rule set. The planner (1) keeps roughly 30% of the colony hauling while hauling is enabled and there is haul work (at least one colonist), (2) takes the best-ranked enabled harvest role with a free tooled slot, and (3) splits a group by the food ratio, shifting toward foraging when stocks are below target. Harvest sites are chosen nearest-first inside territory, so colonists visibly work the forest or patch beside their hut. A Miner's Hut additionally carries a per-ore priority (iron/copper/coal/stone, rank 1–4, 0 = off): the hut works the best-ranked ore that is in range and only falls back to distance between ores sharing a rank, so it no longer walks past iron to grab the closest stone.
 
 **Construction & repair (implemented, #37):** builders honour the matrix like any other role but are capped at 25% of the population (`model/construct.lua`), so a blueprint never costs the town its dinner. Every 5 s each colony re-scans its claimed area once (a player blueprint fires no build event) and keeps a small registry of `entity-ghost`s and of damaged colony buildings; assignment reads that registry, never the surface. A ghost's price is its `ghost_prototype.items_to_place_this`, paid out of colony stock up front and carried by the builder, who then revives it; if the site refuses to revive the materials come back and the ghost is skipped for a minute - unless the only thing in the way is the builder itself standing on the footprint, in which case it steps aside and tries again (a unit blocks `revive`, #76). Repairs run before builds and consume one `repair-pack` per 200 health, so repair packs are a logistics input like tools. Ghosts outside territory are ignored.
 

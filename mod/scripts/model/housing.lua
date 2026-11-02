@@ -3,7 +3,8 @@
 -- So electricity substitutes for fuel/heat. Later needs (water, luxury goods) are just more entries here.
 local M = {}
 
-M.FOOD = {{item = "colony-forage", per = 1}, {item = "raw-fish", per = 1}, {item = "colony-produce", per = 1}}
+M.FOOD = {{item = "colony-forage", per = 1}, {item = "colony-meat", per = 1}, {item = "raw-fish", per = 1},
+  {item = "colony-produce", per = 1}}
 
 M.TIERS = {
   tent = {

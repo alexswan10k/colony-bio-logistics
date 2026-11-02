@@ -5,6 +5,7 @@ M.HUTS = {
   ["colony-woodcutter-hut"] = {job = "chop", tool = "colony-axe", capacity = 3},
   ["colony-miner-hut"] = {job = "mine", tool = "colony-pickaxe", capacity = 3},
   ["colony-farm-hut"] = {job = "farm", tool = "colony-hoe", capacity = 3},
+  ["colony-hunting-lodge"] = {job = "hunt", tool = "colony-rifle", capacity = 3},
 }
 -- Worker trips before one tool in the hut wears out. A trip is ~10s of walking + 8s of work, so a hut
 -- with three workers loses a tool roughly every 1-2 minutes: fast enough to see, slow enough to be logistics.

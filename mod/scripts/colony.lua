@@ -10,6 +10,7 @@ local construct = require("scripts.model.construct")
 local desirability = require("scripts.model.desirability")
 local colony_model = require("scripts.model.colony_model")
 local scenic = require("scripts.model.scenic")
+local compost = require("scripts.model.compost")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local tags = require("scripts.model.tags")
@@ -36,6 +37,9 @@ M.CRATES = {
   [M.DEMAND_CRATE] = crates.DEMAND,
   [M.WAREHOUSE] = crates.WAREHOUSE,
 }
+-- Compost Bin (#78, design §3.2): spoilage is removed from houses and stock by colonists and converted here.
+M.COMPOST_BIN = "colony-compost-bin"
+M.COMPOST_TICKS = 600           -- conversion pass cadence; a bin is a building, not a per-tick machine
 M.CLAIM_RADIUS = 1              -- chunks, Chebyshev => 3x3 chunks
 M.STARVE_AFTER = 4              -- consecutive evaluations with unmet critical need before a colonist dies
 M.SCENIC_RADIUS = 40            -- tiles around the hall that scenic reads (fixed: cost must not grow with the town)
@@ -132,6 +136,30 @@ function M.crate_list(colony, kind)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.crates[un] end
   return out
+end
+
+-- Compost bins in deterministic (unit_number) order; prunes dead ones. Same shape as crate_list.
+function M.bin_list(colony)
+  local ids = {}
+  for un, b in pairs(colony.bins or {}) do
+    if b.entity.valid then ids[#ids + 1] = un else colony.bins[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.bins[un] end
+  return out
+end
+
+-- The bin a colonist would walk to from `pos`: nearest wins, ties by unit_number, so the choice is stable.
+function M.nearest_bin(colony, pos)
+  local best, best_d
+  for _, b in ipairs(M.bin_list(colony)) do
+    local e = b.entity
+    local dx, dy = e.position.x - pos.x, e.position.y - pos.y
+    local d = dx * dx + dy * dy
+    if not best_d or d < best_d then best, best_d = b, d end
+  end
+  return best
 end
 
 -- Colony stock (Town Hall + warehouses) as one table: an assignment asks about a dozen items and each
@@ -498,6 +526,17 @@ local function on_built(ev)
       filters = {}, inflight = {}}
     script.register_on_object_destroyed(e)
     if dict then M.apply_tags(colony, e, dict) end
+  elseif name == M.COMPOST_BIN and e.type ~= "entity-ghost" then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.bins = colony.bins or {}
+    colony.bins[e.unit_number] = {entity = e, colony_id = colony.id}
+    script.register_on_object_destroyed(e)
+    if not colony.compost_timer then
+      colony.compost_timer = true
+      scheduler.after(M.COMPOST_TICKS, "colony.compost", {colony_id = colony.id})
+    end
   elseif (M.HOUSES[name] or labour.HUTS[name]) and e.type ~= "entity-ghost" then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -555,6 +594,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
       colony.crates[un] = nil
       return
     end
+    if colony.bins and colony.bins[un] then
+      colony.bins[un] = nil
+      return
+    end
     if colony.machines and colony.machines[un] then
       colony.machines[un] = nil
       colony.machine_dirty = true
@@ -594,6 +637,32 @@ function M.set_machine(colony, e, enabled)
   end
   return m
 end
+
+-- ---------- compost: spoilage -> fertilizer (#78) ----------
+-- Batches, not a per-tick reaction: a bin's contents are read once per pass, the whole multiples of ten are
+-- swapped for fertilizer, and the remainder stays for next time. Colonists move both halves in and out, so
+-- nothing here touches an inventory that is not already there.
+scheduler.register("colony.compost", function(d)
+  local colony = storage.colonies[d.colony_id]
+  if not colony then return end
+  local bins = M.bin_list(colony)
+  if #bins == 0 then
+    colony.compost_timer = nil     -- nothing to compost; a new bin restarts the pass
+    return
+  end
+  for _, b in ipairs(bins) do
+    local have = b.entity.get_item_count(compost.SOURCE)
+    local made = compost.batches(have)
+    if made > 0 then
+      b.entity.remove_item{name = compost.SOURCE, count = made * compost.SPOILAGE_PER_FERTILIZER}
+      local left = made - b.entity.insert{name = compost.PRODUCT, count = made}
+      if left > 0 then                      -- bin full: the fertilizer is not lost, it waits in the bin's place
+        b.entity.insert{name = compost.SOURCE, count = left * compost.SPOILAGE_PER_FERTILIZER}
+      end
+    end
+  end
+  scheduler.after(M.COMPOST_TICKS, "colony.compost", d)
+end)
 
 -- ---------- blueprint / copy-paste persistence (#36) ----------
 -- Everything above lives in `storage`, which a blueprint cannot see. BlueprintEntity.tags is the one channel

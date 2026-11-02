@@ -200,6 +200,30 @@ def warehouse(px=192):
     save(img, "warehouse.png", px, px)
     Image.open(os.path.join(OUT, "warehouse.png")).resize((64, 64), Image.LANCZOS).save(os.path.join(OUT, "icon-warehouse.png"))
 
+def compost_bin(px=128):
+    img, d = canvas(px, px)
+    shadow(d, (10, px * .8, px - 10, px - 6))
+    outline_rect(d, (18, 46, px - 18, px - 14), (120, 105, 80, 255))            # bin body
+    outline_rect(d, (12, 28, px - 12, 48), (150, 130, 95, 255))                # lid
+    d.rectangle(S(14, 40, px - 14, 50), fill=(95, 150, 80, 255))                # green band: compost
+    for x in (34, px // 2, px - 34):                                            # slats
+        d.line(S(x, 52, x, px - 16), fill=(100, 88, 66, 255), width=2 * SS)
+    # sprout: a compost bin that is working has something growing out of it
+    d.line(S(px / 2, 30, px / 2, 12), fill=(70, 120, 60, 255), width=3 * SS)
+    d.ellipse(S(px / 2 - 16, 8, px / 2, 24), fill=(95, 175, 90, 255), outline=(35, 80, 35, 255), width=2 * SS)
+    d.ellipse(S(px / 2, 8, px / 2 + 16, 24), fill=(110, 190, 100, 255), outline=(35, 80, 35, 255), width=2 * SS)
+    save(img, "compost-bin.png", px, px)
+    Image.open(os.path.join(OUT, "compost-bin.png")).resize((64, 64), Image.LANCZOS).save(
+        os.path.join(OUT, "icon-compost-bin.png"))
+
+def icon_fertilizer():
+    img, d = canvas(64, 64)
+    d.polygon(S(20, 22, 44, 22, 50, 56, 14, 56), fill=(190, 170, 120, 255), outline=(90, 75, 45, 255), width=2 * SS)
+    d.line(S(20, 28, 44, 28), fill=(150, 130, 90, 255), width=2 * SS)
+    d.ellipse(S(26, 34, 38, 46), fill=(95, 165, 85, 255), outline=(35, 80, 35, 255), width=2 * SS)
+    d.line(S(32, 40, 32, 50), fill=(35, 80, 35, 255), width=2 * SS)
+    save(img, "icon-fertilizer.png", 64, 64)
+
 def bush(px=64):
     img, d = canvas(px, px)
     shadow(d, (10, 40, 54, 58))
@@ -222,7 +246,7 @@ hut("farm-hut", (150, 120, 60, 255), (205, 175, 115, 255), em_crop)
 bush(); icon_basket(); watchtower(); farm_plots(); icon_hoe(); icon_produce()
 crate("supply-crate", (90, 190, 90, 255), em_out)
 crate("demand-crate", (90, 150, 220, 255), em_in)
-warehouse()
+warehouse(); compost_bin(); icon_fertilizer()
 hall(); tent(); cabin(); rack(); icon_axe(); icon_pick(); icon_forage(); colonist()
 icon_building("icon-town-hall.png", "hall"); icon_building("icon-tent.png", "tent")
 icon_building("icon-cabin.png", "cabin"); icon_building("icon-tool-rack.png", "rack")

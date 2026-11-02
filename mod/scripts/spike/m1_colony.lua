@@ -46,6 +46,14 @@ core.register("m1_colony", {
     ctx.check("crates registered with the colony", supply_crate and demand_crate and warehouse
       and c.crates[supply_crate.unit_number] and c.crates[demand_crate.unit_number]
       and c.crates[warehouse.unit_number], supply_crate and supply_crate.valid)
+    -- Compost Bin (#78): spoilage is garbage that blocks food, so colonists carry it here and it rots down
+    -- into fertilizer. Ten spoilage in the hall and three in the tent cover both sources (stock and house).
+    local bin = build("colony-compost-bin", {p.x + 16, p.y + 14})
+    ctx.check("compost bin registered with the colony", bin and bin.valid and c.bins[bin.unit_number] ~= nil)
+    local outside_bin = build("colony-compost-bin", {p.x + 210, p.y + 210})
+    ctx.check("compost bin outside territory rejected", not (outside_bin and outside_bin.valid))
+    hall.insert{name = "spoilage", count = 10}
+    tent.insert{name = "spoilage", count = 3}
     local outside_crate = build("colony-supply-crate", {p.x + 200, p.y + 200})
     ctx.check("crate outside territory rejected", not (outside_crate and outside_crate.valid))
     -- The supply crate holds coal, which nothing else produces, so seeing coal in the hall proves the
@@ -222,6 +230,13 @@ core.register("m1_colony", {
       ctx.check("repair pack consumed", hall.get_item_count("repair-pack") == 0, hall.get_item_count("repair-pack"))
       ctx.check("ghost outside territory was not built", chest_at({x = p.x + 220, y = p.y + 220}) == nil)
       ctx.check("hall received resources", hall.get_item_count("iron-ore") + hall.get_item_count("colony-forage") > 0 or hall.get_item_count("wood") > 100)
+      ctx.check("spoilage was cleared out of the hall", hall.get_item_count("spoilage") == 0,
+        hall.get_item_count("spoilage"))
+      ctx.check("spoilage was cleared out of a house", tent.valid and tent.get_item_count("spoilage") == 0,
+        tent.valid and tent.get_item_count("spoilage"))
+      ctx.check("the compost bin turned spoilage into fertilizer",
+        hall.get_item_count("colony-fertilizer") + (bin.valid and bin.get_item_count("colony-fertilizer") or 0) >= 1,
+        hall.get_item_count("colony-fertilizer") .. " in the hall")
       ctx.finish()
     end)
   end,

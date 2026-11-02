@@ -85,6 +85,8 @@ Targeting **Factorio: Space Age** allows us to use native `spoil_ticks` and `spo
 ### 3.2 Dealing with Spoilage (The Closed Loop)
 * Expired food turns into native `spoilage`, which colonists automatically clear out of houses and haul to **Compost Bins** to turn into **Fertilizer** for planetary or orbital farms.
 
+**M1 implementation (#78):** spoilage is not just cosmetic - it is the failure mode of the whole food chain. A house whose inventory fills with garbage cannot accept food, so it starves its occupants while the Town Hall is stocked. Colonists therefore clear it out on two paths: **for free on a delivery** (a hauler standing in a house takes the spoilage away with it instead of walking home empty) and as the **lowest-priority haul band** (`compost`, below buffering, because nothing is waiting on it but the food slots it blocks) for spoilage sitting in colony stock. Both end at a **Compost Bin** (1x1, 12 slots, must be inside territory like every colony building), which converts whole batches of ten into **Colony Fertilizer** on a 10 s pass - batches, not a per-tick reaction, and the remainder waits in the bin. Fertilizer is carried back into colony stock like any other output; spending it (seeds, water, the 2x yield rule) belongs to the farming slice (#44), so today it is an input waiting for its consumer.
+
 ---
 
 ## 4. Agent Behavior, Explicit Tools & Priority System

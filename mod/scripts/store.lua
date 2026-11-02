@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 11
+local SCHEMA = 12
 
 local migrations = {
   [1] = function()
@@ -61,6 +61,10 @@ local migrations = {
       c.pop_cache, c.food_cache, c.stock_cache = nil, nil, nil
       for _, m in pairs(c.machines or {}) do m.has_output, m.need, m.damaged = nil, nil, nil end
     end
+  end,
+  [12] = function()
+    -- compost bins (#78): [unit_number] = {entity, colony_id}
+    for _, c in pairs(storage.colonies) do c.bins = c.bins or {}; c.compost_timer = nil end
   end,
 }
 

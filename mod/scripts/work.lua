@@ -12,6 +12,7 @@ local haul_plan = require("scripts.model.haul_plan")
 local farm = require("scripts.model.farm")
 local mine_plan = require("scripts.model.mine_plan")
 local crates = require("scripts.model.crates")
+local compost = require("scripts.model.compost")
 local construct = require("scripts.model.construct")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
@@ -370,6 +371,14 @@ local function crate_contents(c)
   return out
 end
 
+-- A bin's finished fertilizer, offered like a supply crate's contents.
+local function bin_offer(b)
+  local n = b.entity.get_item_count(compost.PRODUCT)
+  if n < 1 then return nil end
+  return {kind = "collect", bin = b, priority = haul_plan.PRIORITY.collect, key = b.entity.unit_number,
+    demands = {{item = compost.PRODUCT, count = n}}, available = {[compost.PRODUCT] = n}}
+end
+
 local function crate_supply_offer(c)
   local contents = crate_contents(c)
   if not contents then return nil end
@@ -488,6 +497,20 @@ local function find_haul_task(colony)
   for _, c in ipairs(colony_mod.crate_list(colony, crates.DEMAND)) do
     local o = crate_demand_offer(c); if o then offers[#offers + 1] = o end
   end
+  -- Compost (#78): carry the bin's fertilizer out to colony stock, and carry stock spoilage in to it.
+  local bins = colony_mod.bin_list(colony)
+  for _, b in ipairs(bins) do
+    local o = bin_offer(b); if o then offers[#offers + 1] = o end
+  end
+  if #bins > 0 then
+    local spoil = colony_mod.stock_count(colony, compost.SOURCE)
+    if spoil > 0 then
+      local bin = bins[1]
+      offers[#offers + 1] = {kind = "compost", bin = bin, priority = haul_plan.PRIORITY.compost,
+        key = bin.entity.unit_number, demands = {{item = compost.SOURCE, count = spoil}},
+        available = {[compost.SOURCE] = spoil}}
+    end
+  end
   machine_ids(colony)   -- refresh the working sets if the registry changed
   -- A big town has thousands of machines wanting the same ore; building an offer for every one of them on
   -- every trip is what made the demand case 17 ms/tick in the #39 benchmark. Take a bounded slice instead:
@@ -530,7 +553,8 @@ local function take_load(colony, offer)
   for _, s in ipairs(offer.load) do
     local n
     if offer.kind == "collect" then
-      local src = offer.machine and offer.machine.entity or (offer.hut and offer.hut.entity) or offer.crate.entity
+      local src = offer.machine and offer.machine.entity or (offer.hut and offer.hut.entity)
+        or (offer.crate and offer.crate.entity) or offer.bin.entity
       n = src.remove_item{name = s.item, count = s.count}
     else
       n = colony_mod.take_stock(colony, s.item, s.count)
@@ -654,14 +678,16 @@ local function start_haul(colony, un, e, task)
   if not task then return false end
   local taken, inflight_target = take_load(colony, task)
   if not taken then return false end
-  local dest
-  if task.kind == "collect" then dest = colony.hall.position
+  local dest, state = nil, "to_house"
+  if task.kind == "collect" then dest, state = colony.hall.position, "to_hall"
+  elseif task.kind == "compost" then dest, state = task.bin.entity.position, "to_bin"
   elseif task.house then dest = task.house.entity.position
   elseif task.machine then dest = task.machine.entity.position
   elseif task.crate then dest = task.crate.entity.position
   else dest = task.hut.entity.position end
-  storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = task.kind == "collect" and "to_hall" or "to_house",
-    target = inflight_target or (task.kind == "collect" and task.machine or nil), inflight_target = inflight_target, carry = taken}
+  storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = state, bin = task.bin,
+    target = inflight_target or (task.kind == "collect" and task.machine or nil), inflight_target = inflight_target,
+    carry = taken}
   set_label(e, "hauler")
   go(e, dest, 3)
   return true
@@ -931,7 +957,34 @@ events.on(defines.events.on_ai_command_completed, function(ev)
       if #refused > 0 then return_to_hall(colony, refused) end
       if inserted == 0 then target.blocked_until = game.tick + 600 end   -- machine refuses these items: stop retrying for a while
       st.carry = nil
+      -- Spoilage (#78): a house that fills up with garbage cannot take food, and this colonist is already
+      -- standing here, so clearing it costs a trip nobody had to plan.
+      local e = colony.colonists[ev.unit_number]
+      local bin = e and e.valid and colony_mod.nearest_bin(colony, target.entity.position)
+      local spoil = bin and target.entity.remove_item{name = compost.SOURCE, count = M.CARRY_CAP}
+      if spoil and spoil > 0 then
+        st.carry, st.state, st.bin = {{item = compost.SOURCE, count = spoil}}, "to_bin", bin
+        go(e, bin.entity.position, 3)
+        return
+      end
     else M.release(st) end
+    M.assign(colony, ev.unit_number)
+  elseif st.state == "to_bin" then
+    local e = colony.colonists[ev.unit_number]
+    local bin, carry = st.bin, st.carry
+    st.bin, st.carry = nil, nil
+    local leftover, dropped = {}, 0
+    if bin and bin.entity.valid then
+      for _, s in ipairs(carry or {}) do
+        local n = bin.entity.insert{name = s.item, count = s.count}
+        dropped = dropped + n
+        if n < s.count then leftover[#leftover + 1] = {item = s.item, count = s.count - n} end
+      end
+    else leftover = carry or {} end
+    -- A bin full or gone is not a reason to lose the load; the hall is a poor home for spoilage but the bin
+    -- can be rebuilt, and the next delivery clears it out again.
+    if #leftover > 0 then return_to_hall(colony, leftover) end
+    if dropped > 0 and e and e.valid then popup(e.surface, e.position, {"", "Composted ", tostring(dropped)}) end
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_site" then
     st.state = "working"

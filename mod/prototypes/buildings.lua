@@ -50,6 +50,10 @@ local farmhut = chest_clone("iron-chest", "colony-farm-hut", "farm-hut", 8, 1)
 local supply_crate = chest_clone("iron-chest", "colony-supply-crate", "supply-crate", 16, 1)
 local demand_crate = chest_clone("iron-chest", "colony-demand-crate", "demand-crate", 16, 1)
 local warehouse = chest_clone("steel-chest", "colony-warehouse", "warehouse", 48, 1.5)
+-- Compost Bin (design §3.2, #78): where spoiled food goes to become something useful. Colonists clear
+-- `spoilage` out of houses and out of colony stock into it, and the bin turns batches of it into fertilizer,
+-- which is the input #44's farming slice spends.
+local compost_bin = chest_clone("iron-chest", "colony-compost-bin", "compost-bin", 12, 1)
 
 -- Farm plot (#44 first slice): a 1x1 tilled tile the player places on farmland. Three graphics
 -- variations are the crop stages; the script switches graphics_variation as the crop grows.
@@ -125,6 +129,7 @@ local marker = {
 
 data:extend({
   hall, tent, cabin, forager, woodcutter, miner, watchtower, farmhut, supply_crate, demand_crate, warehouse,
+  compost_bin,
   plot, bush, sink, marker,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -137,6 +142,11 @@ data:extend({
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(warehouse, "warehouse", "z[colony]-l[warehouse]"),
+  item_of(compost_bin, "compost-bin", "z[colony]-m[compost-bin]"),
+  {type = "item", name = "colony-fertilizer", icon = G .. "icon-fertilizer.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-c[fertilizer]", stack_size = 100,
+   localised_name = {"item-name.colony-fertilizer"},
+   localised_description = {"item-description.colony-fertilizer"}},
   {type = "item", name = "colony-farm-plot", icon = G .. "farm-plot-ripe.png", icon_size = 64,
    subgroup = "storage", order = "z[colony]-i[farm-plot]", place_result = "colony-farm-plot", stack_size = 50,
    localised_name = {"item-name.colony-farm-plot"}, localised_description = {"item-description.colony-farm-plot"}},
@@ -152,6 +162,7 @@ data:extend({
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1),
   recipe("colony-demand-crate", {wood = 10, ["iron-plate"] = 10}, 1),
   recipe("colony-warehouse", {wood = 40, ["stone-brick"] = 20, ["iron-plate"] = 20}, 3),
+  recipe("colony-compost-bin", {wood = 12, ["iron-plate"] = 4}, 1),
   recipe("colony-basket", {wood = 4}, 1),
   recipe("colony-logistics-marker", {wood = 2, ["iron-plate"] = 2}, 1),
   tool("colony-basket", "icon-basket.png"), tool("colony-axe", "icon-axe.png"), tool("colony-pickaxe", "icon-pickaxe.png"),

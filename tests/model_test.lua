@@ -4,6 +4,7 @@ local jobs = require("scripts.model.jobs")
 local cm = require("scripts.model.colony_model")
 local scenic = require("scripts.model.scenic")
 local tags = require("scripts.model.tags")
+local compost = require("scripts.model.compost")
 
 describe("desirability", function()
   local good = {food_ratio = 1, free_housing_ratio = 0.5, scenic = 0.5, leisure = 0.5, pollution = 0, deaths = {}}
@@ -426,6 +427,30 @@ describe("crates", function()
     local f = {{item = "coal", count = 20}, {item = "stone", count = 10}}
     local n, target = c.filled(f, {coal = 5, stone = 30})
     eq(n, 15); eq(target, 30)
+  end)
+end)
+
+describe("compost (#78)", function()
+  it("turns whole batches of ten spoilage into fertilizer", function()
+    eq(compost.batches(10), 1); eq(compost.batches(35), 3); eq(compost.batches(400), 40)
+  end)
+  it("leaves the remainder in the bin for next time", function()
+    local made, left = compost.batches(37)
+    eq(made, 3); eq(left, 7)
+  end)
+  it("does nothing with less than a batch", function()
+    local made, left = compost.batches(9)
+    eq(made, 0); eq(left, 9)
+  end)
+  it("is defensive about junk", function()
+    eq(compost.batches(nil), 0); eq(compost.batches(-5), 0); eq(compost.batches("x"), 0)
+    eq(compost.batches(9.9), 0)
+  end)
+  it("is the lowest haul priority, but above nothing", function()
+    local hp = require("scripts.model.haul_plan")
+    for _, band in pairs(hp.PRIORITY) do
+      if band ~= hp.PRIORITY.compost then truthy(band < hp.PRIORITY.compost) end
+    end
   end)
 end)
 

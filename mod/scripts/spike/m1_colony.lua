@@ -38,6 +38,14 @@ core.register("m1_colony", {
     local inland = build("colony-fishing-dock", {p.x - 14, p.y - 14})
     hall.insert{name = "colony-rod", count = 3}
 
+    -- Salt + preserved tier (#81): the pan is worker-free and shore-gated like the dock; the smokehouse cures
+    -- raw food with the salt the pan makes. One meat is seeded so curing does not have to wait for a kill, but
+    -- the *salt* has to come the whole way: pan -> hauler -> colony stock -> smokehouse request -> cure.
+    local pan = build("colony-salt-pan", {p.x + 22, p.y + 18})
+    local inland_pan = build("colony-salt-pan", {p.x - 20, p.y + 6})
+    local smokehouse = build("colony-smokehouse", {p.x - 6, p.y + 12})
+    if smokehouse and smokehouse.valid then smokehouse.insert{name = "colony-meat", count = 2} end
+
     -- Hunting Lodge (#79): real hunting - docile game on its own force, shot by colonists. Two boars are
     -- placed beside the lodge so the hunt does not depend on where the herd happened to wander.
     local lodge = build("colony-hunting-lodge", {p.x + 8, p.y + 12})
@@ -90,6 +98,10 @@ core.register("m1_colony", {
     ctx.check("fishing dock registered with the colony beside water",
       dock and dock.valid and c.huts[dock.unit_number] ~= nil)
     ctx.check("a dock with no water in reach is refused", not (inland and inland.valid))
+    ctx.check("salt pan registered with the colony beside water", pan and pan.valid and c.salt_pans[pan.unit_number] ~= nil)
+    ctx.check("a salt pan with no water in reach is refused", not (inland_pan and inland_pan.valid))
+    ctx.check("smokehouse registered with the colony", smokehouse and smokehouse.valid
+      and c.huts[smokehouse.unit_number] ~= nil and c.huts[smokehouse.unit_number].job == "preserve")
     hall.insert{name = "spoilage", count = 10}
     tent.insert{name = "spoilage", count = 3}
     local outside_crate = build("colony-supply-crate", {p.x + 200, p.y + 200})
@@ -167,7 +179,7 @@ core.register("m1_colony", {
     local ore_before = (ore1 and ore1.amount or 0) + (ore2 and ore2.amount or 0)
     local patches_before = #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30}
     local saw = {ore = false, wood = false, food = false, planted = false, ripe = false, produce = false,
-      hut_output = false, fish = false}
+      hut_output = false, fish = false, salt = false, preserved = false}
     local function produce_total()
       local n = hall.get_item_count("colony-produce")
       for _, h in pairs(c.houses) do
@@ -194,6 +206,21 @@ core.register("m1_colony", {
         if produce_total() > 0 then saw.produce = true end
         if hall.get_item_count("colony-meat") > 0 then saw.meat = true end
         if hall.get_item_count("colony-fish") > 0 then saw.fish = true end
+        -- Salt is made, not harvested: a pan holding any means evaporation ran, and salt in the hall means a
+        -- hauler emptied the pan.
+        if hall.get_item_count("colony-salt") > 0 then saw.salt = true end
+        for _, pan in pairs(c.salt_pans or {}) do
+          if pan.entity.valid and pan.entity.get_item_count("colony-salt") > 0 then saw.salt = true end
+        end
+        for _, item in ipairs({"colony-preserved-meat", "colony-preserved-fish"}) do
+          if hall.get_item_count(item) > 0 then saw.preserved = true end
+          for _, h in pairs(c.huts) do
+            if h.entity.valid and h.entity.get_item_count(item) > 0 then saw.preserved = true end
+          end
+          for _, h in pairs(c.houses) do
+            if h.entity.valid and h.entity.get_item_count(item) > 0 then saw.preserved = true end
+          end
+        end
         for _, h in pairs(c.huts) do
           if h.entity.valid and h.entity.get_item_count("colony-meat") > 0 then saw.meat = true end
         end
@@ -285,6 +312,8 @@ core.register("m1_colony", {
       ctx.check("hunters killed game", kills > 0, kills)
       ctx.check("a hunter's kill reached colony stock", saw.meat)
       ctx.check("fishers landed fish and it reached colony stock", saw.fish)
+      ctx.check("salt pans evaporated salt", saw.salt)
+      ctx.check("the smokehouse cured meat with it", saw.preserved)
       local live_game = 0
       for _, rec in pairs(c.animals or {}) do if rec.entity.valid then live_game = live_game + 1 end end
       ctx.check("wildlife lives on its own force, in territory", game.forces["colony-wildlife"] ~= nil and live_game > 0,

@@ -170,6 +170,36 @@ def icon_fish():
     d.ellipse(S(18, 28, 23, 33), fill=(25, 30, 40, 255))                          # eye
     save(img, "icon-fish.png", 64, 64)
 
+def em_smoke(d, px):
+    d.line(S(px / 2 - 18, 54, px / 2 + 18, 54), fill=(120, 90, 60, 255), width=4 * SS)   # rack
+    d.ellipse(S(px / 2 - 8, 40, px / 2 + 8, 52), fill=(170, 90, 70, 255), outline=(60, 30, 25, 255), width=2 * SS)
+    for i, x in enumerate((px / 2 - 6, px / 2, px / 2 + 6)):                             # smoke
+        d.arc(S(x - 5, 18 + i * 3, x + 5, 32 + i * 3), 200, 340, fill=(225, 225, 225, 220), width=2 * SS)
+
+def salt_pan(px=128):
+    img, d = canvas(px, px)
+    shadow(d, (10, px * .8, px - 10, px - 6))
+    outline_rect(d, (18, 54, px - 18, px - 22), (110, 105, 95, 255))          # frame
+    d.rectangle(S(26, 62, px - 26, px - 30), fill=(90, 140, 175, 255))       # brine
+    for x, y in ((40, 74), (56, 78), (72, 72), (88, 78), (60, 92), (82, 90), (46, 88), (94, 66)):
+        d.rectangle(S(x, y, x + 6, y + 5), fill=(240, 240, 235, 255))        # salt crystals
+    save(img, "salt-pan.png", px, px)
+    Image.open(os.path.join(OUT, "salt-pan.png")).resize((64, 64), Image.LANCZOS).save(
+        os.path.join(OUT, "icon-salt-pan.png"))
+
+def icon_salt():
+    img, d = canvas(64, 64)
+    for x, y in ((20, 26), (32, 22), (44, 28), (26, 38), (40, 40), (32, 32)):
+        d.rectangle(S(x, y, x + 9, y + 8), fill=(245, 245, 240, 255), outline=(150, 150, 145, 255), width=2 * SS)
+    save(img, "icon-salt.png", 64, 64)
+
+def icon_preserved(name, meat_colour):
+    img, d = canvas(64, 64)
+    d.ellipse(S(12, 22, 48, 46), fill=meat_colour, outline=(60, 35, 30, 255), width=2 * SS)
+    d.line(S(14, 24, 46, 44), fill=(240, 235, 220, 255), width=2 * SS)       # curing string
+    d.line(S(14, 44, 46, 24), fill=(240, 235, 220, 255), width=2 * SS)
+    save(img, name, 64, 64)
+
 def farm_plots(px=64):
     def soil(d):
         d.rectangle(S(2, 2, px - 2, px - 2), fill=(120, 85, 55, 255), outline=(70, 50, 30, 255), width=2 * SS)
@@ -298,10 +328,13 @@ hut("miner-hut", (100, 100, 110, 255), (150, 150, 155, 255), em_pick)
 hut("farm-hut", (150, 120, 60, 255), (205, 175, 115, 255), em_crop)
 hut("hunting-lodge", (95, 110, 70, 255), (170, 145, 95, 255), em_hunt)
 hut("fishing-dock", (60, 95, 120, 255), (150, 130, 95, 255), em_fish)
+hut("smokehouse", (70, 65, 60, 255), (165, 140, 110, 255), em_smoke)
 bush(); icon_basket(); watchtower(); farm_plots(); icon_hoe(); icon_produce()
 crate("supply-crate", (90, 190, 90, 255), em_out)
 crate("demand-crate", (90, 150, 220, 255), em_in)
 warehouse(); compost_bin(); icon_fertilizer(); boar(); icon_rifle(); icon_meat(); icon_rod(); icon_fish()
+salt_pan(); icon_salt(); icon_preserved("icon-preserved-meat.png", (150, 75, 70, 255))
+icon_preserved("icon-preserved-fish.png", (170, 165, 140, 255))
 hall(); tent(); cabin(); rack(); icon_axe(); icon_pick(); icon_forage(); colonist()
 icon_building("icon-town-hall.png", "hall"); icon_building("icon-tent.png", "tent")
 icon_building("icon-cabin.png", "cabin"); icon_building("icon-tool-rack.png", "rack")

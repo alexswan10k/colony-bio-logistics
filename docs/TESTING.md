@@ -19,7 +19,7 @@
 ## Regression gates (#39)
 Three headless gates cover the things the unit tests and the playable spike cannot:
 
-- `scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (66 checks).
+- `scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (71 checks).
 - `scripts/headless-spike.sh m1_desirability` - the desirability inputs and leaving (19 checks): migrants
   arrive on a fed/housed site, scenic rises when trees are planted in the sampled box, `pollute()` at the
   hall pushes the pollution component to -0.60, and with D under the leave line colonists pack up - proven
@@ -98,6 +98,10 @@ Each of these cost a debugging round in a spike; check them before assuming the 
   the ghost itself. `LuaEntity.tags` is **ghost-only** - a placed entity has no tags, so state written there
   is gone. Tags are basic Lua values, and a *sparse* table comes back with its numeric keys stringified
   (row 3 becomes `["3"]`), so serialise dense lists (`mod/scripts/model/tags.lua`).
+- **A `local function` only exists after its definition**, and a nil call shows up as "attempt to call global
+  'x' (a nil value)" at a *call site*, not at the definition. `work.lua`'s helpers are ordered deliberately:
+  `chest_contents` sits near the top because `hut_offer` uses it, and `use_tool` sits after `item_name`.
+  Moving a helper "next to the code that uses it" is how both mistakes got made.
 - **Tile collision layers are named with underscores, not hyphens**: `tile.collides_with("water_tile")`, not
   `"water-tile"` (`base/prototypes/collision-layers.lua`). A tile-level probe is the planet-agnostic way to
   find water (ponds and oceans on any planet, no per-planet tile-name list to maintain), and lava tiles do not

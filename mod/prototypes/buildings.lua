@@ -51,6 +51,12 @@ local huntinglodge = chest_clone("iron-chest", "colony-hunting-lodge", "hunting-
 -- time (scripts/colony.lua): a dock with no water in its box is refused and refunded, like a watchtower
 -- outside territory. It holds the rods and the catch.
 local fishingdock = chest_clone("iron-chest", "colony-fishing-dock", "fishing-dock", 8, 1)
+-- Salt Pan (#81): shoreline evaporation. Same shore rule as the dock, no worker: it fills with salt over time
+-- and a hauler empties it. A shallow pan, so it holds little.
+local saltpan = chest_clone("wooden-chest", "colony-salt-pan", "salt-pan", 6, 1)
+-- Smokehouse (#81): the preserved tier. A labour hut with no tool - its gate is supply (salt + raw food), not
+-- equipment, so `labour.HUTS` leaves `tool` out and `hut_info` reports capacity as the gate instead.
+local smokehouse = chest_clone("iron-chest", "colony-smokehouse", "smokehouse", 8, 1)
 -- Colony logistics crates (#33, design §5.1). Plain containers, not logistic chests: inserters and belts
 -- still work on them, but colony hauling is driven by our own registry so bots and colonists never fight
 -- over the same request.
@@ -135,8 +141,8 @@ local marker = {
 }
 
 data:extend({
-  hall, tent, cabin, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, supply_crate,
-  demand_crate, warehouse, compost_bin,
+  hall, tent, cabin, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
+  smokehouse, supply_crate, demand_crate, warehouse, compost_bin,
   plot, bush, sink, marker,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -148,6 +154,8 @@ data:extend({
   item_of(farmhut, "farm-hut", "z[colony]-h[farm-hut]"),
   item_of(huntinglodge, "hunting-lodge", "z[colony]-i[hunting-lodge]"),
   item_of(fishingdock, "fishing-dock", "z[colony]-j[fishing-dock]"),
+  item_of(saltpan, "salt-pan", "z[colony]-k[salt-pan]"),
+  item_of(smokehouse, "smokehouse", "z[colony]-l[smokehouse]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(warehouse, "warehouse", "z[colony]-l[warehouse]"),
@@ -169,6 +177,8 @@ data:extend({
   recipe("colony-farm-hut", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-hunting-lodge", {wood = 20, ["iron-plate"] = 8}, 2),
   recipe("colony-fishing-dock", {wood = 20, ["iron-plate"] = 6}, 2),
+  recipe("colony-salt-pan", {wood = 10, ["stone-brick"] = 10}, 2),
+  recipe("colony-smokehouse", {wood = 25, ["stone-brick"] = 10, ["iron-plate"] = 5}, 3),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1),
   recipe("colony-demand-crate", {wood = 10, ["iron-plate"] = 10}, 1),
@@ -186,6 +196,19 @@ data:extend({
   {type = "item", name = "colony-forage", icon = G .. "icon-forage.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-a[forage]", stack_size = 100,
    spoil_ticks = 60 * 60 * 20, spoil_result = "spoilage", localised_name = {"item-name.colony-forage"}},
+  {type = "item", name = "colony-salt", icon = G .. "icon-salt.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-a3[salt]", stack_size = 200,
+   localised_name = {"item-name.colony-salt"}, localised_description = {"item-description.colony-salt"}},
+  {type = "item", name = "colony-preserved-meat", icon = G .. "icon-preserved-meat.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-a4[preserved-meat]", stack_size = 100,
+   spoil_ticks = 60 * 60 * 45, spoil_result = "spoilage",
+   localised_name = {"item-name.colony-preserved-meat"},
+   localised_description = {"item-description.colony-preserved-meat"}},
+  {type = "item", name = "colony-preserved-fish", icon = G .. "icon-preserved-fish.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-a5[preserved-fish]", stack_size = 100,
+   spoil_ticks = 60 * 60 * 45, spoil_result = "spoilage",
+   localised_name = {"item-name.colony-preserved-fish"},
+   localised_description = {"item-description.colony-preserved-fish"}},
   {type = "item", name = "colony-fish", icon = G .. "icon-fish.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-a2[fish]", stack_size = 100,
    spoil_ticks = 60 * 60 * 15, spoil_result = "spoilage", localised_name = {"item-name.colony-fish"},

@@ -13,6 +13,7 @@ local scenic = require("scripts.model.scenic")
 local compost = require("scripts.model.compost")
 local wildlife = require("scripts.wildlife")
 local fishing = require("scripts.model.fishing")
+local salt = require("scripts.model.salt")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local tags = require("scripts.model.tags")
@@ -41,6 +42,7 @@ M.CRATES = {
 }
 -- Compost Bin (#78, design §3.2): spoilage is removed from houses and stock by colonists and converted here.
 M.COMPOST_BIN = "colony-compost-bin"
+M.SALT_PAN = "colony-salt-pan"
 M.COMPOST_TICKS = 600           -- conversion pass cadence; a bin is a building, not a per-tick machine
 M.CLAIM_RADIUS = 1              -- chunks, Chebyshev => 3x3 chunks
 M.STARVE_AFTER = 4              -- consecutive evaluations with unmet critical need before a colonist dies
@@ -52,7 +54,8 @@ M.FOOD_TTL = 30
 M.STOCK_TTL = 30
 M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
 M.FOOD_PER_COLONIST = 1         -- food items per interval
-M.FOOD_ITEMS = {"colony-forage", "colony-fish", "colony-meat", "colony-produce", "raw-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
+M.FOOD_ITEMS = {"colony-forage", "colony-fish", "colony-meat", "colony-produce", "raw-fish",
+  "colony-preserved-meat", "colony-preserved-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
 M.INTERVAL = 600                -- default ticks between evaluations
 M.TARGET_STOCK_INTERVALS = 5
 
@@ -82,6 +85,18 @@ local function on_shore(e)
     local tile = surface.get_tile(x, y)
     return tile and tile.collides_with("water_tile")
   end)
+end
+
+-- Salt pans (#81), in a stable order: [unit_number] = {entity, colony_id, next_at}.
+function M.salt_pan_list(colony)
+  local ids = {}
+  for un, p in pairs(colony.salt_pans or {}) do
+    if p.entity.valid then ids[#ids + 1] = un else colony.salt_pans[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.salt_pans[un] end
+  return out
 end
 
 function M.food_in(colony)
@@ -354,6 +369,19 @@ function M.evaluate(data)
   if not colony.hall.valid then return end    -- hall gone; colony dormant
   scheduler.after(M.interval(), "colony.evaluate", data)
 
+  -- Salt pans (#81): evaporation needs nobody. Each pan fills on its own clock, so this costs one comparison
+  -- per pan per evaluation and never scans the map.
+  for un, pan in pairs(colony.salt_pans or {}) do
+    if not pan.entity.valid then
+      colony.salt_pans[un] = nil              -- reading .unit_number off a dead entity would error
+    elseif game.tick >= (pan.next_at or 0) then
+      pan.next_at = game.tick + salt.TICKS_PER_SALT
+      if not salt.full(pan.entity.get_item_count(salt.ITEM)) then
+        pan.entity.insert{name = salt.ITEM, count = 1}
+      end
+    end
+  end
+
   -- Wildlife (#79): one evaluation's worth of herd work - prune the dead, nudge the wanderers, top the herd
   -- up slowly. Bounded by wildlife.CAP, so this never grows with the town.
   wildlife.tick(colony, game.tick)
@@ -554,6 +582,22 @@ local function on_built(ev)
       colony.compost_timer = true
       scheduler.after(M.COMPOST_TICKS, "colony.compost", {colony_id = colony.id})
     end
+  elseif name == M.SALT_PAN and e.type ~= "entity-ghost" then
+    -- Salt Pan (#81): shoreline evaporation, no worker. Same shore rule as the Fishing Dock, because salt is a
+    -- *geography* problem - if there is no water to evaporate, there is no salt.
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local ok, water = on_shore(e)
+    if not ok then
+      refund(ev, e, name, {"colony-message.no-shore", water, fishing.MIN_WATER})
+      e.destroy()
+      return
+    end
+    local colony = storage.colonies[owner]
+    colony.salt_pans = colony.salt_pans or {}
+    colony.salt_pans[e.unit_number] = {entity = e, colony_id = colony.id,
+      next_at = game.tick + salt.TICKS_PER_SALT}
+    script.register_on_object_destroyed(e)
   elseif (M.HOUSES[name] or labour.HUTS[name]) and e.type ~= "entity-ghost" then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -621,6 +665,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.bins and colony.bins[un] then
       colony.bins[un] = nil
+      return
+    end
+    if colony.salt_pans and colony.salt_pans[un] then
+      colony.salt_pans[un] = nil
       return
     end
     if colony.machines and colony.machines[un] then

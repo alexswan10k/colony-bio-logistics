@@ -9,7 +9,10 @@ local construct = require("scripts.model.construct")
 
 M.JOBS = jobs.JOBS          -- haul first: wins ties (keeps houses supplied)
 M.HAUL_SHARE = 0.3
+M.PRESERVE_SHARE = 0.15     -- of the town, at most: a smokehouse is fed, it does not need an army
 M.HARVEST = {"forage", "farm", "chop", "mine", "hunt", "fish"}
+
+function M.preserve_workers(pop) return math.max(1, math.floor((pop or 0) * M.PRESERVE_SHARE)) end
 
 -- food_ratio = stock/target; returns the share of non-hauling colonists each hut job should get.
 function M.desired_shares(food_ratio)
@@ -41,6 +44,16 @@ function M.choose(s)
   if c_rank > 0 and (slots.construct or 0) > 0 and (counts.construct or 0) < construct.builders(pop) then
     local harvest_rank = jobs.best_rank(priority, M.HARVEST, slots)
     if not harvest_rank or c_rank <= harvest_rank then return "construct" end
+  end
+
+  -- Processing (#81): a Smokehouse is only worth staffing when it holds salt and something to cure, which the
+  -- adapter reports through `slots.preserve` (it goes to zero when no smokehouse can work). Ranked like
+  -- construction - it runs when it is at least as important as the best harvest job - and capped to a small
+  -- share of the town, because its throughput is set by its inputs, not by how many bodies we give it.
+  local p_rank = jobs.rank(priority, "preserve")
+  if p_rank > 0 and (slots.preserve or 0) > 0 and (counts.preserve or 0) < M.preserve_workers(pop) then
+    local harvest_rank = jobs.best_rank(priority, M.HARVEST, slots)
+    if not harvest_rank or p_rank <= harvest_rank then return "preserve" end
   end
 
   local rank = jobs.best_rank(priority, M.HARVEST, slots)

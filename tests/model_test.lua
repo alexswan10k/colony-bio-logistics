@@ -315,6 +315,41 @@ describe("fishing (#80)", function()
   end)
 end)
 
+describe("keeping food (#81)", function()
+  local salt = require("scripts.model.salt")
+  local preserve = require("scripts.model.preserve")
+  local function by_item(list)
+    local out = {}
+    for _, x in ipairs(list) do out[x.item] = x.count end
+    return out
+  end
+  it("a salt pan fills, and stops at its cap", function()
+    eq(salt.full(0), false); eq(salt.full(salt.CAP - 1), false); eq(salt.full(salt.CAP), true)
+    truthy(salt.TICKS_PER_SALT > 0 and salt.CAP > 0)
+  end)
+  it("cures meat with salt, and fish when there is no meat", function()
+    local r = preserve.recipe({["colony-salt"] = 1, ["colony-meat"] = 1})
+    eq(r.raw, "colony-meat"); eq(r.product, "colony-preserved-meat")
+    eq(preserve.recipe({["colony-salt"] = 1, ["colony-fish"] = 2}).product, "colony-preserved-fish")
+  end)
+  it("cannot cure without salt, or without something to cure", function()
+    eq(preserve.recipe({["colony-meat"] = 5}), nil)
+    eq(preserve.recipe({["colony-salt"] = 5}), nil)
+    eq(preserve.recipe({}), nil)
+  end)
+  it("asks for salt and a little raw food, discounting stock and what is already on its way", function()
+    local w = by_item(preserve.wants({["colony-salt"] = 3, ["colony-meat"] = 2}, {["colony-fish"] = 1}))
+    eq(w[preserve.SALT], preserve.SALT_STOCK - 3)
+    eq(w["colony-meat"], nil)                                  -- already stocked
+    eq(w["colony-fish"], preserve.RAW_STOCK - 1)               -- one is in flight
+  end)
+  it("never asks for more than its buffers when empty", function()
+    local w = by_item(preserve.wants({}, {}))
+    eq(w[preserve.SALT], preserve.SALT_STOCK)
+    eq(w["colony-meat"], preserve.RAW_STOCK); eq(w["colony-fish"], preserve.RAW_STOCK)
+  end)
+end)
+
 describe("hunting (#79)", function()
   local hunting = require("scripts.model.hunting")
   local function animal(un, x, y) return {unit_number = un, position = {x = x, y = y}} end
@@ -408,6 +443,8 @@ describe("housing", function()
     eq(d.food.items[1], "colony-forage"); eq(d.food.items[2], "colony-fish")
     eq(d.food.items[3], "colony-meat"); eq(d.food.items[4], "raw-fish")
     eq(d.food.items[5], "colony-produce")
+    -- the preserved tier is eaten LAST (#81): a house finishes what spoils first
+    eq(d.food.items[6], "colony-preserved-fish"); eq(d.food.items[7], "colony-preserved-meat")
     local d2 = h.demand(h.TIERS.cabin, {}, {}, true)
     eq(#d2, 1)
   end)

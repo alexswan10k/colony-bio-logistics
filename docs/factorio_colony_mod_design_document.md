@@ -101,6 +101,20 @@ standard work period, landing **5 raw fish** per trip - deliberately better than
 water access is earned. Fish is food with the shortest shelf life in the tier (15 minutes, spoiling into
 spoilage, which the Compost Bin already handles), and it lands in the dock and is hauled inward like every
 other hut output (#72).
+**M1 salt + preserved tier (implemented, #81):** salt is a *geography* problem, not a mining one. The **Salt
+Pan** uses the Fishing Dock's shore rule (six water tiles in a 15-tile box, checked once at build time,
+refused-and-refunded otherwise) and **nobody works it**: it evaporates one salt per 30 s up to a pan of 8, and
+a hauler empties it into colony stock like any other provider. The **Smokehouse** is the first hut with **no
+tool**: its gate is *supply*, because curing needs salt and something to cure, not equipment. `labour.HUTS`
+leaves `tool` out, `hut_info` reports capacity as the allowance, the job refuses to start (and reports
+`no_site`) when the hut holds no salt or no raw food, and the hut asks for its inputs through a normal haul
+request at `request` priority - below the houses' `critical` food need, so a smokehouse can never eat the
+town's dinner. Its `keep` list marks salt and raw meat/fish as *inputs*, so haulers do not treat them as hut
+output and cart them straight back. One raw + one salt cures into one preserved item with **~3x the shelf life
+(45 min vs 15-20)** and the same nutrition: the payoff of this tier is shelf life, not throughput (#81), and
+keeping every food option at `per = 1` also keeps housing's demand sizing honest. Preserved food is **eaten
+last** in `housing.FOOD`, because it is the food that keeps.
+
 2. **Mid Game (Agriculture & Salt/Smoke Preservation - Medium Shelf Life):**
    * **Farms / Greenhouses:** Require water, seeds, and fertilizer (yielding $2\times$ crops when built on lush/fertile soil tiles).
    * **Kitchens & Smokehouses:** Combine raw meat/fish with **Salt** (from coastal Salt Pans) or Wood Smoke, or bake grain into Bread, increasing nutrition $4\times$ and extending shelf life to $30\text{--}60\text{ minutes}$.
@@ -127,7 +141,7 @@ Players configure a per-colony **Priority Matrix** (ranked $1$ to $4$, or disabl
 4. **Haul (Logistics):** Move items between Colony Crates and opted-in machines, including **hand-feeding ammo into Gun Turrets** and fuel into burner machines.
 5. **Harvest / Mine / Chop:** Mine ore patches, chop trees, fish, or tend farms within territory.
 
-**M1 behaviour (implemented):** the Town Hall panel exposes the matrix for the live roles (haul, forage, chop, mine, farm, hunt, fish; rank 1\u20134, 0 = off). Jobs sharing a rank form one priority group and split the workforce by the food ratio, so the default (`haul 1`, harvest roles `2`) behaves like the old rule set. The planner (1) keeps roughly 30% of the colony hauling while hauling is enabled and there is haul work (at least one colonist), (2) takes the best-ranked enabled harvest role with a free tooled slot, and (3) splits a group by the food ratio, shifting toward foraging when stocks are below target. Harvest sites are chosen nearest-first inside territory, so colonists visibly work the forest or patch beside their hut. A Miner's Hut additionally carries a per-ore priority (iron/copper/coal/stone, rank 1–4, 0 = off): the hut works the best-ranked ore that is in range and only falls back to distance between ores sharing a rank, so it no longer walks past iron to grab the closest stone.
+**M1 behaviour (implemented):** the Town Hall panel exposes the matrix for the live roles (haul, forage, chop, mine, farm, hunt, fish, preserve; rank 1\u20134, 0 = off). Jobs sharing a rank form one priority group and split the workforce by the food ratio, so the default (`haul 1`, harvest roles `2`) behaves like the old rule set. The planner (1) keeps roughly 30% of the colony hauling while hauling is enabled and there is haul work (at least one colonist), (2) takes the best-ranked enabled harvest role with a free tooled slot, and (3) splits a group by the food ratio, shifting toward foraging when stocks are below target. Harvest sites are chosen nearest-first inside territory, so colonists visibly work the forest or patch beside their hut. A Miner's Hut additionally carries a per-ore priority (iron/copper/coal/stone, rank 1–4, 0 = off): the hut works the best-ranked ore that is in range and only falls back to distance between ores sharing a rank, so it no longer walks past iron to grab the closest stone.
 
 **Construction & repair (implemented, #37):** builders honour the matrix like any other role but are capped at 25% of the population (`model/construct.lua`), so a blueprint never costs the town its dinner. Every 5 s each colony re-scans its claimed area once (a player blueprint fires no build event) and keeps a small registry of `entity-ghost`s and of damaged colony buildings; assignment reads that registry, never the surface. A ghost's price is its `ghost_prototype.items_to_place_this`, paid out of colony stock up front and carried by the builder, who then revives it; if the site refuses to revive the materials come back and the ghost is skipped for a minute - unless the only thing in the way is the builder itself standing on the footprint, in which case it steps aside and tries again (a unit blocks `revive`, #76). Repairs run before builds and consume one `repair-pack` per 200 health, so repair packs are a logistics input like tools. Ghosts outside territory are ignored.
 

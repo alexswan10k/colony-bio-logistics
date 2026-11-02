@@ -16,6 +16,8 @@ local compost = require("scripts.model.compost")
 local hunting = require("scripts.model.hunting")
 local wildlife = require("scripts.wildlife")
 local fishing = require("scripts.model.fishing")
+local preserve = require("scripts.model.preserve")
+local salt = require("scripts.model.salt")
 local construct = require("scripts.model.construct")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
@@ -29,7 +31,7 @@ M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still 
 M.CARRY_CAP = 20
 M.ORES = mine_plan.ORES   -- every ore a Miner's Hut can be pointed at
 M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", hunt = "hunter",
-  fish = "fisher", haul = "hauler", construct = "builder"}
+  fish = "fisher", preserve = "preserver", haul = "hauler", construct = "builder"}
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
 
@@ -67,11 +69,21 @@ local function item_name(item)
   return item or "?"
 end
 
+-- Contents of a colony building's chest as item -> count (nil when it is empty or has no chest). Declared up
+-- here because Lua locals only exist after their definition: `hut_offer` (below) needs it.
+local function chest_contents(entity)
+  local inv = entity.get_inventory(defines.inventory.chest)
+  if not (inv and not inv.is_empty()) then return nil end
+  local out = {}
+  for _, item in ipairs(inv.get_contents()) do out[item.name] = item.count end
+  return out
+end
+
 -- One completed trip = one use of the hut's tool. Shared by `work.finish` (harvest) and the hunter, which
 -- completes its trip the moment the animal dies rather than after a work animation.
 local function use_tool(hut)
   local def = labour.HUTS[hut.entity.name]
-  if not def then return end
+  if not (def and def.tool) then return end
   local broke
   hut.wear, broke = labour.wear(hut.wear or 0)
   if broke and hut.entity.remove_item{name = def.tool, count = 1} > 0 then
@@ -131,7 +143,9 @@ end
 
 function M.hut_info(h)
   local def = labour.HUTS[h.entity.name]
-  local tools = h.entity.get_item_count(def.tool)
+  -- A hut with no `tool` is gated by its inputs instead (#81): report its capacity as the allowance, and let
+  -- the job itself refuse to start when there is nothing to work on.
+  local tools = def.tool and h.entity.get_item_count(def.tool) or def.capacity
   return def, tools, labour.allowed(def.capacity, tools, h.limit), worker_count(h)
 end
 
@@ -231,7 +245,7 @@ local function job_slots(colony)
   end
   local slots = labour.free_slots(list)
   local capacity = labour.capacity_by_job(list)
-  for _, job in ipairs({"forage", "chop", "mine", "farm"}) do
+  for _, job in ipairs({"forage", "chop", "mine", "farm", "preserve"}) do
     if (colony.no_site[job] or 0) > game.tick then slots[job] = 0 end   -- nothing to harvest: don't thrash
   end
   -- Construction has no hut: its slots are the open ghosts/repairs in the registry, minus current builders.
@@ -273,6 +287,10 @@ local function find_site(colony, e, hut)
       if site then return site end
     end
     return nil
+  elseif hut.job == "preserve" then
+    -- The smokehouse is its own workplace, and it can only work when it holds salt and something to cure.
+    -- Returning nil leaves it unstaffed (and `no_site` stops the town from thrashing on it for a while).
+    return preserve.recipe(chest_contents(hut.entity) or {}) and hut.entity
   elseif hut.job == "fish" then
     -- The dock is the workplace: there is no world entity to harvest, the water is the resource, and whether
     -- there is enough of it was settled when the dock was built (model/fishing.lua). Everyone fishes the same
@@ -378,10 +396,18 @@ end
 
 local function hut_offer(h)
   local def, tools = M.hut_info(h)
-  local want = math.min(def.capacity, h.limit or def.capacity) - tools - (h.inflight[def.tool] or 0)
-  if want < 1 then return nil end
-  return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
-    demands = {{item = def.tool, count = want}}}
+  if def.tool then
+    local want = math.min(def.capacity, h.limit or def.capacity) - tools - (h.inflight[def.tool] or 0)
+    if want < 1 then return nil end
+    return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
+      demands = {{item = def.tool, count = want}}}
+  end
+  -- No tool: the hut asks for its inputs instead (#81). A request, not a critical need, so houses are always
+  -- served first and a smokehouse can never eat the town's dinner.
+  local demands = preserve.wants(chest_contents(h.entity) or {}, h.inflight)
+  if #demands == 0 then return nil end
+  return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.request, key = h.entity.unit_number,
+    demands = demands}
 end
 
 -- Finished goods sit in the hut until a hauler clears them, so the hut is the local stockpile and the
@@ -390,9 +416,11 @@ local function hut_collect_offer(h)
   local def = labour.HUTS[h.entity.name]
   local inv = h.entity.get_inventory(defines.inventory.chest)
   if not (def and inv and not inv.is_empty()) then return nil end
-  local demands, available = {}, {}
+  local demands, available, keep = {}, {}, {}
+  for _, item in ipairs(def.keep or {}) do keep[item] = true end
   for _, c in ipairs(inv.get_contents()) do
-    if c.name ~= def.tool then
+    -- Inputs stay put: a Smokehouse's salt and raw food are not output to be hauled away (#81).
+    if c.name ~= def.tool and not keep[c.name] then
       demands[#demands + 1] = {item = c.name, count = c.count}
       available[c.name] = c.count
     end
@@ -405,13 +433,7 @@ end
 -- Crates (#33): a supply crate is a provider (empty it into stock), a demand crate is a requester (fill it
 -- to the player's filters). A warehouse needs no offer of its own: colony.stock_count/take_stock/put_stock
 -- already treat it as colony storage, both as a source and as overflow.
-local function crate_contents(c)
-  local inv = c.entity.get_inventory(defines.inventory.chest)
-  if not (inv and not inv.is_empty()) then return nil end
-  local out = {}
-  for _, item in ipairs(inv.get_contents()) do out[item.name] = item.count end
-  return out
-end
+local function crate_contents(c) return chest_contents(c.entity) end
 
 -- A bin's finished fertilizer, offered like a supply crate's contents.
 local function bin_offer(b)
@@ -419,6 +441,15 @@ local function bin_offer(b)
   if n < 1 then return nil end
   return {kind = "collect", bin = b, priority = haul_plan.PRIORITY.collect, key = b.entity.unit_number,
     demands = {{item = compost.PRODUCT, count = n}}, available = {[compost.PRODUCT] = n}}
+end
+
+-- A salt pan's contents, offered exactly like a supply crate's: evaporation is nobody's job, but hauling the
+-- salt away is (#81).
+local function salt_offer(pan)
+  local n = pan.entity.get_item_count(salt.ITEM)
+  if n < 1 then return nil end
+  return {kind = "collect", pan = pan, priority = haul_plan.PRIORITY.collect, key = pan.entity.unit_number,
+    demands = {{item = salt.ITEM, count = n}}, available = {[salt.ITEM] = n}}
 end
 
 local function crate_supply_offer(c)
@@ -540,6 +571,9 @@ local function find_haul_task(colony)
     local o = crate_demand_offer(c); if o then offers[#offers + 1] = o end
   end
   -- Compost (#78): carry the bin's fertilizer out to colony stock, and carry stock spoilage in to it.
+  for _, p in ipairs(colony_mod.salt_pan_list(colony)) do
+    local o = salt_offer(p); if o then offers[#offers + 1] = o end
+  end
   local bins = colony_mod.bin_list(colony)
   for _, b in ipairs(bins) do
     local o = bin_offer(b); if o then offers[#offers + 1] = o end
@@ -596,7 +630,7 @@ local function take_load(colony, offer)
     local n
     if offer.kind == "collect" then
       local src = offer.machine and offer.machine.entity or (offer.hut and offer.hut.entity)
-        or (offer.crate and offer.crate.entity) or offer.bin.entity
+        or (offer.crate and offer.crate.entity) or (offer.pan and offer.pan.entity) or offer.bin.entity
       n = src.remove_item{name = s.item, count = s.count}
     else
       n = colony_mod.take_stock(colony, s.item, s.count)
@@ -605,7 +639,7 @@ local function take_load(colony, offer)
   end
   if #taken == 0 then return nil end
   if offer.kind == "supply" then
-    local target = offer.house or offer.machine or offer.hut or offer.crate
+    local target = offer.house or offer.machine or offer.hut or offer.crate or offer.pan
     for _, s in ipairs(taken) do target.inflight[s.item] = (target.inflight[s.item] or 0) + s.count end
     return taken, target
   end
@@ -704,7 +738,7 @@ local function start_trip(colony, un, hut)
   -- position moves under our feet.
   if hut.job == "hunt" then
     colony.claimed["boar:" .. site.unit_number] = true
-  elseif hut.job ~= "mine" and hut.job ~= "fish" then
+  elseif hut.job ~= "mine" and hut.job ~= "fish" and hut.job ~= "preserve" then
     colony.claimed[key(site)] = true
   end
   if hut.job == "hunt" then
@@ -868,6 +902,15 @@ scheduler.register("work.finish", function(d)
         site.graphics_variation = farm.GROWING
         scheduler.after(farm.GROW_TICKS, "farm.ripen", {colony_id = colony.id, un = site.unit_number})
       end
+    end
+  elseif st.job == "preserve" then
+    -- Curing happens here, in the hut, out of the hut's own inventory: the input offer above keeps it stocked.
+    -- The output is carried home like any other hut yield, so the preserved tier rides the existing hauling.
+    local recipe = preserve.recipe(chest_contents(hut.entity) or {})
+    if recipe then
+      hut.entity.remove_item{name = preserve.SALT, count = preserve.SALT_PER_BATCH}
+      hut.entity.remove_item{name = recipe.raw, count = preserve.RAW_PER_BATCH}
+      item, n = recipe.product, preserve.PRODUCT_PER_BATCH
     end
   elseif st.job == "fish" then
     item, n = "colony-fish", fishing.FISH_PER_TRIP

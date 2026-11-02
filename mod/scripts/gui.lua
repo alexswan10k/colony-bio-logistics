@@ -99,7 +99,8 @@ local function open_house(player, e)
   if not h then return end
   local frame = player.gui.relative.add{type = "frame", name = HOUSE_FRAME, direction = "vertical",
     caption = {"colony-gui.household"}, anchor = {gui = defines.relative_gui_type.container_gui,
-      position = defines.relative_gui_position.right, names = {"colony-housing-tent", "colony-housing-cabin"}}}
+      position = defines.relative_gui_position.right,
+      names = {"colony-housing-tent", "colony-housing-cabin", "colony-housing-homestead", "colony-housing-apartment"}}}
   local body = frame.add{type = "flow", name = "body", direction = "vertical"}
   fill_house(body, h, colony)
   scheduler.after(30, "gui.refresh_house", {player_index = player.index, un = e.unit_number, colony_id = colony.id})
@@ -225,7 +226,7 @@ local function fill_info(frame, colony)
   for _, job in ipairs(jobs.JOBS) do busy = busy + (counts[job] or 0) end
 
   frame.add{type = "label", caption = {"colony-gui-info.population", st.pop, st.capacity}}
-  frame.add{type = "label", caption = {"colony-gui-info.housing", st.tents, st.cabins, math.max(st.capacity - st.pop, 0)}}
+  frame.add{type = "label", caption = {"colony-gui-info.housing", st.tents, st.cabins, st.homesteads or 0, st.apartments or 0, math.max(st.capacity - st.pop, 0)}}
   local colour = st.food_ratio < 0.5 and "red" or (st.food_ratio < 1 and "orange" or "green")
   frame.add{type = "label", caption = {"", {"colony-gui-info.food", st.food, st.food_target},
     "  [color=" .. colour .. "]" .. pct(st.food_ratio) .. "[/color]"}}

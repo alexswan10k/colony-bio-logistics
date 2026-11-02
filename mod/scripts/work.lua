@@ -19,6 +19,7 @@ local fishing = require("scripts.model.fishing")
 local preserve = require("scripts.model.preserve")
 local yields = require("scripts.model.yields")
 local salt = require("scripts.model.salt")
+local well = require("scripts.model.well")
 local construct = require("scripts.model.construct")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
@@ -502,6 +503,15 @@ local function salt_offer(pan)
     demands = {{item = salt.ITEM, count = n}}, available = {[salt.ITEM] = n}}
 end
 
+-- A well's water, offered like a salt pan's: generation is nobody's job, but hauling the water
+-- away is (#43).
+local function well_offer(w)
+  local n = w.entity.get_item_count(well.ITEM)
+  if n < 1 then return nil end
+  return {kind = "collect", well = w, priority = haul_plan.PRIORITY.collect, key = w.entity.unit_number,
+    demands = {{item = well.ITEM, count = n}}, available = {[well.ITEM] = n}}
+end
+
 local function crate_supply_offer(c)
   local contents = crate_contents(c)
   if not contents then return nil end
@@ -624,6 +634,9 @@ local function find_haul_task(colony)
   for _, p in ipairs(colony_mod.salt_pan_list(colony)) do
     local o = salt_offer(p); if o then offers[#offers + 1] = o end
   end
+  for _, w in ipairs(colony_mod.well_list(colony)) do
+    local o = well_offer(w); if o then offers[#offers + 1] = o end
+  end
   local bins = colony_mod.bin_list(colony)
   for _, b in ipairs(bins) do
     local o = bin_offer(b); if o then offers[#offers + 1] = o end
@@ -680,7 +693,8 @@ local function take_load(colony, offer)
     local n
     if offer.kind == "collect" then
       local src = offer.machine and offer.machine.entity or (offer.hut and offer.hut.entity)
-        or (offer.crate and offer.crate.entity) or (offer.pan and offer.pan.entity) or offer.bin.entity
+        or (offer.crate and offer.crate.entity) or (offer.pan and offer.pan.entity)
+        or (offer.well and offer.well.entity) or offer.bin.entity
       n = src.remove_item{name = s.item, count = s.count}
     else
       n = colony_mod.take_stock(colony, s.item, s.count)

@@ -36,7 +36,15 @@ end
 
 local hall = chest_clone("steel-chest", "colony-town-hall", "town-hall", 48, 1.5)
 local tent = chest_clone("iron-chest", "colony-housing-tent", "tent", 4, 1)
+tent.fast_replaceable_group = "colony-housing"
 local cabin = chest_clone("steel-chest", "colony-housing-cabin", "cabin", 6, 1.5)
+cabin.fast_replaceable_group = "colony-housing"
+cabin.next_upgrade = "colony-housing-homestead"
+local homestead = chest_clone("steel-chest", "colony-housing-homestead", "homestead", 8, 1.5)
+homestead.fast_replaceable_group = "colony-housing"
+local apartment = chest_clone("steel-chest", "colony-housing-apartment", "apartment", 16, 2.0)
+apartment.fast_replaceable_group = "colony-housing"
+local well = chest_clone("iron-chest", "colony-well", "well", 6, 0.5)
 local forager = chest_clone("iron-chest", "colony-forager-hut", "forager-hut", 8, 1)
 local woodcutter = chest_clone("iron-chest", "colony-woodcutter-hut", "woodcutter-hut", 8, 1)
 local miner = chest_clone("iron-chest", "colony-miner-hut", "miner-hut", 8, 1)
@@ -145,12 +153,15 @@ local marker = {
 }
 
 data:extend({
-  hall, tent, cabin, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
+  hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
   smokehouse, supply_crate, demand_crate, warehouse, compost_bin,
   plot, bush, sink, marker,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
   item_of(cabin, "cabin", "z[colony]-c[housing-cabin]"),
+  item_of(homestead, "homestead", "z[colony]-c1[housing-homestead]"),
+  item_of(apartment, "apartment", "z[colony]-c2[housing-apartment]"),
+  item_of(well, "well", "z[colony]-k1[well]"),
   item_of(forager, "forager-hut", "z[colony]-d[forager-hut]"),
   item_of(woodcutter, "woodcutter-hut", "z[colony]-e[woodcutter-hut]"),
   item_of(miner, "miner-hut", "z[colony]-f[miner-hut]"),
@@ -168,12 +179,31 @@ data:extend({
    subgroup = "raw-resource", order = "z[colony]-c[fertilizer]", stack_size = 100,
    localised_name = {"item-name.colony-fertilizer"},
    localised_description = {"item-description.colony-fertilizer"}},
+  {type = "item", name = "colony-water", icon = G .. "icon-water.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-a6[water]", stack_size = 100,
+   localised_name = {"item-name.colony-water"},
+   localised_description = {"item-description.colony-water"}},
+  {type = "item", name = "colony-furniture", icon = G .. "icon-furniture.png", icon_size = 64,
+   subgroup = "storage", order = "z[colony]-d[furniture]", stack_size = 50,
+   localised_name = {"item-name.colony-furniture"},
+   localised_description = {"item-description.colony-furniture"}},
   {type = "item", name = "colony-farm-plot", icon = G .. "farm-plot-ripe.png", icon_size = 64,
    subgroup = "storage", order = "z[colony]-i[farm-plot]", place_result = "colony-farm-plot", stack_size = 50,
    localised_name = {"item-name.colony-farm-plot"}, localised_description = {"item-description.colony-farm-plot"}},
   recipe("colony-town-hall", {wood = 50, ["iron-plate"] = 50}, 5),
   recipe("colony-housing-tent", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-housing-cabin", {wood = 40, ["stone-brick"] = 10, ["iron-plate"] = 10}, 4),
+  recipe("colony-housing-homestead", {wood = 60, ["stone-brick"] = 20, ["iron-plate"] = 20}, 5),
+  recipe("colony-housing-apartment", {["stone-brick"] = 50, concrete = 20, ["iron-plate"] = 30, ["electronic-circuit"] = 10}, 8),
+  recipe("colony-well", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3),
+  recipe("colony-furniture", {wood = 10, ["iron-plate"] = 2}, 2),
+  {type = "recipe", name = "colony-water-bottling", enabled = true, energy_required = 1,
+   categories = {"crafting-with-fluid"},
+   ingredients = {{type = "fluid", name = "water", amount = 100}},
+   results = {{type = "item", name = "colony-water", amount = 10}},
+   icon = G .. "icon-water.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-a7[water-bottling]",
+   localised_name = {"recipe-name.colony-water-bottling"}},
   recipe("colony-forager-hut", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-woodcutter-hut", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-miner-hut", {wood = 20, ["iron-plate"] = 10}, 2),

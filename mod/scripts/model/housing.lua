@@ -9,6 +9,8 @@ M.FOOD = {{item = "colony-forage", per = 1}, {item = "colony-fish", per = 1}, {i
   {item = "raw-fish", per = 1}, {item = "colony-produce", per = 1},
   {item = "colony-preserved-fish", per = 1}, {item = "colony-preserved-meat", per = 1}}
 
+M.WATER = {{item = "colony-water", per = 0.5}}
+
 M.TIERS = {
   tent = {
     capacity = 4, buffer_intervals = 6,
@@ -22,6 +24,23 @@ M.TIERS = {
     needs = {
       {id = "food", critical = true, options = M.FOOD},
       {id = "heat", options = {{power = true}, {item = "wood", per = 0.5}}},
+    },
+  },
+  homestead = {
+    capacity = 8, buffer_intervals = 6,
+    needs = {
+      {id = "food", critical = true, options = M.FOOD},
+      {id = "water", critical = true, options = M.WATER},
+      {id = "heat", options = {{power = true}, {item = "coal", per = 0.5}, {item = "wood", per = 0.5}}},
+    },
+  },
+  apartment = {
+    capacity = 16, buffer_intervals = 6,
+    needs = {
+      {id = "food", critical = true, options = M.FOOD},
+      {id = "water", critical = true, options = M.WATER},
+      {id = "electricity", critical = true, options = {{power = true}}},
+      {id = "comfort", options = {{item = "colony-furniture", per = 0.1}}},
     },
   },
 }

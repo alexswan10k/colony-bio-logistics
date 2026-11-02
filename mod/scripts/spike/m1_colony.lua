@@ -27,6 +27,10 @@ core.register("m1_colony", {
     local cabin_pos = {p.x + 6, p.y + 8}
     ctx.power_at({x = cabin_pos[1], y = cabin_pos[2]})
     local cabin = build("colony-housing-cabin", cabin_pos)
+    local homestead_pos = {p.x + 6, p.y + 14}
+    ctx.power_at({x = homestead_pos[1], y = homestead_pos[2]})
+    local homestead = build("colony-housing-homestead", homestead_pos)
+    local well_ent = build("colony-well", {p.x + 8, p.y + 4})
     -- Fishing Dock (#80): water access is real. Carve a small pond, put the dock beside it, and check that a
     -- dock with no water in reach is refused and refunded rather than sitting there doing nothing.
     for dx = -1, 1 do
@@ -124,7 +128,12 @@ core.register("m1_colony", {
     supply_crate.insert{name = "coal", count = 50}
     c.crates[demand_crate.unit_number].filters = {{item = "stone", count = 30}}
     warehouse.insert{name = "stone", count = 100}
-    ctx.check("houses registered", tent and cabin and c.houses[tent.unit_number] and c.houses[cabin.unit_number] ~= nil)
+    ctx.check("houses registered", tent and cabin and homestead and c.houses[tent.unit_number] and c.houses[cabin.unit_number] and c.houses[homestead.unit_number] ~= nil)
+    ctx.check("well registered", well_ent and well_ent.valid and c.wells[well_ent.unit_number] ~= nil)
+    ctx.check("homestead increases capacity to 18", colony.capacity(c) == 18, colony.capacity(c))
+    ctx.check("cabin has fast_replaceable_group", cabin.prototype.fast_replaceable_group == "colony-housing")
+    ctx.check("homestead has fast_replaceable_group", homestead.prototype.fast_replaceable_group == "colony-housing")
+    ctx.check("cabin upgrades to homestead", cabin.prototype.next_upgrade and cabin.prototype.next_upgrade.name == "colony-housing-homestead")
     local led = colony.ledger_snapshot(c)
     ctx.check("ledger aggregates stock and hut contents", led and led.totals["colony-meat"] == 2 and led.totals.stone == 100,
       led and (led.totals["colony-meat"] or 0) .. " meat, " .. (led.totals.stone or 0) .. " stone")
@@ -142,13 +151,13 @@ core.register("m1_colony", {
     ctx.check("shifting job target decrements", colony.shift_job_target(c, "mine", -1) == 3)
     colony.set_job_target(c, "mine", nil)
     ctx.check("resetting job target restores auto", colony.job_target(c, "mine") == nil)
-    ctx.check("capacity 10", colony.capacity(c) == 10, colony.capacity(c))
+    ctx.check("capacity 18", colony.capacity(c) == 18, colony.capacity(c))
     ctx.check("hut does not spawn forage patches",
       #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30} == patches_pre, patches_pre)
     ctx.check("logistics marker item and recipe exist",
       prototypes.item["colony-logistics-marker"] ~= nil and prototypes.recipe["colony-logistics-marker"] ~= nil)
     local st = colony.stats(c)
-    ctx.check("colony stats: 9 chunks, capacity 10", st.chunks == 9 and st.capacity == 10, st.chunks .. "/" .. st.capacity)
+    ctx.check("colony stats: 9 chunks, capacity 18", st.chunks == 9 and st.capacity == 18, st.chunks .. "/" .. st.capacity)
     -- watchtower (design §2.1): built inside territory, claims the chunks around itself; removing it gives them back
     local outside = build("colony-watchtower", {p.x + 70, p.y})
     ctx.check("watchtower outside territory rejected", not (outside and outside.valid))
@@ -236,6 +245,9 @@ core.register("m1_colony", {
         for _, pan in pairs(c.salt_pans or {}) do
           if pan.entity.valid and pan.entity.get_item_count("colony-salt") > 0 then saw.salt = true end
         end
+        if hall.get_item_count("colony-water") > 0 then saw.water_in_hall = true end
+        if well_ent.valid and well_ent.get_item_count("colony-water") > 0 then saw.well_water = true end
+        if homestead.valid and homestead.get_item_count("colony-water") > 0 then saw.homestead_water = true end
         for _, item in ipairs({"colony-preserved-meat", "colony-preserved-fish"}) do
           if hall.get_item_count(item) > 0 then saw.preserved = true end
           for _, h in pairs(c.huts) do
@@ -352,6 +364,8 @@ core.register("m1_colony", {
       ctx.check("fishers landed fish and it reached colony stock", saw.fish)
       ctx.check("salt pans evaporated salt", saw.salt)
       ctx.check("the smokehouse cured meat with it", saw.preserved)
+      ctx.check("well produced water", saw.well_water or saw.water_in_hall or saw.homestead_water)
+      ctx.check("water hauled to colony stock or homestead", saw.water_in_hall or saw.homestead_water)
       local live_game = 0
       for _, rec in pairs(c.animals or {}) do if rec.entity.valid then live_game = live_game + 1 end end
       ctx.check("wildlife lives on its own force, in territory", game.forces["colony-wildlife"] ~= nil and live_game > 0,

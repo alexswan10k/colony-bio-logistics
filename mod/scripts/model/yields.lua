@@ -27,6 +27,10 @@ M.SALT_TICKS = 1800         -- ticks per salt from one pan (30 s), worker-free
 M.SALT_CAP = 8              -- a pan fills to here and stops
 M.CURE = {salt = 1, raw = 1, out = 1}   -- one raw + one salt -> one preserved item
 
+-- --- water -----------------------------------------------------------------------------------------------
+M.WATER_TICKS = 600         -- ticks per water bucket from one well (10 s), worker-free
+M.WATER_CAP = 12            -- a well fills to here and stops
+
 -- --- food ------------------------------------------------------------------------------------------------
 M.FOOD_PER_INTERVAL = 1     -- food items one colonist eats per colony interval (colony.INTERVAL = 600 ticks)
 

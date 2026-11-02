@@ -14,6 +14,7 @@ local compost = require("scripts.model.compost")
 local wildlife = require("scripts.wildlife")
 local fishing = require("scripts.model.fishing")
 local salt = require("scripts.model.salt")
+local well = require("scripts.model.well")
 local yields = require("scripts.model.yields")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
@@ -28,13 +29,15 @@ local M = {}
 M.HALL = "colony-town-hall"
 M.WATCHTOWER = "colony-watchtower"
 M.PLOT = "colony-farm-plot"
+M.WELL = "colony-well"
 M.TOWER_RADIUS = 1              -- chunks a watchtower claims around itself (design §2.1)
 M.HUT_RADIUS = 30               -- working radius around a labour hut (harvesting also needs territory)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
 M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not regrow in lockstep
 M.FORAGE_PER_CHUNK = 3          -- natural forage patches seeded per already-generated territory chunk
 M.FORAGE_TILES = {["grass-1"] = true, ["grass-2"] = true, ["grass-3"] = true, ["grass-4"] = true}
-M.HOUSES = {["colony-housing-tent"] = "tent", ["colony-housing-cabin"] = "cabin"}
+M.HOUSES = {["colony-housing-tent"] = "tent", ["colony-housing-cabin"] = "cabin",
+  ["colony-housing-homestead"] = "homestead", ["colony-housing-apartment"] = "apartment"}
 -- Colony logistics crates (#33): supply = provider, demand = requester, warehouse = bulk colony stock.
 M.SUPPLY_CRATE = "colony-supply-crate"
 M.DEMAND_CRATE = "colony-demand-crate"
@@ -100,6 +103,18 @@ function M.salt_pan_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.salt_pans[un] end
+  return out
+end
+
+-- Wells (#43), in a stable order: [unit_number] = {entity, colony_id, next_at}.
+function M.well_list(colony)
+  local ids = {}
+  for un, w in pairs(colony.wells or {}) do
+    if w.entity.valid then ids[#ids + 1] = un else colony.wells[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.wells[un] end
   return out
 end
 
@@ -258,6 +273,16 @@ function M.ledger_snapshot(colony)
         local contents = {}
         for _, s in ipairs(inv.get_contents()) do contents[s.name] = s.count end
         huts_data[#huts_data + 1] = {name = sp.entity.name, contents = contents}
+      end
+    end
+  end
+  for _, w in pairs(colony.wells or {}) do
+    if w.entity and w.entity.valid then
+      local inv = w.entity.get_inventory(defines.inventory.chest)
+      if inv then
+        local contents = {}
+        for _, s in ipairs(inv.get_contents()) do contents[s.name] = s.count end
+        huts_data[#huts_data + 1] = {name = w.entity.name, contents = contents}
       end
     end
   end
@@ -442,7 +467,13 @@ end
 
 local function kill_one(colony)
   for id, c in pairs(colony.colonists) do
-    if c.valid then c.die(); colony.colonists[id] = nil; table.insert(colony.deaths, 0); return true end
+    if c.valid then
+      c.die()
+      colony.colonists[id] = nil
+      colony.pop_cache, colony.pop_tick = nil, nil
+      table.insert(colony.deaths, 0)
+      return true
+    end
   end
   return false
 end
@@ -454,6 +485,7 @@ local function spawn_colonist(colony)
   local c = hall.surface.create_entity{name = "colony-colonist", position = pos, force = hall.force}
   if not c then return false end
   colony.colonists[c.unit_number] = c
+  colony.pop_cache, colony.pop_tick = nil, nil
   script.register_on_object_destroyed(c)
   work.assign(colony, c.unit_number)
   return true
@@ -522,6 +554,19 @@ function M.evaluate(data)
       pan.next_at = game.tick + salt.TICKS_PER_SALT
       if not salt.full(pan.entity.get_item_count(salt.ITEM)) then
         pan.entity.insert{name = salt.ITEM, count = 1}
+      end
+    end
+  end
+
+  -- Wells (#43): water generation. Each well fills on its own clock, so this costs one comparison
+  -- per well per evaluation and never scans the map.
+  for un, well_rec in pairs(colony.wells or {}) do
+    if not well_rec.entity.valid then
+      colony.wells[un] = nil
+    elseif game.tick >= (well_rec.next_at or 0) then
+      well_rec.next_at = game.tick + well.TICKS_PER_WATER
+      if not well.full(well_rec.entity.get_item_count(well.ITEM)) then
+        well_rec.entity.insert{name = well.ITEM, count = 1}
       end
     end
   end
@@ -699,7 +744,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or M.HOUSES[name] or labour.HUTS[name] then
+    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or M.HOUSES[name] or labour.HUTS[name] then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -728,8 +773,8 @@ local function on_built(ev)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, locks = {}, quotas = {}, job_targets = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {},
-      ghosts = {}, repairs = {}, ghost_blocked = {}}
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, locks = {}, quotas = {}, job_targets = {},
+      colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}}
     storage.colonies[id] = colony
     territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)
     M.seed_forage(colony)   -- the claimed land already has berries on it
@@ -821,6 +866,14 @@ local function on_built(ev)
     colony.salt_pans[e.unit_number] = {entity = e, colony_id = colony.id,
       next_at = game.tick + salt.TICKS_PER_SALT}
     script.register_on_object_destroyed(e)
+  elseif name == M.WELL then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.wells = colony.wells or {}
+    colony.wells[e.unit_number] = {entity = e, colony_id = colony.id,
+      next_at = game.tick + well.TICKS_PER_WATER}
+    script.register_on_object_destroyed(e)
   elseif (M.HOUSES[name] or labour.HUTS[name]) then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -845,6 +898,7 @@ local function on_built(ev)
       h.sink = e.surface.create_entity{name = "colony-power-sink", position = e.position, force = e.force}
     end
     colony.houses[e.unit_number] = h
+    script.register_on_object_destroyed(e)
   elseif dict and gui.MACHINE_GUIS[e.type] then
     -- A machine carries no colony prototype of ours, so only a blueprint tags can say it was opted in.
     local colony = M.colony_of(e)
@@ -964,6 +1018,16 @@ events.on(defines.events.on_object_destroyed, function(ev)
   local un = ev.useful_id
   if not un then return end
   for _, colony in pairs(storage.colonies) do
+    if colony.houses and colony.houses[un] then
+      local h = colony.houses[un]
+      if h.sink and h.sink.valid then h.sink.destroy() end
+      colony.houses[un] = nil
+      return
+    end
+    if colony.wells and colony.wells[un] then
+      colony.wells[un] = nil
+      return
+    end
     if colony.towers and colony.towers[un] then
       colony.towers[un] = nil
       M.recompute_territory(colony)
@@ -1189,9 +1253,13 @@ function M.stats(colony)
   local capacity = M.capacity(colony)
   local target = math.max(pop * M.FOOD_PER_COLONIST * M.TARGET_STOCK_INTERVALS, 1)
   local food = M.total_food(colony)
-  local tents, cabins = 0, 0
+  local tents, cabins, homesteads, apartments = 0, 0, 0, 0
   for _, h in ipairs(M.house_list(colony)) do
-    if h.kind == "tent" then tents = tents + 1 else cabins = cabins + 1 end
+    if h.kind == "tent" then tents = tents + 1
+    elseif h.kind == "cabin" then cabins = cabins + 1
+    elseif h.kind == "homestead" then homesteads = homesteads + 1
+    elseif h.kind == "apartment" then apartments = apartments + 1
+    end
   end
   local chunks = 0
   for _, col in pairs(storage.colony_chunks[colony.surface_index] or {}) do
@@ -1205,7 +1273,8 @@ function M.stats(colony)
   for _, g in pairs(colony.ghosts or {}) do if g.valid then ghosts = ghosts + 1 end end
   for _, r in pairs(colony.repairs or {}) do if r.valid and construct.needs_repair(r.health, r.max_health) then damaged = damaged + 1 end end
   return {pop = pop, capacity = capacity, food = food, food_target = target, food_ratio = food / target,
-    tents = tents, cabins = cabins, huts = huts, machines = machines, towers = towers, chunks = chunks,
+    tents = tents, cabins = cabins, homesteads = homesteads, apartments = apartments,
+    huts = huts, machines = machines, towers = towers, chunks = chunks,
     crates = #M.crate_list(colony), ghosts = ghosts, damaged = damaged,
     d = colony.d or 0, parts = colony.d_parts or {},
     scenic = colony.scenic or 0, pollution = colony.pollution or 0}

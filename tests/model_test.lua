@@ -318,11 +318,17 @@ end)
 describe("keeping food (#81)", function()
   local salt = require("scripts.model.salt")
   local preserve = require("scripts.model.preserve")
+  local well = require("scripts.model.well")
   local function by_item(list)
     local out = {}
     for _, x in ipairs(list) do out[x.item] = x.count end
     return out
   end
+  it("a well produces water up to cap (#43)", function()
+    eq(well.full(0), false); eq(well.full(well.CAP - 1), false); eq(well.full(well.CAP), true)
+    truthy(well.TICKS_PER_WATER > 0 and well.CAP > 0)
+    eq(well.ITEM, "colony-water")
+  end)
   it("a salt pan fills, and stops at its cap", function()
     eq(salt.full(0), false); eq(salt.full(salt.CAP - 1), false); eq(salt.full(salt.CAP), true)
     truthy(salt.TICKS_PER_SALT > 0 and salt.CAP > 0)
@@ -465,6 +471,41 @@ describe("housing", function()
   it("assign leaves later houses empty when the town is small", function()
     local lists = h.assign({9}, {4, 6})
     eq(#lists[1], 1); eq(lists[1][1], 9); eq(#lists[2], 0)
+  end)
+  it("homestead requires food and water, heat from coal or power (#43)", function()
+    local stock = {["colony-meat"] = 8, ["colony-water"] = 4, coal = 4}
+    local c, sat, score, crit = h.step(h.TIERS.homestead, 8, stock, false, {})
+    eq(sat.food, true); eq(sat.water, true); eq(sat.heat, true); eq(crit, false); eq(score, 1)
+    eq(c["colony-meat"], 8); eq(c["colony-water"], 4); eq(c.coal, 4)
+
+    -- Missing water triggers critical unmet
+    local _, sat2, _, crit2 = h.step(h.TIERS.homestead, 8, {["colony-meat"] = 8}, true, {})
+    eq(sat2.water, false); eq(crit2, true)
+
+    -- Demand includes water and food
+    local d = by_need(h.demand(h.TIERS.homestead, {}, {}, true))
+    eq(d.food.count, 48)   -- 8 occ * 1 * 6 intervals
+    eq(d.water.count, 24)  -- 8 occ * 0.5 * 6 intervals
+    eq(d.heat, nil)        -- powered
+  end)
+  it("apartment requires food, water, and mandatory electricity (#43)", function()
+    local stock = {["colony-forage"] = 16, ["colony-water"] = 8, ["colony-furniture"] = 2}
+    -- Unpowered apartment fails critical electricity need even if food and water are present
+    local _, sat_unpowered, score_unp, crit_unp = h.step(h.TIERS.apartment, 16, stock, false, {})
+    eq(sat_unpowered.electricity, false); eq(crit_unp, true)
+
+    -- Powered apartment meets electricity and consumes comfort goods
+    local stock2 = {["colony-forage"] = 16, ["colony-water"] = 8, ["colony-furniture"] = 2}
+    local c2, sat_powered, score_pow, crit_pow = h.step(h.TIERS.apartment, 16, stock2, true, {})
+    eq(sat_powered.electricity, true); eq(sat_powered.comfort, true); eq(crit_pow, false); eq(score_pow, 1)
+    eq(c2["colony-furniture"], 1)   -- floor(16 * 0.1) = 1
+
+    -- Demand requests food, water, and comfort, but no electricity
+    local d = by_need(h.demand(h.TIERS.apartment, {}, {}, true))
+    eq(d.food.count, 96)      -- 16 occ * 1 * 6
+    eq(d.water.count, 48)     -- 16 occ * 0.5 * 6
+    eq(d.comfort.count, 10)   -- ceil(16 * 0.1 * 6) = 10
+    eq(d.electricity, nil)
   end)
   it("assign handles no colonists and no houses", function()
     eq(#h.assign({}, {4}), 1); eq(#h.assign({}, {4})[1], 0)
@@ -646,6 +687,9 @@ describe("yields (#41)", function()
     eq(pres.PRODUCT_PER_BATCH, y.CURE.out)
     eq(slt.TICKS_PER_SALT, y.SALT_TICKS)
     eq(slt.CAP, y.SALT_CAP)
+    local wel = require("scripts.model.well")
+    eq(wel.TICKS_PER_WATER, y.WATER_TICKS)
+    eq(wel.CAP, y.WATER_CAP)
     eq(y.FORAGE.count, 4)
     eq(y.CHOP.count, 4)
     eq(y.MINE_PER_TRIP, 5)

@@ -55,6 +55,15 @@ core.register("m1_colony", {
       kitchen_ent.insert{name = "colony-water", count = 2}
     end
 
+    -- Colony Science (#42): Town Archive staffed by scholars studying Frontier Charters.
+    local archive_pos = {p.x - 12, p.y + 14}
+    ctx.power_at({x = archive_pos[1], y = archive_pos[2]})
+    local archive = build("colony-town-archive", archive_pos)
+    if archive and archive.valid then
+      archive.insert{name = "colony-frontier-pack", count = 5}
+    end
+    game.forces["player"].research_queue = {"colony-frontier-charter"}
+
     -- Hunting Lodge (#79): real hunting - docile game on its own force, shot by colonists. Two boars are
     -- placed beside the lodge so the hunt does not depend on where the herd happened to wander.
     local lodge = build("colony-hunting-lodge", {p.x + 8, p.y + 12})
@@ -115,6 +124,8 @@ core.register("m1_colony", {
       and c.huts[smokehouse.unit_number] ~= nil and c.huts[smokehouse.unit_number].job == "preserve")
     ctx.check("kitchen registered with the colony", kitchen_ent and kitchen_ent.valid
       and c.huts[kitchen_ent.unit_number] ~= nil and c.huts[kitchen_ent.unit_number].job == "preserve")
+    ctx.check("town archive registered with the colony", archive and archive.valid
+      and c.huts[archive.unit_number] ~= nil and c.huts[archive.unit_number].job == "research")
     hall.insert{name = "spoilage", count = 10}
     tent.insert{name = "spoilage", count = 3}
     local outside_crate = build("colony-supply-crate", {p.x + 200, p.y + 200})
@@ -298,6 +309,7 @@ core.register("m1_colony", {
       c.locks = c.locks or {}
       if ids[1] then c.locks[ids[1]] = "hunt" end
       if ids[2] then c.locks[ids[2]] = "fish" end
+      if ids[3] then c.locks[ids[3]] = "research" end
     end)
     ctx.after(colony.INTERVAL * 20, function()
       local tcnt = function(e, i) return e.get_inventory(defines.inventory.chest).get_item_count(i) end
@@ -386,6 +398,8 @@ core.register("m1_colony", {
       ctx.check("the smokehouse cured meat with it", saw.preserved)
       ctx.check("farmers used fertilizer for boosted yield", saw.fertilized)
       ctx.check("the kitchen baked bread", saw.bread)
+      ctx.check("scholars researched colony technology", game.forces["player"].research_progress > 0,
+        "progress: " .. tostring(game.forces["player"].research_progress))
       ctx.check("well produced water", saw.well_water or saw.water_in_hall or saw.homestead_water)
       ctx.check("water hauled to colony stock or homestead", saw.water_in_hall or saw.homestead_water)
       local live_game = 0

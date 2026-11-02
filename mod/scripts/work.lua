@@ -22,6 +22,7 @@ local yields = require("scripts.model.yields")
 local salt = require("scripts.model.salt")
 local well = require("scripts.model.well")
 local construct = require("scripts.model.construct")
+local science = require("scripts.model.science")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
@@ -34,7 +35,7 @@ M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still 
 M.CARRY_CAP = yields.CARRY_CAP
 M.ORES = mine_plan.ORES   -- every ore a Miner's Hut can be pointed at
 M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", hunt = "hunter",
-  fish = "fisher", preserve = "preserver", haul = "hauler", construct = "builder"}
+  fish = "fisher", preserve = "preserver", haul = "hauler", construct = "builder", research = "scholar"}
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
 
@@ -74,13 +75,32 @@ end
 
 -- Contents of a colony building's chest as item -> count (nil when it is empty or has no chest). Declared up
 -- here because Lua locals only exist after their definition: `hut_offer` (below) needs it.
+-- For lab entities (Town Archive, University), inspects defines.inventory.lab_input (#42).
 local function chest_contents(entity)
-  local inv = entity.get_inventory(defines.inventory.chest)
+  local inv = entity.type == "lab"
+    and entity.get_inventory(defines.inventory.lab_input)
+    or entity.get_inventory(defines.inventory.chest)
   if not (inv and not inv.is_empty()) then return nil end
   local out = {}
   for _, item in ipairs(inv.get_contents()) do out[item.name] = item.count end
   return out
 end
+
+local function update_lab_status(entity, workers, capacity)
+  if not (entity and entity.valid and entity.type == "lab") then return end
+  if workers > 0 then
+    entity.custom_status = {
+      diode = defines.entity_status_diode.green,
+      label = {"colony-gui-hut.lab-staffed", workers, capacity}
+    }
+  else
+    entity.custom_status = {
+      diode = defines.entity_status_diode.red,
+      label = {"colony-gui-hut.lab-unstaffed"}
+    }
+  end
+end
+M.update_lab_status = update_lab_status
 
 -- One completed trip = one use of the hut's tool. Shared by `work.finish` (harvest) and the hunter, which
 -- completes its trip the moment the animal dies rather than after a work animation.
@@ -379,6 +399,16 @@ local function find_site(colony, e, hut)
       end
     end
     return best
+  elseif hut.job == "research" then
+    -- The archive or university is its own workplace (#42). Scholars staff the facility when it holds science packs.
+    local packs = science.PACKS_BY_LAB[hut.entity.name] or {}
+    local contents = chest_contents(hut.entity)
+    if not contents then return nil end
+    local have = false
+    for _, p in ipairs(packs) do
+      if (contents[p] or 0) > 0 then have = true; break end
+    end
+    return have and hut.entity or nil
   end
 end
 
@@ -386,6 +416,7 @@ end
 function M.site_count(h)
   local colony = storage.colonies[h.colony_id]
   if not (colony and h.entity.valid) then return 0 end
+  if h.job == "research" or h.job == "preserve" or h.job == "fish" then return 1 end
   local s, base, radius = h.entity.surface, h.entity.position, colony_mod.HUT_RADIUS
   local in_territory = function(t) return territory.owner_at(colony.surface_index, t.position) == colony.id end
   local free = function(t) return in_territory(t) and not colony.claimed[key(t)] end
@@ -469,10 +500,12 @@ local function hut_offer(h)
     end
     return nil
   end
-  -- No tool: the hut asks for its inputs instead (#81, #44). A request, not a critical need, so houses are always
-  -- served first and a smokehouse or kitchen can never eat the town's dinner.
+  -- No tool: the hut asks for its inputs instead (#81, #44, #42). A request, not a critical need, so houses are always
+  -- served first and a smokehouse, kitchen or archive can never eat the town's dinner.
   local demands
-  if h.entity.name == "colony-kitchen" then
+  if h.job == "research" then
+    demands = science.wants(h.entity.name, chest_contents(h.entity) or {}, h.inflight)
+  elseif h.entity.name == "colony-kitchen" then
     demands = kitchen.wants(chest_contents(h.entity) or {}, h.inflight)
   else
     demands = preserve.wants(chest_contents(h.entity) or {}, h.inflight)
@@ -484,9 +517,12 @@ end
 
 -- Finished goods sit in the hut until a hauler clears them, so the hut is the local stockpile and the
 -- colonist never walks every load home. Everything except the hut's own tool is fair game.
+-- For lab entities, collects from defines.inventory.lab_trash so spoilage is composted (#42).
 local function hut_collect_offer(h)
   local def = labour.HUTS[h.entity.name]
-  local inv = h.entity.get_inventory(defines.inventory.chest)
+  local inv = h.entity.type == "lab"
+    and h.entity.get_inventory(defines.inventory.lab_trash)
+    or h.entity.get_inventory(defines.inventory.chest)
   if not (def and inv and not inv.is_empty()) then return nil end
   local demands, available, keep = {}, {}, {}
   for _, item in ipairs(def.keep or {}) do keep[item] = true end
@@ -827,7 +863,7 @@ local function start_trip(colony, un, hut)
   -- position moves under our feet.
   if hut.job == "hunt" then
     colony.claimed["boar:" .. site.unit_number] = true
-  elseif hut.job ~= "mine" and hut.job ~= "fish" and hut.job ~= "preserve" then
+  elseif hut.job ~= "mine" and hut.job ~= "fish" and hut.job ~= "preserve" and hut.job ~= "research" then
     colony.claimed[key(site)] = true
   end
   if hut.job == "hunt" then
@@ -935,6 +971,10 @@ function M.release(st)
     return_to_hall(colony, st.carry)
     st.carry = nil
   end
+  if st.job == "research" and st.hut and st.hut.entity and st.hut.entity.valid then
+    local def = labour.HUTS[st.hut.entity.name]
+    update_lab_status(st.hut.entity, worker_count(st.hut), def and def.capacity or 2)
+  end
 end
 
 scheduler.register("work.retry", function(d)
@@ -1026,6 +1066,33 @@ scheduler.register("work.finish", function(d)
     if n > 0 then
       if site.amount > n then site.amount = site.amount - n else site.destroy() end   -- 0 is not a legal amount
       e.surface.pollute(pos, M.MINE_POLLUTION)       -- 1:1 depletion, zero electricity, but not zero pollution
+    end
+  elseif st.job == "research" then
+    -- Lab research is performed natively by the engine while powered and stocked (#42).
+    -- Scholars maintain and staff the facility.
+    local contents = chest_contents(hut.entity)
+    local packs = science.PACKS_BY_LAB[hut.entity.name] or {}
+    local have = false
+    if contents then
+      for _, p in ipairs(packs) do
+        if (contents[p] or 0) > 0 then have = true; break end
+      end
+    end
+    local lock = colony.locks and colony.locks[d.un]
+    if have and (not lock or lock == "research") then
+      local e = colony.colonists[d.un]
+      if e and e.valid and hut.entity.valid then
+        work_ring(e, hut.entity.position)
+      end
+      scheduler.after(M.WORK_TICKS + (d.un * 23) % 240, "work.finish", {un = d.un})
+      return
+    else
+      if hut.workers then hut.workers[d.un] = nil end
+      local def = labour.HUTS[hut.entity.name]
+      update_lab_status(hut.entity, worker_count(hut), def and def.capacity or 2)
+      M.release(st)
+      M.assign(colony, d.un)
+      return
     end
   end
   if n <= 0 then
@@ -1214,6 +1281,10 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     st.state = "working"
     local e = colony.colonists[ev.unit_number]
     if e and e.valid and st.site.valid then work_ring(e, st.site.position) end
+    if st.hut and st.hut.job == "research" and st.hut.entity.valid then
+      local def = labour.HUTS[st.hut.entity.name]
+      update_lab_status(st.hut.entity, worker_count(st.hut), def and def.capacity or 2)
+    end
     scheduler.after(M.WORK_TICKS + (ev.unit_number * 23) % 240, "work.finish", {un = ev.unit_number})
   elseif st.state == "to_hut" then
     local e = colony.colonists[ev.unit_number]

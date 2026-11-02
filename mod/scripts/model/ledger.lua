@@ -9,7 +9,8 @@ local ORDER = {
   ["wood"] = 20, ["iron-ore"] = 21, ["copper-ore"] = 22, ["coal"] = 23, ["stone"] = 24,
   ["iron-plate"] = 30, ["copper-plate"] = 31, ["colony-axe"] = 32, ["colony-pickaxe"] = 33,
   ["colony-hoe"] = 34, ["colony-rifle"] = 35, ["colony-rod"] = 36, ["colony-basket"] = 37,
-  ["repair-pack"] = 38, ["colony-fertilizer"] = 39, ["colony-furniture"] = 40, ["spoilage"] = 41,
+  ["repair-pack"] = 38, ["colony-fertilizer"] = 39, ["colony-furniture"] = 40,
+  ["colony-frontier-pack"] = 41, ["colony-civic-pack"] = 42, ["spoilage"] = 43,
 }
 
 function M.sort_key(item)

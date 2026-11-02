@@ -18,6 +18,7 @@ After a run: `scripts/collect-results.sh`, then `scripts/post-results.sh spike-r
 | s10_work | #10 | `/spike run s10_work` | on ore, next to trees | tree/ore/pollution/ghost API |
 | s11_biters | #11 | `/spike run s11_biters 10 20 0` then `... 1` (flee) | open ground | Civilian vulnerability, evolution |
 | s12_wildlife | #79 | `TICKS=1800 scripts/headless-spike.sh s12_wildlife` | flat | Docile game on its own force, commanded ranged hunt, `ev.cause` credit, wander |
+| s13_science | #19 | `TICKS=1200 scripts/headless-spike.sh s13_science` | anywhere (headless ok) | Lab input whitelist, spoilage into `lab_trash`, staffing power control, tech progress |
 | s01_units | #1 | `/spike run s01_units 300 60`, then `... 300 60 5` (biters); repeat with startup setting *colonist without attack_parameters* | forest | Colonist representation: go/no-go |
 
 Suggested order (fast→slow, riskiest first): s01, s02, s05, s09, s08, s07, s03, s04, s06, s10, s11.

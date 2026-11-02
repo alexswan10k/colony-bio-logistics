@@ -259,6 +259,12 @@ Colonies have their own **Tech Subtree** researched in a **Town Archive** (Early
 3. **Bio-Ecological Data (Tier 3):** *Canned Rations + Pharmaceuticals + Cultural Insights (Tourism) + Advanced Circuits* $\rightarrow$ Unlocks Resorts, Habitat Domes, Enviro-Suits, Cryo-Colonist Pods, Nurseries.
 4. **Interplanetary Sovereignty Codex (Tier 4):** *Multi-Planet Inputs (Bioflux, Tungsten, Holmium, Cryo-tech)* $\rightarrow$ Unlocks Arcologies, Orbital Hydroponics, Space Platform EVA Crew, Cybernetic Upgrades.
 
+* **Implementation details (#42, #19):**
+  * **Lab Whitelist Isolation:** Vanilla labs reject custom colony packs (`can_insert == false`, `insert() == 0`), and colony labs reject vanilla packs. Isolation is enforced at the C++ engine level.
+  * **Perishable Spoilage in Labs:** Perishable science packs (Frontier Charters, Civic Treatises) that spoil inside a lab automatically move into `defines.inventory.lab_trash`. The lab does not jam and continues researching fresh packs. Haulers collect spoilage from `lab_trash` and route it to Compost Bins.
+  * **Staffed Mechanics:** Town Archives (3x3, cap 2) and Universities (4x4, cap 4) register as labour huts with `job = "research"` (`scholar` role, default rank 2, 15% workforce target). Scholars maintain and staff the facility while science packs are present, updating the native `custom_status` diode (`green` staffed / `red` unstaffed).
+  * **Unified Research Queue:** Colony technologies reside in standard `data.raw["technology"]`, appearing in the native "T" tech tree and FIFO research queue (`force.research_queue`). Technology progress advances natively when powered and staffed.
+
 ---
 
 ## 9. Space Age: Interplanetary & Self-Sustaining Orbital Colonies

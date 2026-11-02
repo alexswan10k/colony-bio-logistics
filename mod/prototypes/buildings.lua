@@ -27,10 +27,10 @@ local function item_of(entity, art, order)
   }
 end
 
-local function recipe(name, ingredients, time, amount)
+local function recipe(name, ingredients, time, amount, enabled)
   local ing = {}
   for item, n in pairs(ingredients) do ing[#ing + 1] = {type = "item", name = item, amount = n} end
-  return {type = "recipe", name = name, enabled = true, energy_required = time,
+  return {type = "recipe", name = name, enabled = enabled == nil and true or enabled, energy_required = time,
     ingredients = ing, results = {{type = "item", name = name, amount = amount or 1}}}
 end
 
@@ -66,6 +66,38 @@ local saltpan = chest_clone("wooden-chest", "colony-salt-pan", "salt-pan", 6, 1)
 -- equipment, so `labour.HUTS` leaves `tool` out and `hut_info` reports capacity as the gate instead.
 local smokehouse = chest_clone("iron-chest", "colony-smokehouse", "smokehouse", 8, 1)
 local kitchen = chest_clone("iron-chest", "colony-kitchen", "kitchen", 8, 1)
+
+-- Colony science (#42, design §8): Town Archive (early 3x3) and University (advanced 4x4).
+-- Custom lab entities that only consume colony science packs.
+local function make_lab(name, icon_name, sprite_name, size_px, tile_radius, inputs, speed, power_kw)
+  local lab = table.deepcopy(data.raw["lab"]["lab"])
+  lab.name = name
+  lab.localised_name = {"entity-name." .. name}
+  lab.localised_description = {"entity-description." .. name}
+  lab.icon = G .. icon_name
+  lab.icon_size = 64
+  lab.collision_box = {{-tile_radius + 0.2, -tile_radius + 0.2}, {tile_radius - 0.2, tile_radius - 0.2}}
+  lab.selection_box = {{-tile_radius, -tile_radius}, {tile_radius, tile_radius}}
+  lab.minable = {mining_time = 0.5, result = name}
+  lab.inputs = inputs
+  lab.researching_speed = speed
+  lab.energy_usage = power_kw .. "kW"
+  lab.fast_replaceable_group = nil
+  lab.next_upgrade = nil
+  lab.on_animation = {
+    filename = G .. sprite_name,
+    width = size_px, height = size_px,
+    scale = (tile_radius * 2 * 32) / size_px,
+    frame_count = 1,
+  }
+  lab.off_animation = lab.on_animation
+  return lab
+end
+
+local archive = make_lab("colony-town-archive", "icon-town-archive.png", "town-archive.png", 192, 1.5,
+  {"colony-frontier-pack"}, 1.0, 40)
+local university = make_lab("colony-university", "icon-university.png", "university.png", 256, 2.0,
+  {"colony-frontier-pack", "colony-civic-pack"}, 2.0, 100)
 -- Colony logistics crates (#33, design §5.1). Plain containers, not logistic chests: inserters and belts
 -- still work on them, but colony hauling is driven by our own registry so bots and colonists never fight
 -- over the same request.
@@ -155,7 +187,7 @@ local marker = {
 
 data:extend({
   hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
-  smokehouse, kitchen, supply_crate, demand_crate, warehouse, compost_bin,
+  smokehouse, kitchen, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
   plot, bush, sink, marker,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -163,6 +195,8 @@ data:extend({
   item_of(homestead, "homestead", "z[colony]-c1[housing-homestead]"),
   item_of(apartment, "apartment", "z[colony]-c2[housing-apartment]"),
   item_of(well, "well", "z[colony]-k1[well]"),
+  item_of(archive, "town-archive", "z[colony]-k2[town-archive]"),
+  item_of(university, "university", "z[colony]-k3[university]"),
   item_of(forager, "forager-hut", "z[colony]-d[forager-hut]"),
   item_of(woodcutter, "woodcutter-hut", "z[colony]-e[woodcutter-hut]"),
   item_of(miner, "miner-hut", "z[colony]-f[miner-hut]"),
@@ -189,34 +223,70 @@ data:extend({
    subgroup = "storage", order = "z[colony]-d[furniture]", stack_size = 50,
    localised_name = {"item-name.colony-furniture"},
    localised_description = {"item-description.colony-furniture"}},
+  {type = "tool", name = "colony-frontier-pack", icon = G .. "icon-frontier-pack.png", icon_size = 64,
+   subgroup = "science-pack", order = "z[colony]-s1[frontier-pack]", stack_size = 200, durability = 1,
+   spoil_ticks = 60 * 60 * 60, spoil_result = "spoilage",
+   localised_name = {"item-name.colony-frontier-pack"},
+   localised_description = {"item-description.colony-frontier-pack"}},
+  {type = "tool", name = "colony-civic-pack", icon = G .. "icon-civic-pack.png", icon_size = 64,
+   subgroup = "science-pack", order = "z[colony]-s2[civic-pack]", stack_size = 200, durability = 1,
+   spoil_ticks = 60 * 60 * 60, spoil_result = "spoilage",
+   localised_name = {"item-name.colony-civic-pack"},
+   localised_description = {"item-description.colony-civic-pack"}},
   {type = "item", name = "colony-farm-plot", icon = G .. "farm-plot-ripe.png", icon_size = 64,
    subgroup = "storage", order = "z[colony]-i[farm-plot]", place_result = "colony-farm-plot", stack_size = 50,
    localised_name = {"item-name.colony-farm-plot"}, localised_description = {"item-description.colony-farm-plot"}},
   recipe("colony-town-hall", {wood = 50, ["iron-plate"] = 50}, 5),
   recipe("colony-housing-tent", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-housing-cabin", {wood = 40, ["stone-brick"] = 10, ["iron-plate"] = 10}, 4),
-  recipe("colony-housing-homestead", {wood = 60, ["stone-brick"] = 20, ["iron-plate"] = 20}, 5),
-  recipe("colony-housing-apartment", {["stone-brick"] = 50, concrete = 20, ["iron-plate"] = 30, ["electronic-circuit"] = 10}, 8),
-  recipe("colony-well", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3),
-  recipe("colony-furniture", {wood = 10, ["iron-plate"] = 2}, 2),
-  {type = "recipe", name = "colony-water-bottling", enabled = true, energy_required = 1,
+  recipe("colony-housing-homestead", {wood = 60, ["stone-brick"] = 20, ["iron-plate"] = 20}, 5, 1, false),
+  recipe("colony-housing-apartment", {["stone-brick"] = 50, concrete = 20, ["iron-plate"] = 30, ["electronic-circuit"] = 10}, 8, 1, false),
+  recipe("colony-well", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
+  recipe("colony-furniture", {wood = 10, ["iron-plate"] = 2}, 2, 1, false),
+  {type = "recipe", name = "colony-water-bottling", enabled = false, energy_required = 1,
    categories = {"crafting-with-fluid"},
    ingredients = {{type = "fluid", name = "water", amount = 100}},
    results = {{type = "item", name = "colony-water", amount = 10}},
    icon = G .. "icon-water.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-a7[water-bottling]",
    localised_name = {"recipe-name.colony-water-bottling"}},
+  recipe("colony-town-archive", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3),
+  recipe("colony-university", {["stone-brick"] = 50, ["iron-plate"] = 30, ["electronic-circuit"] = 20}, 5, 1, false),
+  {type = "recipe", name = "colony-frontier-pack", enabled = true, energy_required = 5,
+   ingredients = {{type = "item", name = "wood", amount = 5},
+                  {type = "item", name = "stone-brick", amount = 1},
+                  {type = "item", name = "colony-preserved-meat", amount = 1}},
+   results = {{type = "item", name = "colony-frontier-pack", amount = 1}},
+   icon = G .. "icon-frontier-pack.png", icon_size = 64,
+   subgroup = "science-pack", order = "z[colony]-s1[frontier-pack]",
+   localised_name = {"item-name.colony-frontier-pack"}},
+  {type = "recipe", name = "colony-frontier-pack-fish", enabled = false, energy_required = 5,
+   ingredients = {{type = "item", name = "wood", amount = 5},
+                  {type = "item", name = "stone-brick", amount = 1},
+                  {type = "item", name = "colony-preserved-fish", amount = 1}},
+   results = {{type = "item", name = "colony-frontier-pack", amount = 1}},
+   icon = G .. "icon-frontier-pack.png", icon_size = 64,
+   subgroup = "science-pack", order = "z[colony]-s2[frontier-pack-fish]",
+   localised_name = {"recipe-name.colony-frontier-pack-fish"}},
+  {type = "recipe", name = "colony-civic-pack", enabled = false, energy_required = 8,
+   ingredients = {{type = "item", name = "iron-gear-wheel", amount = 2},
+                  {type = "item", name = "colony-bread", amount = 1},
+                  {type = "item", name = "colony-water", amount = 1}},
+   results = {{type = "item", name = "colony-civic-pack", amount = 1}},
+   icon = G .. "icon-civic-pack.png", icon_size = 64,
+   subgroup = "science-pack", order = "z[colony]-s3[civic-pack]",
+   localised_name = {"item-name.colony-civic-pack"}},
   recipe("colony-forager-hut", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-woodcutter-hut", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-miner-hut", {wood = 20, ["iron-plate"] = 10}, 2),
   recipe("colony-watchtower", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 4),
-  recipe("colony-farm-hut", {wood = 20, ["iron-plate"] = 5}, 2),
+  recipe("colony-farm-hut", {wood = 20, ["iron-plate"] = 5}, 2, 1, false),
   recipe("colony-hunting-lodge", {wood = 20, ["iron-plate"] = 8}, 2),
   recipe("colony-fishing-dock", {wood = 20, ["iron-plate"] = 6}, 2),
-  recipe("colony-salt-pan", {wood = 10, ["stone-brick"] = 10}, 2),
-  recipe("colony-smokehouse", {wood = 25, ["stone-brick"] = 10, ["iron-plate"] = 5}, 3),
-  recipe("colony-kitchen", {wood = 30, ["stone-brick"] = 15, ["iron-plate"] = 10}, 3),
-  recipe("colony-farm-plot", {wood = 2}, 0.5, 4),
+  recipe("colony-salt-pan", {wood = 10, ["stone-brick"] = 10}, 2, 1, false),
+  recipe("colony-smokehouse", {wood = 25, ["stone-brick"] = 10, ["iron-plate"] = 5}, 3, 1, false),
+  recipe("colony-kitchen", {wood = 30, ["stone-brick"] = 15, ["iron-plate"] = 10}, 3, 1, false),
+  recipe("colony-farm-plot", {wood = 2}, 0.5, 4, false),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1),
   recipe("colony-demand-crate", {wood = 10, ["iron-plate"] = 10}, 1),
   recipe("colony-warehouse", {wood = 40, ["stone-brick"] = 20, ["iron-plate"] = 20}, 3),
@@ -227,7 +297,7 @@ data:extend({
   tool("colony-hoe", "icon-hoe.png"), tool("colony-rifle", "icon-rifle.png"), tool("colony-rod", "icon-rod.png"),
   recipe("colony-axe", {wood = 2, ["iron-plate"] = 3}, 1),
   recipe("colony-pickaxe", {wood = 2, ["iron-plate"] = 3}, 1),
-  recipe("colony-hoe", {wood = 2, ["iron-plate"] = 3}, 1),
+  recipe("colony-hoe", {wood = 2, ["iron-plate"] = 3}, 1, 1, false),
   recipe("colony-rifle", {wood = 4, ["iron-plate"] = 6, ["copper-plate"] = 2}, 2),
   recipe("colony-rod", {wood = 3, ["iron-plate"] = 2}, 1),
   {type = "item", name = "colony-forage", icon = G .. "icon-forage.png", icon_size = 64,

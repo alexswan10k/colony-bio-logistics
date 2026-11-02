@@ -864,3 +864,60 @@ describe("workforce headcount targets (#73)", function()
     eq(work_plan.choose(s_capped), nil)
   end)
 end)
+
+describe("colony science (#42)", function()
+  local science = require("scripts.model.science")
+  local jobs = require("scripts.model.jobs")
+  local work_plan = require("scripts.model.work_plan")
+
+  it("calculates lab buffer wants", function()
+    local archive_wants = science.wants(science.ARCHIVE, {}, {})
+    eq(#archive_wants, 1)
+    eq(archive_wants[1].item, science.FRONTIER_PACK)
+    eq(archive_wants[1].count, 10)
+
+    -- In-flight delivery and inventory reduce demand
+    local partial = science.wants(science.ARCHIVE, {[science.FRONTIER_PACK] = 3}, {[science.FRONTIER_PACK] = 4})
+    eq(#partial, 1)
+    eq(partial[1].count, 3)
+
+    -- Fully stocked archive wants nothing
+    local full = science.wants(science.ARCHIVE, {[science.FRONTIER_PACK] = 10}, {})
+    eq(#full, 0)
+
+    -- University wants both packs
+    local uni_wants = science.wants(science.UNIVERSITY, {}, {})
+    eq(#uni_wants, 2)
+    eq(uni_wants[1].item, science.FRONTIER_PACK)
+    eq(uni_wants[2].item, science.CIVIC_PACK)
+  end)
+
+  it("integrates research role into jobs registry", function()
+    local found = false
+    for _, j in ipairs(jobs.JOBS) do
+      if j == "research" then found = true end
+    end
+    eq(found, true)
+    eq(jobs.DEFAULT.research, 2)
+  end)
+
+  it("calculates research workforce capacity and steers work_plan", function()
+    eq(work_plan.research_workers(10), 1)
+    eq(work_plan.research_workers(20), 3)
+
+    local priority = {haul = 1, forage = 2, chop = 2, mine = 2, farm = 2, hunt = 2, fish = 2,
+      preserve = 2, construct = 2, research = 2}
+    local s = {food_ratio = 1.0, counts = {haul = 2, forage = 1, chop = 1, mine = 1, research = 0},
+      slots = {research = 2, forage = 2}, capacity = {research = 2, forage = 2}, pop = 15,
+      haul = false, priority = priority}
+    -- With food abundant and research open, research can be chosen
+    local chosen = work_plan.choose(s)
+    truthy(chosen == "research" or chosen == "forage")
+
+    -- High research priority wins cleanly
+    local prio_high = {haul = 1, forage = 3, chop = 3, mine = 3, farm = 3, hunt = 3, fish = 3,
+      preserve = 3, construct = 3, research = 1}
+    s.priority = prio_high
+    eq(work_plan.choose(s), "research")
+  end)
+end)

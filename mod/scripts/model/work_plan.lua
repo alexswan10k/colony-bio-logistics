@@ -11,9 +11,11 @@ local headcount = require("scripts.model.headcount")
 M.JOBS = jobs.JOBS          -- haul first: wins ties (keeps houses supplied)
 M.HAUL_SHARE = 0.3
 M.PRESERVE_SHARE = 0.15     -- of the town, at most: a smokehouse is fed, it does not need an army
+M.RESEARCH_SHARE = 0.15     -- scholars investigating history and science
 M.HARVEST = {"forage", "farm", "chop", "mine", "hunt", "fish"}
 
 function M.preserve_workers(pop) return math.max(1, math.floor((pop or 0) * M.PRESERVE_SHARE)) end
+function M.research_workers(pop) return math.max(1, math.floor((pop or 0) * M.RESEARCH_SHARE)) end
 
 -- food_ratio = stock/target; returns the share of non-hauling colonists each hut job should get.
 function M.desired_shares(food_ratio)
@@ -54,6 +56,11 @@ function M.choose(s)
   local p_capped = headcount.is_capped(targets, "preserve", counts.preserve)
   local can_preserve = p_rank > 0 and (slots.preserve or 0) > 0 and not p_capped and (counts.preserve or 0) < p_cap
 
+  local r_rank = jobs.rank(priority, "research")
+  local r_cap = headcount.target(targets, "research") or M.research_workers(pop)
+  local r_capped = headcount.is_capped(targets, "research", counts.research)
+  local can_research = r_rank > 0 and (slots.research or 0) > 0 and not r_capped and (counts.research or 0) < r_cap
+
   -- Best eligible harvest rank among slots that are not headcount-capped
   local eligible_harvest_slots = {}
   for _, job in ipairs(M.HARVEST) do
@@ -64,13 +71,19 @@ function M.choose(s)
   local harvest_rank = jobs.best_rank(priority, M.HARVEST, eligible_harvest_slots)
 
   -- Check construction if prioritized
-  if can_construct and (not harvest_rank or c_rank <= harvest_rank) and (not can_preserve or c_rank <= p_rank) then
+  if can_construct and (not harvest_rank or c_rank <= harvest_rank) and (not can_preserve or c_rank <= p_rank)
+      and (not can_research or c_rank <= r_rank) then
     return "construct"
   end
 
   -- Check preserve if prioritized
-  if can_preserve and (not harvest_rank or p_rank <= harvest_rank) then
+  if can_preserve and (not harvest_rank or p_rank <= harvest_rank) and (not can_research or p_rank <= r_rank) then
     return "preserve"
+  end
+
+  -- Check research if prioritized
+  if can_research and (not harvest_rank or r_rank <= harvest_rank) then
+    return "research"
   end
 
   -- Check harvest rank
@@ -91,6 +104,7 @@ function M.choose(s)
   -- Fallbacks if earlier prioritized roles were skipped
   if can_construct then return "construct" end
   if can_preserve then return "preserve" end
+  if can_research then return "research" end
 
   if haul_on and s.haul and pop > 0 and not haul_capped then return "haul" end
   return nil

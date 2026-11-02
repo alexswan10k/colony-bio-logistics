@@ -188,6 +188,73 @@ def icon_bread():
         d.line(S(x - 3, 26, x + 3, 40), fill=(235, 185, 115, 255), width=2 * SS)
     save(img, "icon-bread.png", 64, 64)
 
+def icon_frontier_pack():
+    img, d = canvas(64, 64)
+    # Rolled parchment scroll
+    d.polygon(S(14, 16, 50, 16, 46, 50, 10, 50), fill=(235, 220, 180, 255), outline=(60, 45, 30, 255), width=2 * SS)
+    d.line(S(14, 26, 44, 26), fill=(160, 140, 110, 255), width=2 * SS)
+    d.line(S(12, 34, 42, 34), fill=(160, 140, 110, 255), width=2 * SS)
+    d.line(S(12, 42, 38, 42), fill=(160, 140, 110, 255), width=2 * SS)
+    # Red wax seal with ribbon
+    d.polygon(S(36, 40, 46, 56, 40, 54, 34, 58), fill=(160, 30, 25, 255))
+    d.ellipse(S(34, 34, 50, 50), fill=(195, 40, 35, 255), outline=(80, 20, 15, 255), width=2 * SS)
+    d.ellipse(S(38, 38, 46, 46), fill=(220, 60, 50, 255))
+    save(img, "icon-frontier-pack.png", 64, 64)
+
+def icon_civic_pack():
+    img, d = canvas(64, 64)
+    # Heavy bound treatise book
+    d.polygon(S(12, 14, 48, 10, 54, 50, 18, 56), fill=(40, 65, 115, 255), outline=(20, 30, 55, 255), width=2 * SS)
+    d.polygon(S(18, 56, 54, 50, 52, 54, 16, 60), fill=(225, 215, 190, 255), outline=(40, 35, 30, 255), width=1 * SS)
+    # Gold embossing and spine
+    d.line(S(16, 14, 22, 55), fill=(215, 175, 60, 255), width=3 * SS)
+    d.ellipse(S(28, 26, 42, 40), fill=(215, 175, 60, 255), outline=(140, 100, 30, 255), width=1 * SS)
+    save(img, "icon-civic-pack.png", 64, 64)
+
+def town_archive(px=192):
+    img, d = canvas(px, px)
+    shadow(d, (12, px * .84, px - 12, px - 4))
+    # Stone building base
+    outline_rect(d, (24, 70, px - 24, px - 24), (200, 195, 185, 255), outline=(45, 40, 35, 255), w=2)
+    # Classical pediment (triangular roof)
+    d.polygon(S(16, 70, px / 2, 18, px - 16, 70), fill=(175, 165, 155, 255), outline=(40, 35, 30, 255), width=3 * SS)
+    d.polygon(S(28, 66, px / 2, 28, px - 28, 66), fill=(215, 210, 200, 255))
+    # Columns
+    for cx in (42, 74, px - 74, px - 42):
+        outline_rect(d, (cx - 7, 72, cx + 7, px - 24), (230, 225, 220, 255), outline=(50, 45, 40, 255), w=2)
+    # Entrance & windows
+    outline_rect(d, (px / 2 - 20, px - 76, px / 2 + 20, px - 24), (70, 45, 30, 255), outline=(30, 20, 15, 255), w=2)
+    d.line(S(px / 2, px - 76, px / 2, px - 24), fill=(35, 25, 15, 255), width=2 * SS)
+    # Upper window arch
+    d.arc(S(px / 2 - 14, px - 96, px / 2 + 14, px - 68), 180, 360, fill=(180, 220, 240, 255), width=2 * SS)
+    save(img, "town-archive.png", px, px)
+    Image.open(os.path.join(OUT, "town-archive.png")).resize((64, 64), Image.LANCZOS).save(
+        os.path.join(OUT, "icon-town-archive.png"))
+
+def university(px=256):
+    img, d = canvas(px, px)
+    shadow(d, (14, px * .88, px - 14, px - 4))
+    # Main campus hall
+    outline_rect(d, (24, 76, px - 24, px - 24), (180, 120, 95, 255), outline=(40, 30, 25, 255), w=2)
+    # Side lecture wings
+    outline_rect(d, (18, 68, 70, px - 24), (160, 105, 80, 255), outline=(40, 30, 25, 255), w=2)
+    outline_rect(d, (px - 70, 68, px - 18, px - 24), (160, 105, 80, 255), outline=(40, 30, 25, 255), w=2)
+    # Copper dome
+    d.polygon(S(px / 2 - 44, 76, px / 2 + 44, 76, px / 2 + 36, 52, px / 2 - 36, 52), fill=(190, 185, 175, 255), outline=(40, 35, 30, 255), width=2 * SS)
+    d.ellipse(S(px / 2 - 38, 14, px / 2 + 38, 66), fill=(80, 155, 135, 255), outline=(30, 60, 50, 255), width=3 * SS)
+    d.line(S(px / 2, 8, px / 2, 16), fill=(210, 180, 70, 255), width=3 * SS)
+    # Windows
+    for wy in (96, 138, 180):
+        for wx in (36, px - 52):
+            outline_rect(d, (wx, wy, wx + 16, wy + 26), (220, 235, 245, 255), outline=(40, 35, 30, 255), w=2)
+    # Grand Arched Entrance
+    d.arc(S(px / 2 - 28, px - 100, px / 2 + 28, px - 44), 180, 360, fill=(60, 40, 30, 255), width=3 * SS)
+    outline_rect(d, (px / 2 - 24, px - 72, px / 2 + 24, px - 24), (80, 50, 35, 255), outline=(40, 25, 20, 255), w=2)
+    d.line(S(px / 2, px - 72, px / 2, px - 24), fill=(40, 25, 20, 255), width=2 * SS)
+    save(img, "university.png", px, px)
+    Image.open(os.path.join(OUT, "university.png")).resize((64, 64), Image.LANCZOS).save(
+        os.path.join(OUT, "icon-university.png"))
+
 def salt_pan(px=128):
     img, d = canvas(px, px)
     shadow(d, (10, px * .8, px - 10, px - 6))
@@ -418,6 +485,7 @@ warehouse(); compost_bin(); icon_fertilizer(); boar(); icon_rifle(); icon_meat()
 salt_pan(); icon_salt(); icon_preserved("icon-preserved-meat.png", (150, 75, 70, 255))
 icon_preserved("icon-preserved-fish.png", (170, 165, 140, 255))
 well(); homestead(); apartment(); icon_water(); icon_furniture()
+town_archive(); university(); icon_frontier_pack(); icon_civic_pack()
 hall(); tent(); cabin(); rack(); icon_axe(); icon_pick(); icon_forage(); colonist()
 icon_building("icon-town-hall.png", "hall"); icon_building("icon-tent.png", "tent")
 icon_building("icon-cabin.png", "cabin"); icon_building("icon-tool-rack.png", "rack")

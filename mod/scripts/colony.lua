@@ -893,6 +893,12 @@ local function on_built(ev)
         end
       end
       local hut = {entity = e, job = labour.HUTS[name].job, colony_id = colony.id, workers = {}, inflight = {}, wear = 0}
+      if hut.job == "research" then
+        e.custom_status = {
+          diode = defines.entity_status_diode.red,
+          label = {"colony-gui-hut.lab-unstaffed"}
+        }
+      end
       colony.huts[e.unit_number] = hut
       rendering.draw_circle{color = {0.9, 0.9, 0.3, 0.5}, width = 2, filled = false, radius = M.HUT_RADIUS,
         target = e, surface = e.surface, only_in_alt_mode = true}

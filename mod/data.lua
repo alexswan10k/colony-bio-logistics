@@ -6,3 +6,4 @@ if settings.startup["colony-spike-protos"].value then
 end
 require("prototypes.wildlife")
 require("prototypes.buildings")
+require("prototypes.technology")

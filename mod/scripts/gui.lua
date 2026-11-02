@@ -30,7 +30,7 @@ local function colony_at(e) local id = territory.owner_at(e.surface.index, e.pos
 -- Per-colonist job locks live on the house, not the Town Hall: a house lists only its own handful of
 -- occupants, so the panel stays usable when a town grows to hundreds of colonists.
 local LOCK_OPTS = {{"auto", "A"}, {"haul", "H"}, {"forage", "F"}, {"chop", "C"}, {"mine", "M"}, {"farm", "G"},
-  {"hunt", "T"}, {"fish", "I"}, {"preserve", "P"}, {"construct", "B"}}
+  {"hunt", "T"}, {"fish", "I"}, {"preserve", "P"}, {"construct", "B"}, {"research", "R"}}
 
 local function fill_roster(pane, colony, ids)
   colony.locks = colony.locks or {}
@@ -158,12 +158,24 @@ local function fill_hut(frame, h)
       end
     end
   else
-    local inv = h.entity.get_inventory(defines.inventory.chest)
+    local inv = h.entity.type == "lab"
+      and h.entity.get_inventory(defines.inventory.lab_input)
+      or h.entity.get_inventory(defines.inventory.chest)
     local parts = {}
     for _, item in ipairs(def.keep or {}) do
       parts[#parts + 1] = string.format("[item=%s] %d", item, inv and inv.get_item_count(item) or 0)
     end
     frame.add{type = "label", caption = {"colony-gui-hut.inputs", table.concat(parts, "  ")}}
+  end
+  if h.job == "research" then
+    local force = h.entity.force
+    local tech = force and force.current_research
+    if tech then
+      local pct = math.floor((force.research_progress or 0) * 100)
+      frame.add{type = "label", caption = {"colony-gui-hut.research-active", tech.localised_name, pct}}
+    else
+      frame.add{type = "label", caption = {"colony-gui-hut.research-idle"}}
+    end
   end
   if h.job == "farm" then
     local colony = storage.colonies[h.colony_id]
@@ -204,11 +216,13 @@ local function fill_hut(frame, h)
     end
     frame.add{type = "label", caption = {"colony-gui-hut.ore-hint"}}
   end
-  local sites = work.site_count(h)
-  if sites == 0 then
-    frame.add{type = "label", caption = {"colony-gui-hut.no-sites"}}
-  else
-    frame.add{type = "label", caption = {"colony-gui-hut.sites", sites}}
+  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" then
+    local sites = work.site_count(h)
+    if sites == 0 then
+      frame.add{type = "label", caption = {"colony-gui-hut.no-sites"}}
+    else
+      frame.add{type = "label", caption = {"colony-gui-hut.sites", sites}}
+    end
   end
 end
 
@@ -267,7 +281,7 @@ local function fill_info(frame, colony)
   frame.add{type = "label", caption = {"colony-gui-info.jobs",
     counts.haul or 0, counts.forage or 0, counts.chop or 0, counts.mine or 0, counts.farm or 0,
     counts.hunt or 0, counts.fish or 0, counts.preserve or 0, counts.construct or 0,
-    math.max(st.pop - busy, 0)}}
+    counts.research or 0, math.max(st.pop - busy, 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.territory", st.chunks, st.huts, st.machines, st.towers, st.crates}}
   if st.ghosts > 0 or st.damaged > 0 then
     frame.add{type = "label", caption = {"colony-gui-info.construction", st.ghosts, st.damaged}}

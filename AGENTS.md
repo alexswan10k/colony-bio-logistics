@@ -16,10 +16,10 @@ Always run test.sh + lint-determinism.sh + `luajit -bl` on changed Lua before co
 - Spike/decision outcomes: record on the GitHub issue (comment + close), update docs/design doc if the design changes. Track progress via `gh issue` and project milestones.
 
 ## Decisions made
-Territory = chunk-granular 32x32 (#15). Space Age required (#12). Open: #16-#22 (desirability, individuality, housing, science, disease, tourism, perf budget).
+Territory = chunk-granular 32x32 (#15). Space Age required (#12). Watchtower = 1-chunk ring, must be built on claimed land (#56). Farming = player-placed plots + tile fertility table (#44 first pass). Job locks are per-house, ore priorities are per-hut. Open decisions: #18-#22 (housing, science, disease, tourism, perf budget).
 
 ## Status
-M0 in progress: spikes #1-#11 coded, unrun. First action when Factorio is installed: `scripts/link-dev.sh`, follow `docs/SPIKES.md` order, post results, fix harness errors.
+M0 spikes run; M1 core loop is playable and spike-verified (69 unit tests, 42-check `m1_colony`). Implemented M1 issues are closed with evidence; still open: #29 (colonists leaving + real scenic/pollution inputs), #30 (hunting/fishing/salt/compost), #31 (Tool Rack entity), #33 (supply/demand crates + warehouse), #36 (blueprint persistence of opt-in flag), #37 (ghost construction/repair), #39 (save/load + MP + UPS gate), #41 (playtest/balance).
 
 ## M1 slice (playable)
-Hall -> territory; houses (`model/housing.lua` tiers+needs; power substitutes fuel via hidden `colony-power-sink`) hold real inventories; colonists loop haul/forage/chop/mine (`work.lua`, `model/work_plan.lua`); axes/pickaxes wear (hall/rack supply). Integration test: `TICKS=7000 scripts/headless-spike.sh m1_colony`. Runtime `require` is illegal: break cycles via `bind`.
+Hall -> territory (watchtowers extend it); tents/cabins hold real inventories and per-house occupant rosters (locks live on the house, not the hall); colonists loop haul/forage/chop/mine/farm (`work.lua`, `model/work_plan.lua`); harvest yield lands in the worker's hut and haulers clear it inward; axes/pickaxes/hoes wear and are delivered from the Hall; opt-in machines are supplied and emptied via the marker tool. Integration test: `TICKS=14000 scripts/headless-spike.sh m1_colony`. Runtime `require` is illegal: break cycles via `bind`.

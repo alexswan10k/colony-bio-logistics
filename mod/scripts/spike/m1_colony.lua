@@ -133,6 +133,11 @@ core.register("m1_colony", {
     -- watchtower (design §2.1): built inside territory, claims the chunks around itself; removing it gives them back
     local outside = build("colony-watchtower", {p.x + 70, p.y})
     ctx.check("watchtower outside territory rejected", not (outside and outside.valid))
+    local outside_ghost = s.create_entity{name = "entity-ghost", inner_name = "colony-watchtower", position = {p.x + 70, p.y}, force = "player", raise_built = true}
+    ctx.check("watchtower ghost outside territory rejected", not (outside_ghost and outside_ghost.valid))
+    colony.update_cursor_overlay(nil)
+    colony.clear_cursor_overlay(999)
+    ctx.check("cursor overlay functions safe headless", true)
     local tower = build("colony-watchtower", {p.x + 40, p.y})
     ctx.check("watchtower built inside territory", tower and tower.valid)
     ctx.check("watchtower expands territory 9 -> 12 chunks", colony.stats(c).chunks == 12, colony.stats(c).chunks)

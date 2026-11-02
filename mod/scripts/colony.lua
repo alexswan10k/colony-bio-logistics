@@ -520,7 +520,60 @@ local function on_built(ev)
   if not (e and e.valid) then return end
   local name = name_of(e)
   local dict = ev.tags     -- blueprint tags: the only colony state a blueprint can carry (#36)
-  if name == M.HALL and e.type ~= "entity-ghost" then
+
+  -- Ghost placement validation (#83): reject ghosts placed outside valid territory or unbuildable soil/shores
+  -- immediately with local flying text so the player never experiences a silent placement failure.
+  if e.type == "entity-ghost" then
+    if name == M.HALL then
+      local owner = territory.owner_at(e.surface.index, e.position)
+      if owner then
+        local p = ev.player_index and game.get_player(ev.player_index)
+        if p then p.create_local_flying_text{text = {"colony-message.outside-territory"}, position = e.position} end
+        e.destroy()
+        return
+      end
+    elseif name == M.WATCHTOWER then
+      local owner = territory.owner_at(e.surface.index, e.position)
+      if not owner then
+        local p = ev.player_index and game.get_player(ev.player_index)
+        if p then p.create_local_flying_text{text = {"colony-message.watchtower-unclaimed"}, position = e.position} end
+        e.destroy()
+        return
+      end
+    elseif name == M.PLOT then
+      local owner = territory.owner_at(e.surface.index, e.position)
+      local tile = e.surface.get_tile(e.position)
+      if not owner or not farm.plantable(tile.name) then
+        local p = ev.player_index and game.get_player(ev.player_index)
+        if p then p.create_local_flying_text{text = owner and {"colony-message.bad-farmland"} or {"colony-message.outside-territory"}, position = e.position} end
+        e.destroy()
+        return
+      end
+    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or M.HOUSES[name] or labour.HUTS[name] then
+      local owner = territory.owner_at(e.surface.index, e.position)
+      if not owner then
+        local p = ev.player_index and game.get_player(ev.player_index)
+        if p then p.create_local_flying_text{text = {"colony-message.outside-territory"}, position = e.position} end
+        e.destroy()
+        return
+      end
+      if name == M.SALT_PAN or (labour.HUTS[name] and labour.HUTS[name].job == "fish") then
+        local ok, water = on_shore(e)
+        if not ok then
+          local p = ev.player_index and game.get_player(ev.player_index)
+          if p then
+            local msg = (name == M.SALT_PAN) and "colony-message.no-shore-salt" or "colony-message.no-shore"
+            p.create_local_flying_text{text = {msg, water, fishing.MIN_WATER}, position = e.position}
+          end
+          e.destroy()
+          return
+        end
+      end
+    end
+    return
+  end
+
+  if name == M.HALL then
     local owner = territory.owner_at(e.surface.index, e.position)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
@@ -538,7 +591,8 @@ local function on_built(ev)
     scheduler.after(M.interval(), "colony.evaluate", {colony_id = id})
     scheduler.after(construct.SCAN_TICKS, "construct.scan", {colony_id = id})   -- #37 ghosts + damage
     scheduler.after(work.MACHINE_SWEEP_TICKS, "work.machine_sweep", {colony_id = id})   -- #75 machine output
-  elseif name == M.PLOT and e.type ~= "entity-ghost" then
+    M.refresh_all_cursor_overlays()
+  elseif name == M.PLOT then
     local owner = territory.owner_at(e.surface.index, e.position)
     local tile = e.surface.get_tile(e.position)
     if not owner or not farm.plantable(tile.name) then
@@ -551,19 +605,31 @@ local function on_built(ev)
     colony.plots[e.unit_number] = {entity = e, colony_id = colony.id, stage = farm.FALLOW}
     e.graphics_variation = farm.FALLOW
     script.register_on_object_destroyed(e)
-  elseif name == M.WATCHTOWER and e.type ~= "entity-ghost" then
+  elseif name == M.WATCHTOWER then
     local owner = territory.owner_at(e.surface.index, e.position)
-    if not owner then refund(ev, e, name); e.destroy(); return end
+    if not owner then
+      refund(ev, e, name, {"colony-message.watchtower-unclaimed"})
+      e.destroy()
+      return
+    end
     local colony = storage.colonies[owner]
     colony.towers[e.unit_number] = e
-    territory.claim_around(e.surface.index, colony.id, e.position, M.TOWER_RADIUS)
+    local newly_claimed = territory.claim_around(e.surface.index, colony.id, e.position, M.TOWER_RADIUS)
+    local p = ev.player_index and game.get_player(ev.player_index)
+    if p then
+      if newly_claimed > 0 then
+        p.create_local_flying_text{text = {"colony-message.watchtower-expanded", newly_claimed}, position = e.position}
+      else
+        p.create_local_flying_text{text = {"colony-message.watchtower-no-expansion"}, position = e.position}
+      end
+    end
     local cx, cy = territory.chunk_of(e.position)
-    rendering.draw_rectangle{color = {0.2, 0.8, 0.3, 0.6}, width = 2, filled = false, surface = e.surface,
+    rendering.draw_rectangle{color = {0.2, 0.8, 0.3, 0.8}, width = 2, filled = false, surface = e.surface,
       left_top = {(cx - M.TOWER_RADIUS) * 32, (cy - M.TOWER_RADIUS) * 32},
-      right_bottom = {(cx + M.TOWER_RADIUS + 1) * 32, (cy + M.TOWER_RADIUS + 1) * 32},
-      only_in_alt_mode = true}
+      right_bottom = {(cx + M.TOWER_RADIUS + 1) * 32, (cy + M.TOWER_RADIUS + 1) * 32}}
     script.register_on_object_destroyed(e)
-  elseif M.CRATES[name] and e.type ~= "entity-ghost" then
+    M.refresh_all_cursor_overlays()
+  elseif M.CRATES[name] then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
     local colony = storage.colonies[owner]
@@ -572,7 +638,7 @@ local function on_built(ev)
       filters = {}, inflight = {}}
     script.register_on_object_destroyed(e)
     if dict then M.apply_tags(colony, e, dict) end
-  elseif name == M.COMPOST_BIN and e.type ~= "entity-ghost" then
+  elseif name == M.COMPOST_BIN then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
     local colony = storage.colonies[owner]
@@ -583,14 +649,14 @@ local function on_built(ev)
       colony.compost_timer = true
       scheduler.after(M.COMPOST_TICKS, "colony.compost", {colony_id = colony.id})
     end
-  elseif name == M.SALT_PAN and e.type ~= "entity-ghost" then
+  elseif name == M.SALT_PAN then
     -- Salt Pan (#81): shoreline evaporation, no worker. Same shore rule as the Fishing Dock, because salt is a
     -- *geography* problem - if there is no water to evaporate, there is no salt.
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
     local ok, water = on_shore(e)
     if not ok then
-      refund(ev, e, name, {"colony-message.no-shore", water, fishing.MIN_WATER})
+      refund(ev, e, name, {"colony-message.no-shore-salt", water, fishing.MIN_WATER})
       e.destroy()
       return
     end
@@ -599,7 +665,7 @@ local function on_built(ev)
     colony.salt_pans[e.unit_number] = {entity = e, colony_id = colony.id,
       next_at = game.tick + salt.TICKS_PER_SALT}
     script.register_on_object_destroyed(e)
-  elseif (M.HOUSES[name] or labour.HUTS[name]) and e.type ~= "entity-ghost" then
+  elseif (M.HOUSES[name] or labour.HUTS[name]) then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
     local colony = storage.colonies[owner]
@@ -623,7 +689,7 @@ local function on_built(ev)
       h.sink = e.surface.create_entity{name = "colony-power-sink", position = e.position, force = e.force}
     end
     colony.houses[e.unit_number] = h
-  elseif dict and e.type ~= "entity-ghost" and gui.MACHINE_GUIS[e.type] then
+  elseif dict and gui.MACHINE_GUIS[e.type] then
     -- A machine carries no colony prototype of ours, so only a blueprint tags can say it was opted in.
     local colony = M.colony_of(e)
     if colony then M.apply_tags(colony, e, dict) end
@@ -639,13 +705,91 @@ events.on(defines.events.script_raised_revive, on_built)
 -- what the hall and the remaining towers cover instead of leaving orphaned chunks owned forever.
 function M.recompute_territory(colony)
   territory.release_colony(colony.id)
-  if colony.hall.valid then
+  if colony.hall and colony.hall.valid then
     territory.claim_around(colony.surface_index, colony.id, colony.hall.position, M.CLAIM_RADIUS)
   end
   for _, t in pairs(colony.towers or {}) do
     if t.valid then territory.claim_around(colony.surface_index, colony.id, t.position, M.TOWER_RADIUS) end
   end
 end
+
+-- --- cursor territory overlay (#83, #7 guidance) ---------------------------------------------------------
+-- Rendered only while holding a watchtower or town hall in cursor. Attached rendering takes zero per-tick cost.
+function M.clear_cursor_overlay(player_index)
+  if not storage.cursor_overlays then return end
+  local list = storage.cursor_overlays[player_index]
+  if list then
+    for _, r in ipairs(list) do
+      if r and r.valid then r.destroy() end
+    end
+    storage.cursor_overlays[player_index] = nil
+  end
+end
+
+function M.update_cursor_overlay(player)
+  if not (player and player.valid) then return end
+  M.clear_cursor_overlay(player.index)
+  local item_name = nil
+  if player.cursor_stack and player.cursor_stack.valid_for_read then
+    item_name = player.cursor_stack.name
+  elseif player.cursor_ghost then
+    item_name = player.cursor_ghost.name
+  end
+  if item_name ~= M.WATCHTOWER and item_name ~= M.HALL then return end
+
+  local surface = player.surface
+  local surface_chunks = storage.colony_chunks and storage.colony_chunks[surface.index]
+  if not surface_chunks then return end
+
+  local list = {}
+  for cx, col in pairs(surface_chunks) do
+    for cy, colony_id in pairs(col) do
+      local r_fill = rendering.draw_rectangle{
+        color = {0.2, 0.8, 0.3, 0.12},
+        filled = true,
+        draw_on_ground = true,
+        left_top = {cx * 32, cy * 32},
+        right_bottom = {(cx + 1) * 32, (cy + 1) * 32},
+        surface = surface,
+        players = {player},
+      }
+      local r_border = rendering.draw_rectangle{
+        color = {0.2, 0.8, 0.3, 0.6},
+        width = 1.5,
+        filled = false,
+        draw_on_ground = true,
+        left_top = {cx * 32, cy * 32},
+        right_bottom = {(cx + 1) * 32, (cy + 1) * 32},
+        surface = surface,
+        players = {player},
+      }
+      table.insert(list, r_fill)
+      table.insert(list, r_border)
+    end
+  end
+  storage.cursor_overlays = storage.cursor_overlays or {}
+  storage.cursor_overlays[player.index] = list
+end
+
+function M.refresh_all_cursor_overlays()
+  if not storage.cursor_overlays then return end
+  for player_index, _ in pairs(storage.cursor_overlays) do
+    local p = game.get_player(player_index)
+    if p and p.valid then M.update_cursor_overlay(p) end
+  end
+end
+
+events.on(defines.events.on_player_cursor_stack_changed, function(ev)
+  local p = ev.player_index and game.get_player(ev.player_index)
+  if p and p.valid then M.update_cursor_overlay(p) end
+end)
+events.on(defines.events.on_player_changed_surface, function(ev)
+  local p = ev.player_index and game.get_player(ev.player_index)
+  if p and p.valid then M.update_cursor_overlay(p) end
+end)
+events.on(defines.events.on_pre_player_left_game, function(ev)
+  if ev.player_index then M.clear_cursor_overlay(ev.player_index) end
+end)
 
 events.on(defines.events.on_object_destroyed, function(ev)
   local un = ev.useful_id
@@ -654,6 +798,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
     if colony.towers and colony.towers[un] then
       colony.towers[un] = nil
       M.recompute_territory(colony)
+      M.refresh_all_cursor_overlays()
       return
     end
     if colony.plots and colony.plots[un] then

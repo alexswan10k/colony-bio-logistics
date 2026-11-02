@@ -5,7 +5,14 @@ local M = {}
 function M.install()
   local env = {handlers = {}}
   _G.storage = {}
-  _G.game = {tick = 0, print = function() end}
+  _G.game = {tick = 0, print = function() end, get_player = function() end}
+  _G.rendering = {
+    draw_rectangle = function() return {valid = true, destroy = function() end} end,
+    draw_circle = function() return {valid = true, destroy = function() end} end,
+    draw_text = function() return {valid = true, destroy = function() end} end,
+    draw_sprite = function() return {valid = true, destroy = function() end} end,
+    destroy = function() end,
+  }
   _G.defines = {events = setmetatable({}, {__index = function(t, k) local v = #t + 1000 + (rawlen and 0 or 0); rawset(t, k, k); return k end})}
   _G.log = function() end
   _G.script = {

@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 14
+local SCHEMA = 15
 
 local migrations = {
   [1] = function()
@@ -73,6 +73,10 @@ local migrations = {
   [14] = function()
     -- salt pans (#81): [unit_number] = {entity, colony_id, next_at}
     for _, c in pairs(storage.colonies) do c.salt_pans = c.salt_pans or {} end
+  end,
+  [15] = function()
+    -- cursor overlays (#83): [player_index] = {render_objects...}
+    storage.cursor_overlays = storage.cursor_overlays or {}
   end,
 }
 

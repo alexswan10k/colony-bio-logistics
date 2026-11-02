@@ -167,6 +167,39 @@ def watchtower(px=128):
     Image.open(os.path.join(OUT, "watchtower.png")).resize((64, 64), Image.LANCZOS).save(os.path.join(OUT, "icon-watchtower.png"))
 
 
+def em_out(d, px):
+    d.rectangle(S(px / 2 - 6, 78, px / 2 + 6, 102), fill=(90, 190, 90, 255), outline=(30, 70, 30, 255), width=2 * SS)
+    d.polygon(S(px / 2 - 18, 80, px / 2 + 18, 80, px / 2, 56), fill=(90, 190, 90, 255), outline=(30, 70, 30, 255), width=2 * SS)
+
+def em_in(d, px):
+    d.rectangle(S(px / 2 - 6, 56, px / 2 + 6, 80), fill=(90, 150, 220, 255), outline=(30, 50, 90, 255), width=2 * SS)
+    d.polygon(S(px / 2 - 18, 80, px / 2 + 18, 80, px / 2, 104), fill=(90, 150, 220, 255), outline=(30, 50, 90, 255), width=2 * SS)
+
+def crate(name, band, emblem, px=128):
+    img, d = canvas(px, px)
+    shadow(d, (10, px * .8, px - 10, px - 6))
+    outline_rect(d, (16, 34, px - 16, px - 16), (190, 150, 95, 255))            # box
+    outline_rect(d, (10, 22, px - 10, 42), (150, 115, 70, 255))                # lid
+    d.rectangle(S(14, 32, px - 14, 42), fill=band)                             # colour band
+    for x in (30, px // 2, px - 30):                                            # plank seams
+        d.line(S(x, 42, x, px - 16), fill=(160, 120, 75, 255), width=2 * SS)
+    emblem(d, px)
+    save(img, name + ".png", px, px)
+    Image.open(os.path.join(OUT, name + ".png")).resize((64, 64), Image.LANCZOS).save(os.path.join(OUT, "icon-" + name + ".png"))
+
+def warehouse(px=192):
+    img, d = canvas(px, px)
+    shadow(d, (14, px * .82, px - 14, px - 8))
+    outline_rect(d, (18, 56, px - 18, px - 24), (170, 130, 85, 255))            # shed
+    d.polygon(S(10, 60, px / 2, 20, px - 10, 60), fill=(140, 100, 65, 255), outline=(30, 25, 20, 255), width=3 * SS)
+    d.rectangle(S(px / 2 - 26, 70, px / 2 + 26, px - 24), fill=(120, 85, 55, 255), outline=(70, 50, 30, 255), width=2 * SS)
+    for x in (40, px - 40):
+        d.line(S(x, 66, x, px - 26), fill=(140, 100, 65, 255), width=3 * SS)
+    for (x, y) in ((px / 2 - 30, 96), (px / 2, 96), (px / 2 - 15, 74)):         # stacked crates
+        d.rectangle(S(x, y, x + 28, y + 20), fill=(200, 160, 100, 255), outline=(90, 60, 35, 255), width=2 * SS)
+    save(img, "warehouse.png", px, px)
+    Image.open(os.path.join(OUT, "warehouse.png")).resize((64, 64), Image.LANCZOS).save(os.path.join(OUT, "icon-warehouse.png"))
+
 def bush(px=64):
     img, d = canvas(px, px)
     shadow(d, (10, 40, 54, 58))
@@ -187,6 +220,9 @@ hut("woodcutter-hut", (110, 75, 50, 255), (170, 125, 80, 255), em_log)
 hut("miner-hut", (100, 100, 110, 255), (150, 150, 155, 255), em_pick)
 hut("farm-hut", (150, 120, 60, 255), (205, 175, 115, 255), em_crop)
 bush(); icon_basket(); watchtower(); farm_plots(); icon_hoe(); icon_produce()
+crate("supply-crate", (90, 190, 90, 255), em_out)
+crate("demand-crate", (90, 150, 220, 255), em_in)
+warehouse()
 hall(); tent(); cabin(); rack(); icon_axe(); icon_pick(); icon_forage(); colonist()
 icon_building("icon-town-hall.png", "hall"); icon_building("icon-tent.png", "tent")
 icon_building("icon-cabin.png", "cabin"); icon_building("icon-tool-rack.png", "rack")

@@ -11,6 +11,7 @@ local labour = require("scripts.model.labour")
 local haul_plan = require("scripts.model.haul_plan")
 local farm = require("scripts.model.farm")
 local mine_plan = require("scripts.model.mine_plan")
+local crates = require("scripts.model.crates")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
@@ -241,6 +242,34 @@ local function hut_collect_offer(h)
     demands = demands, available = available}
 end
 
+-- Crates (#33): a supply crate is a provider (empty it into stock), a demand crate is a requester (fill it
+-- to the player's filters). A warehouse needs no offer of its own: colony.stock_count/take_stock/put_stock
+-- already treat it as colony storage, both as a source and as overflow.
+local function crate_contents(c)
+  local inv = c.entity.get_inventory(defines.inventory.chest)
+  if not (inv and not inv.is_empty()) then return nil end
+  local out = {}
+  for _, item in ipairs(inv.get_contents()) do out[item.name] = item.count end
+  return out
+end
+
+local function crate_supply_offer(c)
+  local contents = crate_contents(c)
+  if not contents then return nil end
+  local demands = crates.supply(contents)
+  if #demands == 0 then return nil end
+  return {kind = "collect", crate = c, priority = haul_plan.PRIORITY.collect, key = c.entity.unit_number,
+    demands = demands, available = contents}
+end
+
+local function crate_demand_offer(c)
+  local contents = crate_contents(c) or {}
+  local demands = crates.demands(c.filters, contents, c.inflight)
+  if #demands == 0 then return nil end
+  return {kind = "supply", crate = c, priority = haul_plan.PRIORITY.request, key = c.entity.unit_number,
+    demands = demands}
+end
+
 local function machine_demands(m)
   local out = {}
   for _, req in pairs(m.requests or {}) do
@@ -282,6 +311,12 @@ local function find_haul_task(colony)
     local o = hut_offer(h); if o then offers[#offers + 1] = o end
     local c = hut_collect_offer(h); if c then offers[#offers + 1] = c end
   end
+  for _, c in ipairs(colony_mod.crate_list(colony, crates.SUPPLY)) do
+    local o = crate_supply_offer(c); if o then offers[#offers + 1] = o end
+  end
+  for _, c in ipairs(colony_mod.crate_list(colony, crates.DEMAND)) do
+    local o = crate_demand_offer(c); if o then offers[#offers + 1] = o end
+  end
   for _, m in ipairs(machine_list(colony)) do
     local o = machine_offer(m); if o then offers[#offers + 1] = o end
     local c = collect_offer(m); if c then offers[#offers + 1] = c end
@@ -292,7 +327,7 @@ local function find_haul_task(colony)
   for _, o in ipairs(offers) do
     for _, d in ipairs(o.demands) do
       for _, item in ipairs(haul_plan.demand_items(d)) do
-        if hall[item] == nil then hall[item] = colony.hall.get_item_count(item) end
+        if hall[item] == nil then hall[item] = colony_mod.stock_count(colony, item) end
       end
     end
   end
@@ -309,16 +344,16 @@ local function take_load(colony, offer)
   for _, s in ipairs(offer.load) do
     local n
     if offer.kind == "collect" then
-      local src = offer.machine and offer.machine.entity or offer.hut.entity
+      local src = offer.machine and offer.machine.entity or (offer.hut and offer.hut.entity) or offer.crate.entity
       n = src.remove_item{name = s.item, count = s.count}
     else
-      n = colony.hall.remove_item{name = s.item, count = s.count}
+      n = colony_mod.take_stock(colony, s.item, s.count)
     end
     if n and n > 0 then taken[#taken + 1] = {item = s.item, count = n} end
   end
   if #taken == 0 then return nil end
   if offer.kind == "supply" then
-    local target = offer.house or offer.machine or offer.hut
+    local target = offer.house or offer.machine or offer.hut or offer.crate
     for _, s in ipairs(taken) do target.inflight[s.item] = (target.inflight[s.item] or 0) + s.count end
     return taken, target
   end
@@ -327,9 +362,9 @@ end
 
 local function return_to_hall(colony, stacks)
   local hall = colony.hall
+  if not (hall and hall.valid) then return end
   for _, s in ipairs(stacks) do
-    if not (hall and hall.valid) then return end
-    local n = hall.insert{name = s.item, count = s.count}
+    local n = colony_mod.put_stock(colony, s.item, s.count)   -- hall first, then warehouses
     if n < s.count then
       hall.surface.spill_item_stack{position = hall.position, stack = {name = s.item, count = s.count - n}, allow_belts = false}
     end
@@ -368,6 +403,7 @@ local function start_haul(colony, un, e, task)
   if task.kind == "collect" then dest = colony.hall.position
   elseif task.house then dest = task.house.entity.position
   elseif task.machine then dest = task.machine.entity.position
+  elseif task.crate then dest = task.crate.entity.position
   else dest = task.hut.entity.position end
   storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = task.kind == "collect" and "to_hall" or "to_house",
     target = inflight_target or (task.kind == "collect" and task.machine or nil), inflight_target = inflight_target, carry = taken}

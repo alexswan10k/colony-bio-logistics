@@ -7,6 +7,7 @@ local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local jobs = require("scripts.model.jobs")
 local mine_plan = require("scripts.model.mine_plan")
+local crates = require("scripts.model.crates")
 local haul_plan = require("scripts.model.haul_plan")
 local work = require("scripts.work")
 local M = {}
@@ -15,8 +16,8 @@ function M.bind(c) colony_mod = c end
 
 M.REQUEST_ROWS = 3
 M.DEFAULT_COUNT = 20
-local HOUSE_FRAME, MACHINE_FRAME, HUT_FRAME, INFO_FRAME =
-  "colony_house_frame", "colony_machine_frame", "colony_hut_frame", "colony_info_frame"
+local HOUSE_FRAME, MACHINE_FRAME, HUT_FRAME, INFO_FRAME, CRATE_FRAME =
+  "colony_house_frame", "colony_machine_frame", "colony_hut_frame", "colony_info_frame", "colony_crate_frame"
 local MACHINE_GUIS = {
   ["assembling-machine"] = "assembling_machine_gui", ["furnace"] = "furnace_gui", ["boiler"] = "boiler_gui", ["lab"] = "lab_gui",
 }
@@ -235,7 +236,7 @@ local function fill_info(frame, colony)
     string.format("%.2f", parts.pollution or 0), string.format("%.2f", parts.deaths or 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.jobs",
     counts.haul or 0, counts.forage or 0, counts.chop or 0, counts.mine or 0, math.max(st.pop - busy, 0)}}
-  frame.add{type = "label", caption = {"colony-gui-info.territory", st.chunks, st.huts, st.machines, st.towers}}
+  frame.add{type = "label", caption = {"colony-gui-info.territory", st.chunks, st.huts, st.machines, st.towers, st.crates}}
 
   frame.add{type = "line"}
   frame.add{type = "checkbox", name = "colony_accept_migrants", state = colony.accept_migrants ~= false,
@@ -304,6 +305,15 @@ end)
 
 events.on(defines.events.on_gui_click, function(ev)
   local name = ev.element.name
+  local clear_row = tonumber(name:match("^colony_crate_clear_(%d+)$"))
+  if clear_row then
+    local _, c, _, body = crate_ctx(ev)
+    if c then
+      c.filters[clear_row] = nil
+      if body then fill_crate(body, c) end
+    end
+    return
+  end
   local un, lock_job = name:match("^colony_lock_(%d+)_(%a+)$")
   if un then
     local player = game.get_player(ev.player_index)
@@ -387,6 +397,79 @@ events.on(defines.events.on_gui_click, function(ev)
   if frame and frame.body then fill_info(frame.body, colony) end
 end)
 
+-- ---------- colony crates (#33) ----------
+-- Supply: a provider the colony empties. Demand: a requester the player fills with filters. Warehouse:
+-- bulk stock (no panel controls; it is a source and an overflow sink for the haul planner).
+local function crate_contents(c)
+  local inv = c.entity.get_inventory(defines.inventory.chest)
+  local out, map = {}, {}
+  if inv then
+    for _, item in ipairs(inv.get_contents()) do
+      out[#out + 1] = item
+      map[item.name] = item.count
+    end
+  end
+  table.sort(out, function(a, b) return a.name < b.name end)
+  return out, map
+end
+
+local function fill_crate(frame, c)
+  frame.clear()
+  local contents, map = crate_contents(c)
+  if c.kind == crates.DEMAND then
+    frame.add{type = "label", caption = {"colony-gui-crate.filters"}}
+    for i = 1, crates.FILTER_ROWS do
+      local f = c.filters[i]
+      local row = frame.add{type = "flow", direction = "horizontal"}
+      row.style.vertical_align = "center"
+      row.add{type = "choose-elem-button", name = "colony_crate_item_" .. i, elem_type = "item", item = f and f.item}
+      local tf = row.add{type = "textfield", name = "colony_crate_count_" .. i,
+        text = f and f.count and tostring(f.count) or tostring(crates.DEFAULT_COUNT),
+        numeric = true, allow_decimal = false, allow_negative = false}
+      tf.style.width = 60
+      row.add{type = "label", caption = {"colony-gui-crate.keep"}}
+      local clear = row.add{type = "button", name = "colony_crate_clear_" .. i, caption = "x",
+        tooltip = {"colony-gui-crate.clear-tt"}}
+      clear.style.width = 24
+    end
+    local n, target = crates.filled(c.filters, map)
+    frame.add{type = "label", caption = {"colony-gui-crate.filled", n, target}}
+  else
+    frame.add{type = "label",
+      caption = c.kind == crates.SUPPLY and {"colony-gui-crate.supply-hint"} or {"colony-gui-crate.warehouse-hint"}}
+  end
+  frame.add{type = "line"}
+  frame.add{type = "label", caption = {"colony-gui-crate.contents"}, style = "bold_label"}
+  if #contents == 0 then frame.add{type = "label", caption = {"colony-gui-crate.empty"}} end
+  for _, item in ipairs(contents) do
+    frame.add{type = "label", caption = {"", "[item=" .. item.name .. "]", " " .. item.count}}
+  end
+end
+
+local function open_crate(player, e)
+  local old = player.gui.relative[CRATE_FRAME]; if old then old.destroy() end
+  local frame = player.gui.relative.add{type = "frame", name = CRATE_FRAME, direction = "vertical",
+    caption = e.localised_name, anchor = {gui = defines.relative_gui_type.container_gui,
+      position = defines.relative_gui_position.right,
+      names = {colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE}}}
+  local body = frame.add{type = "flow", name = "body", direction = "vertical"}
+  local colony = colony_at(e)
+  local c = colony and colony.crates[e.unit_number]
+  if not c then body.add{type = "label", caption = {"colony-gui-crate.outside"}}; return end
+  fill_crate(body, c)
+end
+
+local function crate_ctx(ev)
+  local player = game.get_player(ev.player_index)
+  local e = player and player.opened
+  if not (e and e.valid and player.opened_gui_type == defines.gui_type.entity) then return end
+  local colony = colony_at(e)
+  local c = colony and colony.crates[e.unit_number]
+  if not c then return end
+  local frame = player.gui.relative[CRATE_FRAME]
+  return player, c, colony, frame and frame.body
+end
+
 -- ---------- machine supply panel ----------
 local function recipe_requests(e)
   local out = {}
@@ -439,6 +522,7 @@ events.on(defines.events.on_gui_opened, function(ev)
   if colony_mod.HOUSES[e.name] then open_house(player, e)
   elseif labour.HUTS[e.name] then open_hut(player, e)
   elseif e.name == colony_mod.HALL then open_info(player, e)
+  elseif colony_mod.CRATES[e.name] then open_crate(player, e)
   elseif MACHINE_GUIS[e.type] then open_machine(player, e) end
 end)
 
@@ -476,6 +560,15 @@ end)
 local function row_of(name) return tonumber(name:match("^colony_req_%a+_(%d+)$")) end
 
 events.on(defines.events.on_gui_elem_changed, function(ev)
+  local row = tonumber(ev.element.name:match("^colony_crate_item_(%d+)$"))
+  if row then
+    local _, c, _, body = crate_ctx(ev)
+    if c then
+      crates.set_filter(c.filters, row, ev.element.elem_value)
+      if body then fill_crate(body, c) end
+    end
+    return
+  end
   local i = row_of(ev.element.name)
   if not (i and ev.element.name:find("colony_req_item_", 1, true)) then return end
   local _, e, colony = machine_ctx(ev)
@@ -489,6 +582,12 @@ events.on(defines.events.on_gui_elem_changed, function(ev)
 end)
 
 events.on(defines.events.on_gui_text_changed, function(ev)
+  local row = tonumber(ev.element.name:match("^colony_crate_count_(%d+)$"))
+  if row then
+    local _, c = crate_ctx(ev)
+    if c then crates.set_count(c.filters, row, ev.element.text) end
+    return
+  end
   local i = row_of(ev.element.name)
   if not (i and ev.element.name:find("colony_req_count_", 1, true)) then return end
   local _, e, colony = machine_ctx(ev)

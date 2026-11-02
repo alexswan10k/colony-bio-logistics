@@ -43,6 +43,12 @@ local miner = chest_clone("iron-chest", "colony-miner-hut", "miner-hut", 8, 1)
 -- so the colony's work area (and therefore its huts and opted-in machines) can creep outward.
 local watchtower = chest_clone("steel-chest", "colony-watchtower", "watchtower", 4, 1)
 local farmhut = chest_clone("iron-chest", "colony-farm-hut", "farm-hut", 8, 1)
+-- Colony logistics crates (#33, design §5.1). Plain containers, not logistic chests: inserters and belts
+-- still work on them, but colony hauling is driven by our own registry so bots and colonists never fight
+-- over the same request.
+local supply_crate = chest_clone("iron-chest", "colony-supply-crate", "supply-crate", 16, 1)
+local demand_crate = chest_clone("iron-chest", "colony-demand-crate", "demand-crate", 16, 1)
+local warehouse = chest_clone("steel-chest", "colony-warehouse", "warehouse", 48, 1.5)
 
 -- Farm plot (#44 first slice): a 1x1 tilled tile the player places on farmland. Three graphics
 -- variations are the crop stages; the script switches graphics_variation as the crop grows.
@@ -117,7 +123,8 @@ local marker = {
 }
 
 data:extend({
-  hall, tent, cabin, forager, woodcutter, miner, watchtower, farmhut, plot, bush, sink, marker,
+  hall, tent, cabin, forager, woodcutter, miner, watchtower, farmhut, supply_crate, demand_crate, warehouse,
+  plot, bush, sink, marker,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
   item_of(cabin, "cabin", "z[colony]-c[housing-cabin]"),
@@ -126,6 +133,9 @@ data:extend({
   item_of(miner, "miner-hut", "z[colony]-f[miner-hut]"),
   item_of(watchtower, "watchtower", "z[colony]-g[watchtower]"),
   item_of(farmhut, "farm-hut", "z[colony]-h[farm-hut]"),
+  item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
+  item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
+  item_of(warehouse, "warehouse", "z[colony]-l[warehouse]"),
   {type = "item", name = "colony-farm-plot", icon = G .. "farm-plot-ripe.png", icon_size = 64,
    subgroup = "storage", order = "z[colony]-i[farm-plot]", place_result = "colony-farm-plot", stack_size = 50,
    localised_name = {"item-name.colony-farm-plot"}, localised_description = {"item-description.colony-farm-plot"}},
@@ -138,6 +148,9 @@ data:extend({
   recipe("colony-watchtower", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 4),
   recipe("colony-farm-hut", {wood = 20, ["iron-plate"] = 5}, 2),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4),
+  recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1),
+  recipe("colony-demand-crate", {wood = 10, ["iron-plate"] = 10}, 1),
+  recipe("colony-warehouse", {wood = 40, ["stone-brick"] = 20, ["iron-plate"] = 20}, 3),
   recipe("colony-basket", {wood = 4}, 1),
   recipe("colony-logistics-marker", {wood = 2, ["iron-plate"] = 2}, 1),
   tool("colony-basket", "icon-basket.png"), tool("colony-axe", "icon-axe.png"), tool("colony-pickaxe", "icon-pickaxe.png"),

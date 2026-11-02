@@ -5,6 +5,7 @@ local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local territory = require("scripts.territory")
 local farm = require("scripts.model.farm")
+local crates = require("scripts.model.crates")
 local desirability = require("scripts.model.desirability")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
@@ -22,6 +23,15 @@ M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not 
 M.FORAGE_PER_CHUNK = 3          -- natural forage patches seeded per already-generated territory chunk
 M.FORAGE_TILES = {["grass-1"] = true, ["grass-2"] = true, ["grass-3"] = true, ["grass-4"] = true}
 M.HOUSES = {["colony-housing-tent"] = "tent", ["colony-housing-cabin"] = "cabin"}
+-- Colony logistics crates (#33): supply = provider, demand = requester, warehouse = bulk colony stock.
+M.SUPPLY_CRATE = "colony-supply-crate"
+M.DEMAND_CRATE = "colony-demand-crate"
+M.WAREHOUSE = "colony-warehouse"
+M.CRATES = {
+  [M.SUPPLY_CRATE] = crates.SUPPLY,
+  [M.DEMAND_CRATE] = crates.DEMAND,
+  [M.WAREHOUSE] = crates.WAREHOUSE,
+}
 M.CLAIM_RADIUS = 1              -- chunks, Chebyshev => 3x3 chunks
 M.STARVE_AFTER = 4              -- consecutive evaluations with unmet critical need before a colonist dies
 M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
@@ -93,6 +103,53 @@ function M.households(colony)
   return out
 end
 
+-- Crates in deterministic (unit_number) order; prunes dead ones. `kind` filters to one crate type.
+function M.crate_list(colony, kind)
+  local ids = {}
+  for un, c in pairs(colony.crates or {}) do
+    if c.entity.valid then
+      if not kind or c.kind == kind then ids[#ids + 1] = un end
+    else
+      colony.crates[un] = nil
+    end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.crates[un] end
+  return out
+end
+
+-- Colony stock = Town Hall + warehouses. Supply trips take from the hall first (the town's working stock)
+-- and fall back to bulk storage; deposits fill the hall first and overflow into the warehouse.
+function M.stock_count(colony, item)
+  local hall = colony.hall
+  local n = hall and hall.valid and hall.get_item_count(item) or 0
+  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do n = n + c.entity.get_item_count(item) end
+  return n
+end
+
+function M.take_stock(colony, item, count)
+  local taken = 0
+  local hall = colony.hall
+  if hall and hall.valid then taken = hall.remove_item{name = item, count = count} end
+  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
+    if taken >= count then break end
+    taken = taken + c.entity.remove_item{name = item, count = count - taken}
+  end
+  return taken
+end
+
+function M.put_stock(colony, item, count)
+  local left = count
+  local hall = colony.hall
+  if hall and hall.valid then left = left - hall.insert{name = item, count = left} end
+  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
+    if left <= 0 then break end
+    left = left - c.entity.insert{name = item, count = left}
+  end
+  return count - left
+end
+
 -- Valid houses in deterministic (unit_number) order; prunes dead ones.
 function M.house_list(colony)
   local ids = {}
@@ -132,7 +189,12 @@ function M.total_food(colony)
     local stock = M.house_stock(h)
     for _, opt in ipairs(housing.FOOD) do n = n + (stock[opt.item] or 0) end
   end
-  -- Hut stockpiles count too: food only waits there until a hauler clears it.
+  -- Warehouses and hut stockpiles count too: food only waits there until a hauler clears it.
+  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
+    for _, item in ipairs(M.FOOD_ITEMS) do
+      if prototypes.item[item] then n = n + c.entity.get_item_count(item) end
+    end
+  end
   for _, h in pairs(colony.huts or {}) do
     if h.entity.valid then
       for _, item in ipairs(M.FOOD_ITEMS) do
@@ -292,7 +354,7 @@ local function on_built(ev)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, locks = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
+      towers = {}, plots = {}, crates = {}, locks = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
     storage.colonies[id] = colony
     territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)
     M.seed_forage(colony)   -- the claimed land already has berries on it
@@ -326,6 +388,14 @@ local function on_built(ev)
       left_top = {(cx - M.TOWER_RADIUS) * 32, (cy - M.TOWER_RADIUS) * 32},
       right_bottom = {(cx + M.TOWER_RADIUS + 1) * 32, (cy + M.TOWER_RADIUS + 1) * 32},
       only_in_alt_mode = true}
+    script.register_on_object_destroyed(e)
+  elseif M.CRATES[name] and e.type ~= "entity-ghost" then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.crates = colony.crates or {}
+    colony.crates[e.unit_number] = {entity = e, kind = M.CRATES[name], colony_id = colony.id,
+      filters = {}, inflight = {}}
     script.register_on_object_destroyed(e)
   elseif (M.HOUSES[name] or labour.HUTS[name]) and e.type ~= "entity-ghost" then
     local owner = territory.owner_at(e.surface.index, e.position)
@@ -374,6 +444,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.plots and colony.plots[un] then
       colony.plots[un] = nil
+      return
+    end
+    if colony.crates and colony.crates[un] then
+      colony.crates[un] = nil
       return
     end
   end
@@ -427,7 +501,7 @@ function M.stats(colony)
   for _, t in pairs(colony.towers or {}) do if t.valid then towers = towers + 1 end end
   return {pop = pop, capacity = capacity, food = food, food_target = target, food_ratio = food / target,
     tents = tents, cabins = cabins, huts = huts, machines = machines, towers = towers, chunks = chunks,
-    d = colony.d or 0, parts = colony.d_parts or {}}
+    crates = #M.crate_list(colony), d = colony.d or 0, parts = colony.d_parts or {}}
 end
 
 return M

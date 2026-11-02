@@ -39,6 +39,21 @@ core.register("m1_colony", {
     s.set_tiles{{name = "refined-concrete", position = {p.x + 24, p.y + 24}}}
     local badplot = build("colony-farm-plot", {p.x + 24, p.y + 24})
     ctx.check("farm plot rejected on paving", not (badplot and badplot.valid))
+    -- Colony crates (#33): supply (provider), demand (requester), warehouse (bulk stock)
+    local supply_crate = build("colony-supply-crate", {p.x + 10, p.y + 12})
+    local demand_crate = build("colony-demand-crate", {p.x + 13, p.y + 12})
+    local warehouse = build("colony-warehouse", {p.x + 20, p.y + 8})
+    ctx.check("crates registered with the colony", supply_crate and demand_crate and warehouse
+      and c.crates[supply_crate.unit_number] and c.crates[demand_crate.unit_number]
+      and c.crates[warehouse.unit_number], supply_crate and supply_crate.valid)
+    local outside_crate = build("colony-supply-crate", {p.x + 200, p.y + 200})
+    ctx.check("crate outside territory rejected", not (outside_crate and outside_crate.valid))
+    -- The supply crate holds coal, which nothing else produces, so seeing coal in the hall proves the
+    -- provider leg. The demand crate wants stone that only the warehouse holds, proving both the filter
+    -- and warehouse sourcing.
+    supply_crate.insert{name = "coal", count = 50}
+    c.crates[demand_crate.unit_number].filters = {{item = "stone", count = 30}}
+    warehouse.insert{name = "stone", count = 100}
     ctx.check("houses registered", tent and cabin and c.houses[tent.unit_number] and c.houses[cabin.unit_number] ~= nil)
     ctx.check("capacity 10", colony.capacity(c) == 10, colony.capacity(c))
     ctx.check("hut does not spawn forage patches",
@@ -176,6 +191,12 @@ core.register("m1_colony", {
       ctx.check("every colonist is assigned to a house roster", assigned == colony.live_colonists(c),
         assigned .. "/" .. colony.live_colonists(c))
       ctx.check("harvest yield lands in the worker's hut", saw.hut_output)
+      ctx.check("supply crate emptied into colony stock", hall.get_item_count("coal") > 0, hall.get_item_count("coal"))
+      ctx.check("demand crate filled from the warehouse", demand_crate.valid and demand_crate.get_item_count("stone") > 0,
+        demand_crate.valid and demand_crate.get_item_count("stone"))
+      ctx.check("warehouse was the source (no stone in the hall)", hall.get_item_count("stone") == 0)
+      ctx.check("demand crate stopped at its filter target", demand_crate.valid and demand_crate.get_item_count("stone") <= 30,
+        demand_crate.valid and demand_crate.get_item_count("stone"))
       ctx.check("farmers planted crops", saw.planted)
       ctx.check("crops ripened", saw.ripe)
       ctx.check("farmers harvested produce", saw.produce, produce_total())

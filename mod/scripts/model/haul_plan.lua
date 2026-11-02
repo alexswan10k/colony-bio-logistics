@@ -21,7 +21,7 @@ M.demand_items = demand_items
 -- then whatever is left fills the biggest requests.
 function M.load(demands, available, cap)
   cap = cap or M.DEFAULT_CAP
-  local out, total, left = {}, 0, {}
+  local out, total, left, added = {}, 0, {}, {}
   if #demands == 0 then return out end
   local function avail(item)
     if left[item] == nil then left[item] = available[item] or 0 end
@@ -33,22 +33,26 @@ function M.load(demands, available, cap)
     end
     out[#out + 1] = {item = item, count = n, need = need}
   end
-  local function add(d, max_n)
+  -- `added[i]` is what this trip has already loaded for demand i: the two passes below (fair share, then
+  -- leftovers) must not count the same demand twice, or a small request is loaded twice over.
+  local function add(i, max_n)
+    local d = demands[i]
     if total >= cap then return end
-    local remaining = math.min(d.count or 0, max_n or cap, cap - total)
+    local remaining = math.min((d.count or 0) - (added[i] or 0), max_n or cap, cap - total)
     for _, item in ipairs(demand_items(d)) do
       if remaining < 1 then break end
       local n = math.min(remaining, avail(item))
       if n >= 1 then
         push(item, n, d.need)
         left[item] = avail(item) - n
+        added[i] = (added[i] or 0) + n
         total, remaining = total + n, remaining - n
       end
     end
   end
   local share = math.ceil(cap / #demands)
-  for _, d in ipairs(demands) do add(d, share) end
-  for _, d in ipairs(demands) do add(d) end
+  for i = 1, #demands do add(i, share) end
+  for i = 1, #demands do add(i) end
   return out
 end
 

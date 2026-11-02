@@ -1,7 +1,10 @@
 -- Dev/testing helper: /colony-kit gives a starter set of colony items to the calling player.
 local KIT = {
-  ["colony-town-hall"] = 1, ["colony-housing-tent"] = 3, ["colony-housing-cabin"] = 2, ["colony-forager-hut"] = 1, ["colony-woodcutter-hut"] = 1, ["colony-miner-hut"] = 1, ["colony-basket"] = 5,
-  ["colony-axe"] = 10, ["colony-pickaxe"] = 10, ["wood"] = 200, ["iron-plate"] = 200, ["stone-brick"] = 50,
+  ["colony-town-hall"] = 1, ["colony-housing-tent"] = 3, ["colony-housing-cabin"] = 2,
+  ["colony-forager-hut"] = 1, ["colony-woodcutter-hut"] = 1, ["colony-miner-hut"] = 1,
+  ["colony-hunting-lodge"] = 1, ["colony-fishing-dock"] = 1, ["colony-compost-bin"] = 1,
+  ["colony-basket"] = 5, ["colony-axe"] = 10, ["colony-pickaxe"] = 10, ["colony-rifle"] = 5, ["colony-rod"] = 5,
+  ["wood"] = 200, ["iron-plate"] = 200, ["stone-brick"] = 50,
   ["raw-fish"] = 50, ["small-electric-pole"] = 10,
 }
 commands.add_command("colony-kit", "Give a starter set of colony buildings, tools and materials.", function(cmd)

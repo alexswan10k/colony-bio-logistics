@@ -15,6 +15,7 @@ local crates = require("scripts.model.crates")
 local compost = require("scripts.model.compost")
 local hunting = require("scripts.model.hunting")
 local wildlife = require("scripts.wildlife")
+local fishing = require("scripts.model.fishing")
 local construct = require("scripts.model.construct")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
@@ -28,7 +29,7 @@ M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still 
 M.CARRY_CAP = 20
 M.ORES = mine_plan.ORES   -- every ore a Miner's Hut can be pointed at
 M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", hunt = "hunter",
-  haul = "hauler", construct = "builder"}
+  fish = "fisher", haul = "hauler", construct = "builder"}
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
 
@@ -272,6 +273,11 @@ local function find_site(colony, e, hut)
       if site then return site end
     end
     return nil
+  elseif hut.job == "fish" then
+    -- The dock is the workplace: there is no world entity to harvest, the water is the resource, and whether
+    -- there is enough of it was settled when the dock was built (model/fishing.lua). Everyone fishes the same
+    -- dock, so it is never claimed.
+    return hut.entity
   elseif hut.job == "hunt" then
     -- Game roams, so it is picked by position *now*; the engine's attack command then does the chasing.
     -- One animal is claimed at a time so three hunters do not all shoot the same boar.
@@ -698,7 +704,7 @@ local function start_trip(colony, un, hut)
   -- position moves under our feet.
   if hut.job == "hunt" then
     colony.claimed["boar:" .. site.unit_number] = true
-  elseif hut.job ~= "mine" then
+  elseif hut.job ~= "mine" and hut.job ~= "fish" then
     colony.claimed[key(site)] = true
   end
   if hut.job == "hunt" then
@@ -863,6 +869,8 @@ scheduler.register("work.finish", function(d)
         scheduler.after(farm.GROW_TICKS, "farm.ripen", {colony_id = colony.id, un = site.unit_number})
       end
     end
+  elseif st.job == "fish" then
+    item, n = "colony-fish", fishing.FISH_PER_TRIP
   elseif st.job == "mine" then
     n = math.min(M.MINE_PER_TRIP, site.amount or 0)
     if n > 0 then

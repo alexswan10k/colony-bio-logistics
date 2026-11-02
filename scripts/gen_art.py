@@ -150,6 +150,26 @@ def icon_meat():
     d.line(S(44, 14, 56, 22), fill=(240, 235, 220, 255), width=4 * SS)          # bone
     save(img, "icon-meat.png", 64, 64)
 
+def em_fish(d, px):
+    d.ellipse(S(px / 2 - 18, 36, px / 2 + 12, 56), fill=(120, 165, 205, 255), outline=(30, 25, 20, 255), width=2 * SS)
+    d.polygon(S(px / 2 + 10, 40, px / 2 + 22, 46, px / 2 + 10, 52), fill=(120, 165, 205, 255),
+              outline=(30, 25, 20, 255), width=2 * SS)
+
+def icon_rod():
+    img, d = canvas(64, 64)
+    d.line(S(14, 54, 50, 12), fill=(150, 110, 60, 255), width=4 * SS)            # rod
+    d.line(S(50, 12, 50, 40), fill=(210, 210, 220, 255), width=1 * SS)           # line
+    d.ellipse(S(46, 40, 54, 48), fill=(210, 210, 220, 255))                      # hook bob
+    d.line(S(18, 50, 26, 44), fill=(70, 70, 75, 255), width=4 * SS)              # handle
+    save(img, "icon-rod.png", 64, 64)
+
+def icon_fish():
+    img, d = canvas(64, 64)
+    d.ellipse(S(10, 20, 46, 46), fill=(150, 190, 225, 255), outline=(40, 70, 100, 255), width=2 * SS)
+    d.polygon(S(44, 24, 58, 33, 44, 42), fill=(150, 190, 225, 255), outline=(40, 70, 100, 255), width=2 * SS)
+    d.ellipse(S(18, 28, 23, 33), fill=(25, 30, 40, 255))                          # eye
+    save(img, "icon-fish.png", 64, 64)
+
 def farm_plots(px=64):
     def soil(d):
         d.rectangle(S(2, 2, px - 2, px - 2), fill=(120, 85, 55, 255), outline=(70, 50, 30, 255), width=2 * SS)
@@ -277,10 +297,11 @@ hut("woodcutter-hut", (110, 75, 50, 255), (170, 125, 80, 255), em_log)
 hut("miner-hut", (100, 100, 110, 255), (150, 150, 155, 255), em_pick)
 hut("farm-hut", (150, 120, 60, 255), (205, 175, 115, 255), em_crop)
 hut("hunting-lodge", (95, 110, 70, 255), (170, 145, 95, 255), em_hunt)
+hut("fishing-dock", (60, 95, 120, 255), (150, 130, 95, 255), em_fish)
 bush(); icon_basket(); watchtower(); farm_plots(); icon_hoe(); icon_produce()
 crate("supply-crate", (90, 190, 90, 255), em_out)
 crate("demand-crate", (90, 150, 220, 255), em_in)
-warehouse(); compost_bin(); icon_fertilizer(); boar(); icon_rifle(); icon_meat()
+warehouse(); compost_bin(); icon_fertilizer(); boar(); icon_rifle(); icon_meat(); icon_rod(); icon_fish()
 hall(); tent(); cabin(); rack(); icon_axe(); icon_pick(); icon_forage(); colonist()
 icon_building("icon-town-hall.png", "hall"); icon_building("icon-tent.png", "tent")
 icon_building("icon-cabin.png", "cabin"); icon_building("icon-tool-rack.png", "rack")

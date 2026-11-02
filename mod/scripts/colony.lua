@@ -12,6 +12,7 @@ local colony_model = require("scripts.model.colony_model")
 local scenic = require("scripts.model.scenic")
 local compost = require("scripts.model.compost")
 local wildlife = require("scripts.wildlife")
+local fishing = require("scripts.model.fishing")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local tags = require("scripts.model.tags")
@@ -51,7 +52,7 @@ M.FOOD_TTL = 30
 M.STOCK_TTL = 30
 M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
 M.FOOD_PER_COLONIST = 1         -- food items per interval
-M.FOOD_ITEMS = {"colony-forage", "colony-meat", "colony-produce", "raw-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
+M.FOOD_ITEMS = {"colony-forage", "colony-fish", "colony-meat", "colony-produce", "raw-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
 M.INTERVAL = 600                -- default ticks between evaluations
 M.TARGET_STOCK_INTERVALS = 5
 
@@ -70,6 +71,17 @@ local function refund(ev, e, name, message)
   else
     e.surface.spill_item_stack{position = e.position, stack = {name = name, count = 1}}
   end
+end
+
+-- Fishing Dock (#80): a dock without water beside it is not a dock. Checked once, when it is built, and the
+-- rule itself lives in model/fishing.lua; this is just the tile probe (any tile that collides with the water
+-- layer counts, so ponds on any planet count and lava does not).
+local function on_shore(e)
+  local surface = e.surface
+  return fishing.on_shore(e.position, function(x, y)
+    local tile = surface.get_tile(x, y)
+    return tile and tile.collides_with("water_tile")
+  end)
 end
 
 function M.food_in(colony)
@@ -547,6 +559,14 @@ local function on_built(ev)
     if not owner then refund(ev, e, name); e.destroy(); return end
     local colony = storage.colonies[owner]
     if labour.HUTS[name] then
+      if labour.HUTS[name].job == "fish" then
+        local ok, water = on_shore(e)
+        if not ok then
+          refund(ev, e, name, {"colony-message.no-shore", water, fishing.MIN_WATER})
+          e.destroy()
+          return
+        end
+      end
       local hut = {entity = e, job = labour.HUTS[name].job, colony_id = colony.id, workers = {}, inflight = {}, wear = 0}
       colony.huts[e.unit_number] = hut
       rendering.draw_circle{color = {0.9, 0.9, 0.3, 0.5}, width = 2, filled = false, radius = M.HUT_RADIUS,

@@ -27,6 +27,17 @@ core.register("m1_colony", {
     local cabin_pos = {p.x + 6, p.y + 8}
     ctx.power_at({x = cabin_pos[1], y = cabin_pos[2]})
     local cabin = build("colony-housing-cabin", cabin_pos)
+    -- Fishing Dock (#80): water access is real. Carve a small pond, put the dock beside it, and check that a
+    -- dock with no water in reach is refused and refunded rather than sitting there doing nothing.
+    for dx = -1, 1 do
+      for dy = -1, 1 do
+        s.set_tiles{{name = "water", position = {p.x + 18 + dx, p.y + 18 + dy}}}
+      end
+    end
+    local dock = build("colony-fishing-dock", {p.x + 15, p.y + 18})
+    local inland = build("colony-fishing-dock", {p.x - 14, p.y - 14})
+    hall.insert{name = "colony-rod", count = 3}
+
     -- Hunting Lodge (#79): real hunting - docile game on its own force, shot by colonists. Two boars are
     -- placed beside the lodge so the hunt does not depend on where the herd happened to wander.
     local lodge = build("colony-hunting-lodge", {p.x + 8, p.y + 12})
@@ -76,6 +87,9 @@ core.register("m1_colony", {
     ctx.check("compost bin outside territory rejected", not (outside_bin and outside_bin.valid))
     ctx.check("hunting lodge registered with the colony", lodge and lodge.valid and c.huts[lodge.unit_number] ~= nil)
     ctx.check("game spawned inside territory", #boars == 2 and game.forces["colony-wildlife"] ~= nil, #boars)
+    ctx.check("fishing dock registered with the colony beside water",
+      dock and dock.valid and c.huts[dock.unit_number] ~= nil)
+    ctx.check("a dock with no water in reach is refused", not (inland and inland.valid))
     hall.insert{name = "spoilage", count = 10}
     tent.insert{name = "spoilage", count = 3}
     local outside_crate = build("colony-supply-crate", {p.x + 200, p.y + 200})
@@ -153,7 +167,7 @@ core.register("m1_colony", {
     local ore_before = (ore1 and ore1.amount or 0) + (ore2 and ore2.amount or 0)
     local patches_before = #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30}
     local saw = {ore = false, wood = false, food = false, planted = false, ripe = false, produce = false,
-      hut_output = false}
+      hut_output = false, fish = false}
     local function produce_total()
       local n = hall.get_item_count("colony-produce")
       for _, h in pairs(c.houses) do
@@ -179,6 +193,7 @@ core.register("m1_colony", {
         end
         if produce_total() > 0 then saw.produce = true end
         if hall.get_item_count("colony-meat") > 0 then saw.meat = true end
+        if hall.get_item_count("colony-fish") > 0 then saw.fish = true end
         for _, h in pairs(c.huts) do
           if h.entity.valid and h.entity.get_item_count("colony-meat") > 0 then saw.meat = true end
         end
@@ -186,7 +201,7 @@ core.register("m1_colony", {
         for _, h in pairs(c.huts) do
           if h.entity.valid then
             for _, item in ipairs({"wood", "iron-ore", "copper-ore", "coal", "stone", "colony-forage",
-                "colony-produce", "colony-meat"}) do
+                "colony-produce", "colony-meat", "colony-fish"}) do
               if h.entity.get_item_count(item) > 0 then saw.hut_output = true end
             end
           end
@@ -197,7 +212,9 @@ core.register("m1_colony", {
       -- Guarantee a hunter: the hunting share of the workforce is small, and a 12000-tick test should not
       -- depend on the matrix happening to pick it. A player lock is the normal way to force a role (#38).
       local ids = colony.colonist_ids(c)
-      if ids[1] then c.locks = c.locks or {}; c.locks[ids[1]] = "hunt" end
+      c.locks = c.locks or {}
+      if ids[1] then c.locks[ids[1]] = "hunt" end
+      if ids[2] then c.locks[ids[2]] = "fish" end
     end)
     ctx.after(colony.INTERVAL * 20, function()
       local tcnt = function(e, i) return e.get_inventory(defines.inventory.chest).get_item_count(i) end
@@ -267,6 +284,7 @@ core.register("m1_colony", {
       ctx.check("hall received resources", hall.get_item_count("iron-ore") + hall.get_item_count("colony-forage") > 0 or hall.get_item_count("wood") > 100)
       ctx.check("hunters killed game", kills > 0, kills)
       ctx.check("a hunter's kill reached colony stock", saw.meat)
+      ctx.check("fishers landed fish and it reached colony stock", saw.fish)
       local live_game = 0
       for _, rec in pairs(c.animals or {}) do if rec.entity.valid then live_game = live_game + 1 end end
       ctx.check("wildlife lives on its own force, in territory", game.forces["colony-wildlife"] ~= nil and live_game > 0,

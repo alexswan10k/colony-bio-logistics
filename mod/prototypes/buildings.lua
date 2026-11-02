@@ -65,6 +65,7 @@ local saltpan = chest_clone("wooden-chest", "colony-salt-pan", "salt-pan", 6, 1)
 -- Smokehouse (#81): the preserved tier. A labour hut with no tool - its gate is supply (salt + raw food), not
 -- equipment, so `labour.HUTS` leaves `tool` out and `hut_info` reports capacity as the gate instead.
 local smokehouse = chest_clone("iron-chest", "colony-smokehouse", "smokehouse", 8, 1)
+local kitchen = chest_clone("iron-chest", "colony-kitchen", "kitchen", 8, 1)
 -- Colony logistics crates (#33, design §5.1). Plain containers, not logistic chests: inserters and belts
 -- still work on them, but colony hauling is driven by our own registry so bots and colonists never fight
 -- over the same request.
@@ -154,7 +155,7 @@ local marker = {
 
 data:extend({
   hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
-  smokehouse, supply_crate, demand_crate, warehouse, compost_bin,
+  smokehouse, kitchen, supply_crate, demand_crate, warehouse, compost_bin,
   plot, bush, sink, marker,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -171,6 +172,7 @@ data:extend({
   item_of(fishingdock, "fishing-dock", "z[colony]-j[fishing-dock]"),
   item_of(saltpan, "salt-pan", "z[colony]-k[salt-pan]"),
   item_of(smokehouse, "smokehouse", "z[colony]-l[smokehouse]"),
+  item_of(kitchen, "kitchen", "z[colony]-l1[kitchen]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(warehouse, "warehouse", "z[colony]-l[warehouse]"),
@@ -213,6 +215,7 @@ data:extend({
   recipe("colony-fishing-dock", {wood = 20, ["iron-plate"] = 6}, 2),
   recipe("colony-salt-pan", {wood = 10, ["stone-brick"] = 10}, 2),
   recipe("colony-smokehouse", {wood = 25, ["stone-brick"] = 10, ["iron-plate"] = 5}, 3),
+  recipe("colony-kitchen", {wood = 30, ["stone-brick"] = 15, ["iron-plate"] = 10}, 3),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1),
   recipe("colony-demand-crate", {wood = 10, ["iron-plate"] = 10}, 1),
@@ -255,4 +258,8 @@ data:extend({
    subgroup = "raw-resource", order = "z[colony]-b[produce]", stack_size = 100,
    spoil_ticks = 60 * 60 * 30, spoil_result = "spoilage", localised_name = {"item-name.colony-produce"},
    localised_description = {"item-description.colony-produce"}},
+  {type = "item", name = "colony-bread", icon = G .. "icon-bread.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-b1[bread]", stack_size = 100,
+   spoil_ticks = 60 * 60 * 60, spoil_result = "spoilage", localised_name = {"item-name.colony-bread"},
+   localised_description = {"item-description.colony-bread"}},
 })

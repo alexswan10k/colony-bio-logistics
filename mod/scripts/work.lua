@@ -17,6 +17,7 @@ local hunting = require("scripts.model.hunting")
 local wildlife = require("scripts.wildlife")
 local fishing = require("scripts.model.fishing")
 local preserve = require("scripts.model.preserve")
+local kitchen = require("scripts.model.kitchen")
 local yields = require("scripts.model.yields")
 local salt = require("scripts.model.salt")
 local well = require("scripts.model.well")
@@ -277,13 +278,11 @@ local function job_slots(colony)
   for _, h in ipairs(hut_list(colony)) do
     local _, _, allowed, workers = M.hut_info(h)
     if hut_quota_met(colony, h) then allowed = 0 end
+    if (colony.no_site[h.entity.unit_number] or 0) > game.tick or (colony.no_site[h.job] or 0) > game.tick then allowed = 0 end
     list[#list + 1] = {job = h.job, allowed = allowed, workers = workers, hut = h}
   end
   local slots = labour.free_slots(list)
   local capacity = labour.capacity_by_job(list)
-  for _, job in ipairs({"forage", "chop", "mine", "farm", "preserve"}) do
-    if (colony.no_site[job] or 0) > game.tick then slots[job] = 0 end   -- nothing to harvest: don't thrash
-  end
   -- Construction has no hut: its slots are the open ghosts/repairs in the registry, minus current builders.
   capacity.construct = construct_open(colony)
   slots.construct = math.max(capacity.construct - (job_counts(colony).construct or 0), 0)
@@ -336,8 +335,11 @@ local function find_site(colony, e, hut)
     end
     return nil
   elseif hut.job == "preserve" then
-    -- The smokehouse is its own workplace, and it can only work when it holds salt and something to cure.
+    -- The smokehouse or kitchen is its own workplace, and it can only work when it holds its inputs.
     -- Returning nil leaves it unstaffed (and `no_site` stops the town from thrashing on it for a while).
+    if hut.entity.name == "colony-kitchen" then
+      return kitchen.recipe(chest_contents(hut.entity) or {}) and hut.entity
+    end
     return preserve.recipe(chest_contents(hut.entity) or {}) and hut.entity
   elseif hut.job == "fish" then
     if colony_mod.quota_met(colony, "colony-fish") then return nil, "colony-fish" end
@@ -449,13 +451,32 @@ local function hut_offer(h)
   local def, tools = M.hut_info(h)
   if def.tool then
     local want = math.min(def.capacity, h.limit or def.capacity) - tools - (h.inflight[def.tool] or 0)
-    if want < 1 then return nil end
-    return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
-      demands = {{item = def.tool, count = want}}}
+    if want >= 1 then
+      return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
+        demands = {{item = def.tool, count = want}}}
+    end
+    if def.inputs then
+      local demands = {}
+      local contents = chest_contents(h.entity) or {}
+      for _, inp in ipairs(def.inputs) do
+        local deficit = inp.count - (contents[inp.item] or 0) - (h.inflight[inp.item] or 0)
+        if deficit > 0 then demands[#demands + 1] = {item = inp.item, count = deficit} end
+      end
+      if #demands > 0 then
+        return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.request, key = h.entity.unit_number,
+          demands = demands}
+      end
+    end
+    return nil
   end
-  -- No tool: the hut asks for its inputs instead (#81). A request, not a critical need, so houses are always
-  -- served first and a smokehouse can never eat the town's dinner.
-  local demands = preserve.wants(chest_contents(h.entity) or {}, h.inflight)
+  -- No tool: the hut asks for its inputs instead (#81, #44). A request, not a critical need, so houses are always
+  -- served first and a smokehouse or kitchen can never eat the town's dinner.
+  local demands
+  if h.entity.name == "colony-kitchen" then
+    demands = kitchen.wants(chest_contents(h.entity) or {}, h.inflight)
+  else
+    demands = preserve.wants(chest_contents(h.entity) or {}, h.inflight)
+  end
   if #demands == 0 then return nil end
   return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.request, key = h.entity.unit_number,
     demands = demands}
@@ -798,7 +819,7 @@ local function start_trip(colony, un, hut)
     if quota_item then
       if e and e.valid then popup(e.surface, e.position, {"colony-message.quota-reached", item_name(quota_item)}) end
     else
-      colony.no_site[hut.job] = game.tick + 600
+      colony.no_site[hut.entity.unit_number] = game.tick + 600
     end
     return false
   end
@@ -892,7 +913,6 @@ function M.assign(colony, un)
     if sl.job == job and sl.allowed > sl.workers then
       sl.hut.workers[un] = true
       if start_trip(colony, un, sl.hut) then return end
-      break
     end
   end
   idle(colony, un, e)
@@ -932,6 +952,11 @@ scheduler.register("farm.ripen", function(d)
   if plot.stage ~= farm.GROWING then return end
   plot.stage, plot.ripe_at = farm.RIPE, nil
   plot.entity.graphics_variation = farm.RIPE
+  for _, h in pairs(colony.huts or {}) do
+    if h.job == "farm" and h.entity.valid then
+      colony.no_site[h.entity.unit_number] = nil
+    end
+  end
 end)
 
 scheduler.register("work.finish", function(d)
@@ -962,24 +987,37 @@ scheduler.register("work.finish", function(d)
     local plot = colony.plots and colony.plots[site.unit_number]
     if plot and plot.entity.valid then
       if plot.stage == farm.RIPE then
-        n = farm.yield_for(farm.fertility(site.surface.get_tile(site.position).name))
+        n = farm.harvest_yield(farm.fertility(site.surface.get_tile(site.position).name), plot.fertilized)
         item = "colony-produce"
-        plot.stage, plot.ripe_at = farm.FALLOW, nil
+        plot.stage, plot.ripe_at, plot.fertilized = farm.FALLOW, nil, nil
         site.graphics_variation = farm.FALLOW
       elseif plot.stage == farm.FALLOW then
         plot.stage, plot.ripe_at = farm.GROWING, game.tick + farm.GROW_TICKS
         site.graphics_variation = farm.GROWING
+        if hut and hut.entity and hut.entity.valid and hut.entity.get_item_count("colony-fertilizer") >= 1 then
+          hut.entity.remove_item{name = "colony-fertilizer", count = 1}
+          plot.fertilized = true
+        end
         scheduler.after(farm.GROW_TICKS, "farm.ripen", {colony_id = colony.id, un = site.unit_number})
       end
     end
   elseif st.job == "preserve" then
-    -- Curing happens here, in the hut, out of the hut's own inventory: the input offer above keeps it stocked.
-    -- The output is carried home like any other hut yield, so the preserved tier rides the existing hauling.
-    local recipe = preserve.recipe(chest_contents(hut.entity) or {})
-    if recipe then
-      hut.entity.remove_item{name = preserve.SALT, count = preserve.SALT_PER_BATCH}
-      hut.entity.remove_item{name = recipe.raw, count = preserve.RAW_PER_BATCH}
-      item, n = recipe.product, preserve.PRODUCT_PER_BATCH
+    -- Curing or cooking happens here, in the hut, out of the hut's own inventory: the input offer keeps it stocked.
+    -- The output is carried home like any other hut yield, so the processed food rides existing hauling.
+    if hut.entity.name == "colony-kitchen" then
+      local recipe = kitchen.recipe(chest_contents(hut.entity) or {})
+      if recipe then
+        hut.entity.remove_item{name = kitchen.PRODUCE, count = kitchen.PRODUCE_PER_BATCH}
+        hut.entity.remove_item{name = kitchen.WATER, count = kitchen.WATER_PER_BATCH}
+        item, n = recipe.product, kitchen.PRODUCT_PER_BATCH
+      end
+    else
+      local recipe = preserve.recipe(chest_contents(hut.entity) or {})
+      if recipe then
+        hut.entity.remove_item{name = preserve.SALT, count = preserve.SALT_PER_BATCH}
+        hut.entity.remove_item{name = recipe.raw, count = preserve.RAW_PER_BATCH}
+        item, n = recipe.product, preserve.PRODUCT_PER_BATCH
+      end
     end
   elseif st.job == "fish" then
     item, n = "colony-fish", fishing.FISH_PER_TRIP
@@ -1181,10 +1219,13 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     local e = colony.colonists[ev.unit_number]
     local hut_entity = st.hut and st.hut.entity
     local refused = {}
-    if hut_entity and hut_entity.valid and st.carry then
-      for _, s in ipairs(st.carry) do
-        local n = hut_entity.insert{name = s.item, count = s.count}
-        if n < s.count then refused[#refused + 1] = {item = s.item, count = s.count - n} end
+    if hut_entity and hut_entity.valid then
+      colony.no_site[hut_entity.unit_number] = nil
+      if st.carry then
+        for _, s in ipairs(st.carry) do
+          local n = hut_entity.insert{name = s.item, count = s.count}
+          if n < s.count then refused[#refused + 1] = {item = s.item, count = s.count - n} end
+        end
       end
     else
       refused = st.carry or {}

@@ -49,6 +49,11 @@ core.register("m1_colony", {
     local inland_pan = build("colony-salt-pan", {p.x - 20, p.y + 6})
     local smokehouse = build("colony-smokehouse", {p.x - 6, p.y + 12})
     if smokehouse and smokehouse.valid then smokehouse.insert{name = "colony-meat", count = 2} end
+    local kitchen_ent = build("colony-kitchen", {p.x - 6, p.y + 16})
+    if kitchen_ent and kitchen_ent.valid then
+      kitchen_ent.insert{name = "colony-produce", count = 2}
+      kitchen_ent.insert{name = "colony-water", count = 2}
+    end
 
     -- Hunting Lodge (#79): real hunting - docile game on its own force, shot by colonists. Two boars are
     -- placed beside the lodge so the hunt does not depend on where the herd happened to wander.
@@ -108,6 +113,8 @@ core.register("m1_colony", {
     ctx.check("a salt pan with no water in reach is refused", not (inland_pan and inland_pan.valid))
     ctx.check("smokehouse registered with the colony", smokehouse and smokehouse.valid
       and c.huts[smokehouse.unit_number] ~= nil and c.huts[smokehouse.unit_number].job == "preserve")
+    ctx.check("kitchen registered with the colony", kitchen_ent and kitchen_ent.valid
+      and c.huts[kitchen_ent.unit_number] ~= nil and c.huts[kitchen_ent.unit_number].job == "preserve")
     hall.insert{name = "spoilage", count = 10}
     tent.insert{name = "spoilage", count = 3}
     local outside_crate = build("colony-supply-crate", {p.x + 200, p.y + 200})
@@ -212,7 +219,8 @@ core.register("m1_colony", {
     local ore_before = (ore1 and ore1.amount or 0) + (ore2 and ore2.amount or 0)
     local patches_before = #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30}
     local saw = {ore = false, wood = false, food = false, planted = false, ripe = false, produce = false,
-      hut_output = false, fish = false, salt = false, preserved = false}
+      hut_output = false, fish = false, salt = false, preserved = false, water_in_hall = false, well_water = false,
+      homestead_water = false, fertilized = false, bread = false, fertilizer = false}
     local function produce_total()
       local n = hall.get_item_count("colony-produce")
       for _, h in pairs(c.houses) do
@@ -235,6 +243,7 @@ core.register("m1_colony", {
         if (th and food(th) > 0) or (ch and food(ch) > 0) then saw.food = true end
         for _, plot in pairs(c.plots or {}) do
           if plot.stage == farm.GROWING then saw.planted = true elseif plot.stage == farm.RIPE then saw.ripe = true end
+          if plot.fertilized then saw.fertilized = true end
         end
         if produce_total() > 0 then saw.produce = true end
         if hall.get_item_count("colony-meat") > 0 then saw.meat = true end
@@ -248,6 +257,17 @@ core.register("m1_colony", {
         if hall.get_item_count("colony-water") > 0 then saw.water_in_hall = true end
         if well_ent.valid and well_ent.get_item_count("colony-water") > 0 then saw.well_water = true end
         if homestead.valid and homestead.get_item_count("colony-water") > 0 then saw.homestead_water = true end
+        if hall.get_item_count("colony-fertilizer") > 0 or (bin.valid and bin.get_item_count("colony-fertilizer") > 0)
+            or (farmhut.valid and farmhut.get_item_count("colony-fertilizer") > 0) then
+          saw.fertilizer = true
+        end
+        if hall.get_item_count("colony-bread") > 0 then saw.bread = true end
+        for _, h in pairs(c.huts) do
+          if h.entity.valid and h.entity.get_item_count("colony-bread") > 0 then saw.bread = true end
+        end
+        for _, h in pairs(c.houses) do
+          if h.entity.valid and h.entity.get_item_count("colony-bread") > 0 then saw.bread = true end
+        end
         for _, item in ipairs({"colony-preserved-meat", "colony-preserved-fish"}) do
           if hall.get_item_count(item) > 0 then saw.preserved = true end
           for _, h in pairs(c.huts) do
@@ -364,6 +384,8 @@ core.register("m1_colony", {
       ctx.check("fishers landed fish and it reached colony stock", saw.fish)
       ctx.check("salt pans evaporated salt", saw.salt)
       ctx.check("the smokehouse cured meat with it", saw.preserved)
+      ctx.check("farmers used fertilizer for boosted yield", saw.fertilized)
+      ctx.check("the kitchen baked bread", saw.bread)
       ctx.check("well produced water", saw.well_water or saw.water_in_hall or saw.homestead_water)
       ctx.check("water hauled to colony stock or homestead", saw.water_in_hall or saw.homestead_water)
       local live_game = 0
@@ -375,7 +397,7 @@ core.register("m1_colony", {
       ctx.check("spoilage was cleared out of a house", tent.valid and tent.get_item_count("spoilage") == 0,
         tent.valid and tent.get_item_count("spoilage"))
       ctx.check("the compost bin turned spoilage into fertilizer",
-        hall.get_item_count("colony-fertilizer") + (bin.valid and bin.get_item_count("colony-fertilizer") or 0) >= 1,
+        saw.fertilizer or hall.get_item_count("colony-fertilizer") + (bin.valid and bin.get_item_count("colony-fertilizer") or 0) >= 1,
         hall.get_item_count("colony-fertilizer") .. " in the hall")
       ctx.finish()
     end)

@@ -176,6 +176,18 @@ def em_smoke(d, px):
     for i, x in enumerate((px / 2 - 6, px / 2, px / 2 + 6)):                             # smoke
         d.arc(S(x - 5, 18 + i * 3, x + 5, 32 + i * 3), 200, 340, fill=(225, 225, 225, 220), width=2 * SS)
 
+def em_kitchen(d, px):
+    d.polygon(S(px / 2 - 16, 38, px / 2 + 16, 38, px / 2 + 12, 54, px / 2 - 12, 54), fill=(80, 80, 90, 255), outline=(30, 25, 20, 255), width=2 * SS)
+    d.arc(S(px / 2 - 10, 22, px / 2 - 2, 38), 180, 360, fill=(230, 230, 240, 200), width=2 * SS)
+    d.arc(S(px / 2 + 2, 20, px / 2 + 10, 36), 180, 360, fill=(230, 230, 240, 200), width=2 * SS)
+
+def icon_bread():
+    img, d = canvas(64, 64)
+    d.ellipse(S(10, 22, 54, 46), fill=(205, 140, 70, 255), outline=(50, 30, 15, 255), width=2 * SS)
+    for x in (22, 32, 42):
+        d.line(S(x - 3, 26, x + 3, 40), fill=(235, 185, 115, 255), width=2 * SS)
+    save(img, "icon-bread.png", 64, 64)
+
 def salt_pan(px=128):
     img, d = canvas(px, px)
     shadow(d, (10, px * .8, px - 10, px - 6))
@@ -398,7 +410,8 @@ hut("farm-hut", (150, 120, 60, 255), (205, 175, 115, 255), em_crop)
 hut("hunting-lodge", (95, 110, 70, 255), (170, 145, 95, 255), em_hunt)
 hut("fishing-dock", (60, 95, 120, 255), (150, 130, 95, 255), em_fish)
 hut("smokehouse", (70, 65, 60, 255), (165, 140, 110, 255), em_smoke)
-bush(); icon_basket(); watchtower(); farm_plots(); icon_hoe(); icon_produce()
+hut("kitchen", (180, 85, 55, 255), (205, 175, 130, 255), em_kitchen)
+bush(); icon_basket(); watchtower(); farm_plots(); icon_hoe(); icon_produce(); icon_bread()
 crate("supply-crate", (90, 190, 90, 255), em_out)
 crate("demand-crate", (90, 150, 220, 255), em_in)
 warehouse(); compost_bin(); icon_fertilizer(); boar(); icon_rifle(); icon_meat(); icon_rod(); icon_fish()

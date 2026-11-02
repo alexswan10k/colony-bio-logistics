@@ -5,10 +5,11 @@ local M = {}
 local ORDER = {
   ["colony-forage"] = 10, ["colony-fish"] = 11, ["colony-meat"] = 12, ["colony-produce"] = 13,
   ["raw-fish"] = 14, ["colony-salt"] = 15, ["colony-preserved-meat"] = 16, ["colony-preserved-fish"] = 17,
+  ["colony-water"] = 18, ["colony-bread"] = 19,
   ["wood"] = 20, ["iron-ore"] = 21, ["copper-ore"] = 22, ["coal"] = 23, ["stone"] = 24,
   ["iron-plate"] = 30, ["copper-plate"] = 31, ["colony-axe"] = 32, ["colony-pickaxe"] = 33,
   ["colony-hoe"] = 34, ["colony-rifle"] = 35, ["colony-rod"] = 36, ["colony-basket"] = 37,
-  ["repair-pack"] = 38, ["colony-fertilizer"] = 39, ["spoilage"] = 40,
+  ["repair-pack"] = 38, ["colony-fertilizer"] = 39, ["colony-furniture"] = 40, ["spoilage"] = 41,
 }
 
 function M.sort_key(item)

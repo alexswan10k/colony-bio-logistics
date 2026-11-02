@@ -62,7 +62,7 @@ M.STOCK_TTL = 30
 M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
 M.FOOD_PER_COLONIST = yields.FOOD_PER_INTERVAL   -- food items per interval
 M.FOOD_ITEMS = {"colony-forage", "colony-fish", "colony-meat", "colony-produce", "raw-fish",
-  "colony-preserved-meat", "colony-preserved-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
+  "colony-preserved-meat", "colony-preserved-fish", "colony-bread", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
 M.INTERVAL = 600                -- default ticks between evaluations
 M.TARGET_STOCK_INTERVALS = 5
 
@@ -683,6 +683,11 @@ scheduler.register("colony.regrow_patch", function(d)
   if territory.owner_at(colony.surface_index, d.pos) ~= colony.id then return end
   if not s.can_place_entity{name = "colony-forage-patch", position = d.pos} then return end
   s.create_entity{name = "colony-forage-patch", position = d.pos, force = "neutral"}
+  for _, h in pairs(colony.huts or {}) do
+    if h.job == "forage" and h.entity.valid then
+      colony.no_site[h.entity.unit_number] = nil
+    end
+  end
 end)
 
 -- Chunks generated before the mod's autoplace existed have no patches yet: seed them once, on load.

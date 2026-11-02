@@ -6,13 +6,16 @@ M.HUTS = {
   ["colony-forager-hut"] = {job = "forage", tool = "colony-basket", capacity = 3},
   ["colony-woodcutter-hut"] = {job = "chop", tool = "colony-axe", capacity = 3},
   ["colony-miner-hut"] = {job = "mine", tool = "colony-pickaxe", capacity = 3},
-  ["colony-farm-hut"] = {job = "farm", tool = "colony-hoe", capacity = 3},
+  ["colony-farm-hut"] = {job = "farm", tool = "colony-hoe", capacity = 3,
+    keep = {"colony-fertilizer"}, inputs = {{item = "colony-fertilizer", count = 6}}},
   ["colony-hunting-lodge"] = {job = "hunt", tool = "colony-rifle", capacity = 3},
   ["colony-fishing-dock"] = {job = "fish", tool = "colony-rod", capacity = 3},
-  -- No `tool`: a Smokehouse is gated by its inputs (salt + raw food), not by equipment (#81). `keep` lists the
+  -- No `tool`: a Smokehouse or Kitchen is gated by its inputs, not by equipment (#81, #44). `keep` lists the
   -- items that are *inputs*, so haulers do not treat them as hut output and cart them straight back to the hall.
   ["colony-smokehouse"] = {job = "preserve", capacity = 2,
     keep = {"colony-salt", "colony-meat", "colony-fish"}},
+  ["colony-kitchen"] = {job = "preserve", capacity = 2,
+    keep = {"colony-produce", "colony-water"}},
 }
 -- Worker trips before one tool in the hut wears out. A trip is ~10s of walking + 8s of work, so a hut
 -- with three workers loses a tool roughly every 1-2 minutes: fast enough to see, slow enough to be logistics.

@@ -9,6 +9,7 @@ local jobs = require("scripts.model.jobs")
 local mine_plan = require("scripts.model.mine_plan")
 local crates = require("scripts.model.crates")
 local haul_plan = require("scripts.model.haul_plan")
+local farm = require("scripts.model.farm")
 local work = require("scripts.work")
 local M = {}
 local colony_mod   -- injected via M.bind (runtime require is illegal)
@@ -144,18 +145,43 @@ local function fill_hut(frame, h)
     tooltip = {"colony-gui-hut.limit-tt"}}
   more.style.width = 24
   frame.add{type = "label", caption = {"colony-gui-hut.range", colony_mod.HUT_RADIUS}}
-  frame.add{type = "label", caption = {"colony-gui-hut.tools", tools}}
-  if tools > 0 then
-    frame.add{type = "label", caption = {"colony-gui-hut.condition", labour.uses_left(h.wear), labour.TOOL_USES}}
-  end
-  frame.add{type = "label", caption = {"colony-gui-hut.tool-need", def.tool}}
-  if def.capacity > tools then
-    local want = def.capacity - tools - (h.inflight[def.tool] or 0)
-    if want > 0 then
-      frame.add{type = "label", caption = {"colony-gui-hut.delivering", def.tool, want}}
+  if def.tool then
+    frame.add{type = "label", caption = {"colony-gui-hut.tools", tools}}
+    if tools > 0 then
+      frame.add{type = "label", caption = {"colony-gui-hut.condition", labour.uses_left(h.wear), labour.TOOL_USES}}
     end
+    frame.add{type = "label", caption = {"colony-gui-hut.tool-need", def.tool}}
+    if def.capacity > tools then
+      local want = def.capacity - tools - (h.inflight[def.tool] or 0)
+      if want > 0 then
+        frame.add{type = "label", caption = {"colony-gui-hut.delivering", def.tool, want}}
+      end
+    end
+  else
+    local inv = h.entity.get_inventory(defines.inventory.chest)
+    local parts = {}
+    for _, item in ipairs(def.keep or {}) do
+      parts[#parts + 1] = string.format("[item=%s] %d", item, inv and inv.get_item_count(item) or 0)
+    end
+    frame.add{type = "label", caption = {"colony-gui-hut.inputs", table.concat(parts, "  ")}}
   end
   if h.job == "farm" then
+    local colony = storage.colonies[h.colony_id]
+    local fallow, growing, ripe, fertilized = 0, 0, 0, 0
+    local r2 = colony_mod.HUT_RADIUS * colony_mod.HUT_RADIUS
+    if colony and colony.plots then
+      for _, p in pairs(colony.plots) do
+        if p.entity.valid and (p.entity.position.x - h.entity.position.x)^2 + (p.entity.position.y - h.entity.position.y)^2 <= r2 then
+          if p.stage == farm.RIPE then ripe = ripe + 1
+          elseif p.stage == farm.GROWING then growing = growing + 1
+          else fallow = fallow + 1 end
+          if p.fertilized then fertilized = fertilized + 1 end
+        end
+      end
+    end
+    local fert_cnt = h.entity.get_item_count("colony-fertilizer")
+    frame.add{type = "label", caption = {"colony-gui-hut.farm-plots-summary", fallow, growing, ripe, fertilized}}
+    frame.add{type = "label", caption = {"colony-gui-hut.farm-fertilizer", fert_cnt}}
     frame.add{type = "label", caption = {"colony-gui-hut.farm-hint"}}
   end
   if h.job == "mine" then

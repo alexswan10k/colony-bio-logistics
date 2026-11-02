@@ -31,6 +31,12 @@ function M.yield_for(fertility)
   return math.max(0, math.floor(M.YIELD_BASE * (fertility or 0) + 0.5))
 end
 
+-- Yield with optional fertilizer boost (#44): fertilizer doubles crop yield (2x).
+function M.harvest_yield(fertility, fertilized)
+  local base = M.yield_for(fertility)
+  return (fertilized and (base * 2)) or base
+end
+
 -- Stage of a stored plot record at `tick`: fallow, growing or ripe. The runtime also schedules a
 -- ripen event; this is the pure view used by tests and the GUI.
 function M.stage(plot, tick)

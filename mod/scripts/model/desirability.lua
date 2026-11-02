@@ -9,6 +9,8 @@ M.defaults = {
   death_penalty = 0.15,       -- per recent death
   death_halflife = 6,         -- intervals
   migrate_in = 0.15, leave_below = -0.10,
+  leave_rate = 0.10,          -- at worst, this fraction of the town packs up per interval
+  leave_span = 0.50,          -- how far below leave_below D has to fall for the full rate (#29)
 }
 
 local function clamp(x, lo, hi) return math.max(lo, math.min(hi, x)) end

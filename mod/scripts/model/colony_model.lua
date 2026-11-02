@@ -18,6 +18,18 @@ function M.new(o)
   return c
 end
 
+-- How many colonists pack up and leave in one interval (#29). Nobody leaves while D is at or above
+-- `leave_below`; below it a trickle starts immediately (at least one colonist, so the player sees it), and
+-- the trickle grows with how far below the line the colony is, up to `leave_rate` of the population.
+-- Lives here rather than in the adapter so sim/ balance runs and the game agree.
+function M.leave_count(pop, d, p)
+  p = p or desirability.defaults
+  if pop <= 0 or d >= p.leave_below then return 0 end
+  local span = p.leave_span or 0.5
+  local severity = math.min((p.leave_below - d) / span, 1)
+  return math.min(pop, math.max(1, math.ceil(pop * (p.leave_rate or 0.1) * severity)))
+end
+
 function M.step(c)
   local ev = {migrated = 0, left = 0, starved = 0, born = 0}
   -- production & consumption
@@ -51,7 +63,7 @@ function M.step(c)
     ev.born = math.min(free, math.max(1, math.floor(c.pop * c.birth_rate))); c.pop = c.pop + ev.born
   end
   if d < c.params.leave_below and c.pop > 0 then
-    ev.left = math.max(1, math.ceil(c.pop * c.leave_rate)); c.pop = math.max(0, c.pop - ev.left)
+    ev.left = M.leave_count(c.pop, d, c.params); c.pop = math.max(0, c.pop - ev.left)
   end
   return ev
 end

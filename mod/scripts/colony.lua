@@ -8,6 +8,8 @@ local farm = require("scripts.model.farm")
 local crates = require("scripts.model.crates")
 local construct = require("scripts.model.construct")
 local desirability = require("scripts.model.desirability")
+local colony_model = require("scripts.model.colony_model")
+local scenic = require("scripts.model.scenic")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local work = require("scripts.work")
@@ -35,6 +37,9 @@ M.CRATES = {
 }
 M.CLAIM_RADIUS = 1              -- chunks, Chebyshev => 3x3 chunks
 M.STARVE_AFTER = 4              -- consecutive evaluations with unmet critical need before a colonist dies
+M.SCENIC_RADIUS = 40            -- tiles around the hall that scenic reads (fixed: cost must not grow with the town)
+M.SCENIC_STRIDE = 4             -- tile sample stride: 1/16 of the area is actually read
+M.SCENIC_EVERY = 4              -- evaluations between scenic samples (surroundings change slowly)
 M.POP_TTL = 5                   -- ticks a cached population count / food total / stock snapshot may be reused
 M.FOOD_TTL = 30
 M.STOCK_TTL = 30
@@ -253,6 +258,54 @@ local function spawn_colonist(colony)
   return true
 end
 
+-- Scenic (#29): count trees in a fixed box around the hall and sample the tiles under them, once every
+-- M.SCENIC_EVERY evaluations. Trees are entities, so one filtered find per sample beats per-tile probing;
+-- the box is fixed rather than the whole territory so the cost stays flat as watchtowers expand.
+local function sample_scenic(colony)
+  local hall = colony.hall
+  if not (hall and hall.valid) then return end
+  local s, p, r = hall.surface, hall.position, M.SCENIC_RADIUS
+  local trees = 0
+  for _, e in ipairs(s.find_entities_filtered{area = {{p.x - r, p.y - r}, {p.x + r, p.y + r}}, type = "tree"}) do
+    if e.valid then trees = trees + 1 end
+  end
+  local water, built, tiles = 0, 0, 0
+  for x = math.floor(p.x - r), math.floor(p.x + r), M.SCENIC_STRIDE do
+    for y = math.floor(p.y - r), math.floor(p.y + r), M.SCENIC_STRIDE do
+      local tile = s.get_tile(x, y)
+      tiles = tiles + 1
+      if tile then
+        if scenic.is_water(tile.name) then water = water + 1
+        elseif scenic.is_built(tile.name) then built = built + 1 end
+      end
+    end
+  end
+  if tiles == 0 then return end
+  local side = 2 * r + 1
+  colony.scenic, colony.scenic_parts = scenic.score{
+    tree_cover = trees / (side * side),
+    water_cover = water / tiles,
+    built_cover = built / tiles,
+  }
+end
+
+-- A colonist packs up and walks away (#29). The newest arrival goes first. Unlike starvation this leaves no
+-- body: destroying the entity is enough, because work's on_object_destroyed handler returns whatever the
+-- colonist was carrying, frees its hut seat and drops its job label.
+local function leave_one(colony)
+  local un
+  for id, c in pairs(colony.colonists) do
+    if c.valid and (not un or id > un) then un = id end
+  end
+  if not un then return false end
+  local c = colony.colonists[un]
+  colony.colonists[un] = nil
+  if colony.locks then colony.locks[un] = nil end
+  colony.pop_cache, colony.pop_tick = nil, nil
+  c.destroy()
+  return true
+end
+
 function M.evaluate(data)
   local colony = storage.colonies[data.colony_id]
   if not colony then return end
@@ -288,18 +341,31 @@ function M.evaluate(data)
   colony.deaths = kept
 
   pop = M.live_colonists(colony)
+  if (colony.scenic_n or 0) <= 0 then
+    sample_scenic(colony)
+    colony.scenic_n = M.SCENIC_EVERY
+  else colony.scenic_n = colony.scenic_n - 1 end
   local capacity = M.capacity(colony)
   local target = math.max(pop * M.FOOD_PER_COLONIST * M.TARGET_STOCK_INTERVALS, 1)
+  local pollution = scenic.pollution_ratio(colony.hall.surface.get_pollution(colony.hall.position))
+  colony.pollution = pollution
   local d, parts = desirability.compute({
     food_ratio = M.total_food(colony) / target,
     free_housing_ratio = capacity > 0 and (capacity - pop) / capacity or 0,
-    scenic = 0.3, leisure = rated > 0 and score_sum / rated or 0, pollution = 0, deaths = colony.deaths,
+    scenic = colony.scenic or 0, leisure = rated > 0 and score_sum / rated or 0,
+    pollution = pollution, deaths = colony.deaths,
   })
   colony.d, colony.d_parts = d, parts
   local pop_target = math.min(capacity, colony.pop_target or capacity)
   if colony.accept_migrants ~= false and d > desirability.defaults.migrate_in and pop < pop_target then
     if spawn_colonist(colony) and settings.global["colony-debug-log"].value then
       game.print("[colony " .. colony.id .. "] migrant arrived, D=" .. string.format("%.2f", d))
+    end
+  elseif d < desirability.defaults.leave_below then
+    local n = colony_model.leave_count(pop, d)
+    for _ = 1, n do if not leave_one(colony) then break end end
+    if n > 0 and settings.global["colony-debug-log"].value then
+      game.print("[colony " .. colony.id .. "] " .. n .. " colonist(s) left, D=" .. string.format("%.2f", d))
     end
   end
 end
@@ -546,7 +612,8 @@ function M.stats(colony)
   return {pop = pop, capacity = capacity, food = food, food_target = target, food_ratio = food / target,
     tents = tents, cabins = cabins, huts = huts, machines = machines, towers = towers, chunks = chunks,
     crates = #M.crate_list(colony), ghosts = ghosts, damaged = damaged,
-    d = colony.d or 0, parts = colony.d_parts or {}}
+    d = colony.d or 0, parts = colony.d_parts or {},
+    scenic = colony.scenic or 0, pollution = colony.pollution or 0}
 end
 
 return M

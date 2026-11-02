@@ -20,6 +20,11 @@
 Three headless gates cover the things the unit tests and the playable spike cannot:
 
 - `scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (53 checks).
+- `scripts/headless-spike.sh m1_desirability` - the desirability inputs and leaving (19 checks): migrants
+  arrive on a fed/housed site, scenic rises when trees are planted in the sampled box, `pollute()` at the
+  hall pushes the pollution component to -0.60, and with D under the leave line colonists pack up - proven
+  distinct from starvation by checking the death list did not grow. Needs `TICKS=4000`; it shortens
+  `storage.interval_override` to 150 so evaluations do not cost 3600 ticks each.
 - `scripts/save-load.sh` - builds a live colony on a headless server, saves it with `game.server_save`, then
   reloads that save in a **new process** (`--test-save ... --test-arg m1_persist_load`) and asserts every
   registry, scheduler entry, rendering and job lock came back (24 checks). Anything stored in

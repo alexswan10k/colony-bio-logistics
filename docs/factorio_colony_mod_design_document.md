@@ -46,6 +46,12 @@ $$D = (W_{\text{food}} \cdot S_{\text{food}}) + (W_{\text{housing}} \cdot S_{\te
 1. **Organic Migration (Life-Friendly Worlds - Nauvis & Gleba):**
    * When your colony's **Desirability Rating ($D$)** is positive and housing is available, wild migrants periodically arrive at your Town Hall.
    * If $D$ drops into the negative (starvation, heavy factory pollution, frequent deaths), migration stops and existing colonists eventually pack up and leave.
+   * **Leaving (implemented, #29):** below `leave_below` ($-0.10$) the newest arrivals start walking out, one per evaluation interval at minimum, rising with how far below the line $D$ has fallen and capped at `leave_rate` (10%) of the town per interval. A colonist that leaves returns whatever it was carrying to the Town Hall, frees its hut seat and its job lock, and is gone - it is not a death, so it does not feed the death penalty. The rule lives in `model/colony_model.leave_count` so the sim harness and the game agree.
+   * **The five inputs are real, not placeholders (implemented, #29):**
+     * *Food / housing / leisure* come from the evaluation loop (stock ratio, free beds, powered-house score).
+     * *Scenic* (`model/scenic.lua`) is read from the world in a fixed 40-tile box around the Town Hall, once every 4 evaluations: tree cover (from one filtered find), water tiles and paving on a 1-in-16 tile sample. A forest scores full marks at 35% tree cover, a lake at 15% water, and paving subtracts up to 0.6 - so the player's own concrete works against them, which is the point.
+     * *Pollution* is `surface.get_pollution` at the Town Hall, normalised against 300 units (`MINE_POLLUTION` is 2 per mining trip, so a concentrated mining outpost is felt while a clean town is not).
+     * The hall panel shows $D$, its six components, and the two raw inputs (scenic, pollution) so the number is explainable without a debug build.
 2. **Natural Reproduction / Breeding (Advanced, Off-World & Orbital Colonies):**
    * On barren worlds (Vulcanus, Fulgora, Aquilo) and Space Platforms, wild migrants cannot spawn.
    * Once a colony reaches a **Critical Mass** (e.g., $\ge 10$ colonists) inside Tier 2+ Housing or Habitat Domes with high Desirability and a **Maternity Clinic / Nursery**, the colony generates new colonists organically via natural reproduction.

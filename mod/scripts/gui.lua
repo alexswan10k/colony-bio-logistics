@@ -238,8 +238,9 @@ local function fill_info(frame, colony)
   frame.add{type = "label", caption = {"colony-gui-info.desirability-inputs",
     string.format("%.2f", st.scenic or 0), string.format("%.2f", st.pollution or 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.jobs",
-    counts.haul or 0, counts.forage or 0, counts.chop or 0, counts.mine or 0, counts.hunt or 0,
-    counts.fish or 0, counts.preserve or 0, math.max(st.pop - busy, 0)}}
+    counts.haul or 0, counts.forage or 0, counts.chop or 0, counts.mine or 0, counts.farm or 0,
+    counts.hunt or 0, counts.fish or 0, counts.preserve or 0, counts.construct or 0,
+    math.max(st.pop - busy, 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.territory", st.chunks, st.huts, st.machines, st.towers, st.crates}}
   if st.ghosts > 0 or st.damaged > 0 then
     frame.add{type = "label", caption = {"colony-gui-info.construction", st.ghosts, st.damaged}}
@@ -314,24 +315,57 @@ local function fill_info(frame, colony)
   more.style.width = 24
 
   frame.add{type = "line"}
-  frame.add{type = "label", caption = {"colony-gui-info.priority-title"}, style = "bold_label"}
+  frame.add{type = "label", caption = {"colony-gui-info.workforce-title"}, style = "bold_label"}
+  local table_gui = frame.add{type = "table", column_count = 4, draw_horizontal_lines = false}
+  table_gui.style.horizontal_spacing = 6
+  local h1 = table_gui.add{type = "label", caption = {"colony-gui-info.wf-job"}, style = "bold_label"}
+  h1.style.width = 68
+  local h2 = table_gui.add{type = "label", caption = {"colony-gui-info.wf-workers"}, style = "bold_label"}
+  h2.style.width = 46; h2.style.horizontal_align = "center"
+  local h3 = table_gui.add{type = "label", caption = {"colony-gui-info.wf-priority"}, style = "bold_label"}
+  h3.style.width = 66; h3.style.horizontal_align = "center"
+  local h4 = table_gui.add{type = "label", caption = {"colony-gui-info.wf-target"}, style = "bold_label"}
+  h4.style.width = 82; h4.style.horizontal_align = "center"
+
   local p = jobs.effective(colony.priority)
   for _, job in ipairs(jobs.JOBS) do
-    local row = frame.add{type = "flow", name = "prio_" .. job, direction = "horizontal"}
-    row.style.vertical_align = "center"
-    local name = row.add{type = "label", caption = {"colony-gui-info.job-" .. job}}
-    name.style.width = 64
-    row.add{type = "button", name = "colony_prio_" .. job .. "_more", caption = "+",
+    local name = table_gui.add{type = "label", caption = {"colony-gui-info.job-" .. job}}
+    name.style.width = 68
+
+    local cur = counts[job] or 0
+    local w_lbl = table_gui.add{type = "label", caption = tostring(cur)}
+    w_lbl.style.width = 46; w_lbl.style.horizontal_align = "center"
+
+    local p_flow = table_gui.add{type = "flow", direction = "horizontal"}
+    p_flow.style.vertical_align = "center"
+    local b_more = p_flow.add{type = "button", name = "colony_prio_" .. job .. "_more", caption = "+",
       tooltip = {"colony-gui-info.more-tt"}}
-    local rank = row.add{type = "label", caption = p[job] > 0 and tostring(p[job]) or {"colony-gui-info.off"}}
-    rank.style.width = 24
-    rank.style.horizontal_align = "center"
-    row.add{type = "button", name = "colony_prio_" .. job .. "_less", caption = "-",
+    b_more.style.width = 18; b_more.style.height = 20
+    local rank_lbl = p_flow.add{type = "label", caption = p[job] > 0 and tostring(p[job]) or {"colony-gui-info.off"}}
+    rank_lbl.style.width = 24; rank_lbl.style.horizontal_align = "center"
+    local b_less = p_flow.add{type = "button", name = "colony_prio_" .. job .. "_less", caption = "-",
       tooltip = {"colony-gui-info.less-tt"}}
+    b_less.style.width = 18; b_less.style.height = 20
+
+    local t_flow = table_gui.add{type = "flow", direction = "horizontal"}
+    t_flow.style.vertical_align = "center"
+    local tb_less = t_flow.add{type = "button", name = "colony_target_" .. job .. "_less", caption = "-",
+      tooltip = {"colony-gui-info.target-less-tt"}}
+    tb_less.style.width = 18; tb_less.style.height = 20
+    local tgt = colony_mod.job_target(colony, job)
+    local tgt_text = tgt ~= nil and tostring(tgt) or {"colony-gui-info.auto"}
+    local tgt_lbl = t_flow.add{type = "label", caption = tgt_text}
+    tgt_lbl.style.width = 38; tgt_lbl.style.horizontal_align = "center"
+    local tb_more = t_flow.add{type = "button", name = "colony_target_" .. job .. "_more", caption = "+",
+      tooltip = {"colony-gui-info.target-more-tt"}}
+    tb_more.style.width = 18; tb_more.style.height = 20
   end
+
   if p.haul == 0 then frame.add{type = "label", caption = {"colony-gui-info.haul-off"}} end
-  frame.add{type = "button", name = "colony_prio_reset", caption = {"colony-gui-info.reset"}}
-  frame.add{type = "label", caption = {"colony-gui-info.priority-hint"}}
+  local btn_row = frame.add{type = "flow", direction = "horizontal"}
+  btn_row.add{type = "button", name = "colony_prio_reset", caption = {"colony-gui-info.reset-priority"}}
+  btn_row.add{type = "button", name = "colony_target_reset", caption = {"colony-gui-info.reset-target"}}
+  frame.add{type = "label", caption = {"colony-gui-info.workforce-hint"}}
 
   -- Per-colonist locks live on each house (see fill_house); a town can have hundreds of colonists, so the
   -- Town Hall keeps to aggregate job counts and points at the houses for individual assignment.
@@ -432,6 +466,27 @@ events.on(defines.events.on_gui_click, function(ev)
     h.limit = math.max(0, math.min(def.capacity, cur + (name == "colony_hut_limit_more" and 1 or -1)))
     local frame = player.gui.relative[HUT_FRAME]
     if frame and frame.body then fill_hut(frame.body, h) end
+    return
+  end
+  local target_job, target_dir = name:match("^colony_target_(%a+)_(more|less)$")
+  if target_job or name == "colony_target_reset" then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid and e.name == colony_mod.HALL) then return end
+    local colony = colony_at(e)
+    if not colony then return end
+    if name == "colony_target_reset" then
+      colony.job_targets = {}
+      for un in pairs(colony.colonists or {}) do
+        local st = storage.unit_state and storage.unit_state[un]
+        if st and st.state == "idle" then work.assign(colony, un) end
+      end
+    else
+      local delta = target_dir == "more" and 1 or -1
+      colony_mod.shift_job_target(colony, target_job, delta)
+    end
+    local frame = player.gui.relative[INFO_FRAME]
+    if frame and frame.body then fill_info(frame.body, colony) end
     return
   end
   local job, dir = name:match("^colony_prio_(%a+)_(more|less)$")

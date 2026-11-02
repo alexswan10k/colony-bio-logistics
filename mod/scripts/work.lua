@@ -844,7 +844,8 @@ function M.assign(colony, un)
   -- keep an existing labour post while the hut stands, still has tools for us and matches the player's lock
   if st and st.hut then
     local h = st.hut
-    if h.entity.valid and h.workers[un] and (not lock or lock == h.job) then
+    local capped = not lock and colony_mod.headcount_capped(colony, h.job)
+    if not capped and h.entity.valid and h.workers[un] and (not lock or lock == h.job) then
       local _, _, allowed, workers = M.hut_info(h)
       if workers <= allowed and start_trip(colony, un, h) then return end
     end
@@ -862,7 +863,7 @@ function M.assign(colony, un)
     local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
     job = work_plan.choose{food_ratio = colony_mod.total_food(colony) / target, counts = counts,
       slots = slots, capacity = capacity, pop = math.max(colony_mod.live_colonists(colony) - 1, 0), haul = task ~= nil,
-      priority = colony.priority}
+      priority = colony.priority, targets = colony.job_targets}
   end
   if not job then idle(colony, un, e); return end
   if job == "haul" then

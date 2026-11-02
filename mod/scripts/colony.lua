@@ -20,6 +20,7 @@ local labour = require("scripts.model.labour")
 local tags = require("scripts.model.tags")
 local ledger = require("scripts.model.ledger")
 local quota = require("scripts.model.quota")
+local headcount = require("scripts.model.headcount")
 local work = require("scripts.work")
 local gui = require("scripts.gui")
 local M = {}
@@ -318,6 +319,44 @@ function M.set_quota(colony, item, target)
       work.assign(colony, un)
     end
   end
+end
+
+-- --- workforce headcount targets (#73) ---------------------------------------------------------------------
+function M.job_target(colony, job)
+  return headcount.target(colony.job_targets, job)
+end
+
+function M.set_job_target(colony, job, target)
+  colony.job_targets = colony.job_targets or {}
+  headcount.set_target(colony.job_targets, job, target)
+  for un in pairs(colony.colonists or {}) do
+    local st = storage.unit_state and storage.unit_state[un]
+    if st and st.state == "idle" then
+      work.assign(colony, un)
+    end
+  end
+end
+
+function M.shift_job_target(colony, job, delta)
+  colony.job_targets = colony.job_targets or {}
+  local cur = colony.job_targets[job]
+  local current_count = (work.job_counts(colony)[job] or 0)
+  local new_val = headcount.shift_target(cur, delta, current_count)
+  colony.job_targets[job] = new_val
+  for un in pairs(colony.colonists or {}) do
+    local st = storage.unit_state and storage.unit_state[un]
+    if st and st.state == "idle" then
+      work.assign(colony, un)
+    end
+  end
+  return new_val
+end
+
+function M.headcount_capped(colony, job)
+  local tgt = M.job_target(colony, job)
+  if tgt == nil then return false end
+  local counts = work.job_counts(colony)
+  return (counts[job] or 0) >= tgt
 end
 
 function M.take_stock(colony, item, count)
@@ -689,7 +728,7 @@ local function on_built(ev)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, locks = {}, quotas = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {},
+      towers = {}, plots = {}, crates = {}, locks = {}, quotas = {}, job_targets = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {},
       ghosts = {}, repairs = {}, ghost_blocked = {}}
     storage.colonies[id] = colony
     territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)

@@ -730,3 +730,66 @@ describe("harvest quotas (#84)", function()
     eq(quota.all_met(ores, {["iron-ore"] = 200}, nil, {["iron-ore"] = 200, ["copper-ore"] = 500}), false)
   end)
 end)
+
+describe("workforce headcount targets (#73)", function()
+  local headcount = require("scripts.model.headcount")
+  local work_plan = require("scripts.model.work_plan")
+  local jobs = require("scripts.model.jobs")
+
+  it("handles target retrieval and setting", function()
+    local targets = {}
+    eq(headcount.target(targets, "mine"), nil)
+    headcount.set_target(targets, "mine", 8)
+    eq(headcount.target(targets, "mine"), 8)
+    headcount.set_target(targets, "mine", "auto")
+    eq(headcount.target(targets, "mine"), nil)
+    headcount.set_target(targets, "mine", -1)
+    eq(headcount.target(targets, "mine"), nil)
+  end)
+
+  it("shifts target up, down, and across auto cleanly", function()
+    -- from nil: +1 sets to count + 1 (or 1)
+    eq(headcount.shift_target(nil, 1, 3), 4)
+    eq(headcount.shift_target(nil, 1, 0), 1)
+    -- from nil: -1 sets to 0 (capped)
+    eq(headcount.shift_target(nil, -1, 3), 0)
+    -- from 3: +1 -> 4, -1 -> 2
+    eq(headcount.shift_target(3, 1), 4)
+    eq(headcount.shift_target(3, -1), 2)
+    -- from 0: -1 -> nil (auto)
+    eq(headcount.shift_target(0, -1), nil)
+    -- from 0: +1 -> 1
+    eq(headcount.shift_target(0, 1), 1)
+  end)
+
+  it("detects when a job has reached or exceeded its target", function()
+    local targets = {mine = 8, chop = 0}
+    eq(headcount.is_capped(targets, "mine", 7), false)
+    eq(headcount.is_capped(targets, "mine", 8), true)
+    eq(headcount.is_capped(targets, "mine", 9), true)
+    eq(headcount.is_capped(targets, "chop", 0), true)
+    eq(headcount.is_capped(targets, "forage", 50), false) -- auto is not capped
+  end)
+
+  it("steers work_plan.choose to prioritize jobs under their headcount target", function()
+    local targets = {mine = 4, chop = 2}
+    local priority = {haul = 1, forage = 2, chop = 2, mine = 2, farm = 2, hunt = 2, fish = 2, preserve = 2, construct = 2}
+    local slots = {mine = 10, chop = 10, forage = 10}
+    local capacity = {mine = 10, chop = 10, forage = 10}
+
+    -- Mining has deficit (count 1 vs target 4); Chop has count 2 (target 2 met)
+    local s = {food_ratio = 1.0, counts = {haul = 3, mine = 1, chop = 2, forage = 0},
+      slots = slots, capacity = capacity, pop = 10, haul = false, priority = priority, targets = targets}
+    eq(work_plan.choose(s), "mine")
+
+    -- Mining met (count 4), Chop met (count 2), falls back to unconstrained job (forage)
+    s.counts.mine = 4
+    eq(work_plan.choose(s), "forage")
+
+    -- When all open jobs are capped, choose returns nil (idle)
+    local s_capped = {food_ratio = 1.0, counts = {haul = 2, mine = 4, chop = 2},
+      slots = {mine = 10, chop = 10}, capacity = {mine = 10, chop = 10}, pop = 8, haul = false,
+      priority = priority, targets = {haul = 2, mine = 4, chop = 2}}
+    eq(work_plan.choose(s_capped), nil)
+  end)
+end)

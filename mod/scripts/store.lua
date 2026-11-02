@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 16
+local SCHEMA = 17
 
 local migrations = {
   [1] = function()
@@ -81,6 +81,10 @@ local migrations = {
   [16] = function()
     -- harvest quotas (#84): [item] = target_number
     for _, c in pairs(storage.colonies) do c.quotas = c.quotas or {} end
+  end,
+  [17] = function()
+    -- workforce headcount targets (#73): [job] = target_count
+    for _, c in pairs(storage.colonies) do c.job_targets = c.job_targets or {} end
   end,
 }
 

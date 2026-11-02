@@ -6,6 +6,7 @@
 local M = {}
 local jobs = require("scripts.model.jobs")
 local construct = require("scripts.model.construct")
+local headcount = require("scripts.model.headcount")
 
 M.JOBS = jobs.JOBS          -- haul first: wins ties (keeps houses supplied)
 M.HAUL_SHARE = 0.3
@@ -28,41 +29,58 @@ function M.haul_target(pop)
 end
 
 -- s = {food_ratio=, counts={job->n}, slots={job->free tooled slots}, capacity={job->tooled slots},
---      pop=, haul=bool, priority={job->rank}}. `pop` excludes the colonist being assigned.
+--      pop=, haul=bool, priority={job->rank}, targets={job->headcount|nil}}. `pop` excludes the colonist being assigned.
 -- Returns a job name or nil.
 function M.choose(s)
   local counts, slots, capacity = s.counts or {}, s.slots or {}, s.capacity or {}
   local pop = s.pop or 0
   local priority = s.priority
+  local targets = s.targets
   local haul_on = jobs.enabled(priority, "haul")
 
-  if haul_on and s.haul and pop > 0 and (counts.haul or 0) < M.haul_target(pop) then return "haul" end
+  local haul_capped = headcount.is_capped(targets, "haul", counts.haul)
+  local haul_wanted = headcount.target(targets, "haul") or M.haul_target(pop)
+  if haul_on and s.haul and pop > 0 and not haul_capped and (counts.haul or 0) < haul_wanted then
+    return "haul"
+  end
 
-  -- Construction (#37): build/repair when it ranks at least as high as the best harvest job, capped to a
-  -- share of the colony so a wall never costs the town its dinner.
   local c_rank = jobs.rank(priority, "construct")
-  if c_rank > 0 and (slots.construct or 0) > 0 and (counts.construct or 0) < construct.builders(pop) then
-    local harvest_rank = jobs.best_rank(priority, M.HARVEST, slots)
-    if not harvest_rank or c_rank <= harvest_rank then return "construct" end
-  end
+  local c_cap = headcount.target(targets, "construct") or construct.builders(pop)
+  local c_capped = headcount.is_capped(targets, "construct", counts.construct)
+  local can_construct = c_rank > 0 and (slots.construct or 0) > 0 and not c_capped and (counts.construct or 0) < c_cap
 
-  -- Processing (#81): a Smokehouse is only worth staffing when it holds salt and something to cure, which the
-  -- adapter reports through `slots.preserve` (it goes to zero when no smokehouse can work). Ranked like
-  -- construction - it runs when it is at least as important as the best harvest job - and capped to a small
-  -- share of the town, because its throughput is set by its inputs, not by how many bodies we give it.
   local p_rank = jobs.rank(priority, "preserve")
-  if p_rank > 0 and (slots.preserve or 0) > 0 and (counts.preserve or 0) < M.preserve_workers(pop) then
-    local harvest_rank = jobs.best_rank(priority, M.HARVEST, slots)
-    if not harvest_rank or p_rank <= harvest_rank then return "preserve" end
+  local p_cap = headcount.target(targets, "preserve") or M.preserve_workers(pop)
+  local p_capped = headcount.is_capped(targets, "preserve", counts.preserve)
+  local can_preserve = p_rank > 0 and (slots.preserve or 0) > 0 and not p_capped and (counts.preserve or 0) < p_cap
+
+  -- Best eligible harvest rank among slots that are not headcount-capped
+  local eligible_harvest_slots = {}
+  for _, job in ipairs(M.HARVEST) do
+    if (slots[job] or 0) > 0 and not headcount.is_capped(targets, job, counts[job]) then
+      eligible_harvest_slots[job] = slots[job]
+    end
+  end
+  local harvest_rank = jobs.best_rank(priority, M.HARVEST, eligible_harvest_slots)
+
+  -- Check construction if prioritized
+  if can_construct and (not harvest_rank or c_rank <= harvest_rank) and (not can_preserve or c_rank <= p_rank) then
+    return "construct"
   end
 
-  local rank = jobs.best_rank(priority, M.HARVEST, slots)
-  if rank then
+  -- Check preserve if prioritized
+  if can_preserve and (not harvest_rank or p_rank <= harvest_rank) then
+    return "preserve"
+  end
+
+  -- Check harvest rank
+  if harvest_rank then
     local shares = M.desired_shares(s.food_ratio)
     local best, best_gap
     for _, job in ipairs(M.HARVEST) do
-      if (slots[job] or 0) > 0 and jobs.rank(priority, job) == rank then
-        local wanted = math.max(shares[job] * (1 - M.HAUL_SHARE) * pop, math.min(1, capacity[job] or 0))
+      if (eligible_harvest_slots[job] or 0) > 0 and jobs.rank(priority, job) == harvest_rank then
+        local tgt = headcount.target(targets, job)
+        local wanted = tgt or math.max(shares[job] * (1 - M.HAUL_SHARE) * pop, math.min(1, capacity[job] or 0))
         local gap = wanted - (counts[job] or 0)
         if not best_gap or gap > best_gap then best, best_gap = job, gap end
       end
@@ -70,7 +88,11 @@ function M.choose(s)
     if best then return best end
   end
 
-  if haul_on and s.haul and pop > 0 then return "haul" end
+  -- Fallbacks if earlier prioritized roles were skipped
+  if can_construct then return "construct" end
+  if can_preserve then return "preserve" end
+
+  if haul_on and s.haul and pop > 0 and not haul_capped then return "haul" end
   return nil
 end
 

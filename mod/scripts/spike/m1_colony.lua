@@ -135,6 +135,13 @@ core.register("m1_colony", {
     ctx.check("raising quota clears met target", colony.quota_met(c, "stone") == false)
     colony.set_quota(c, "stone", 0)
     ctx.check("clearing quota restores unlimited", colony.quota_met(c, "stone") == false)
+    ctx.check("job target defaults to auto (nil)", colony.job_target(c, "mine") == nil)
+    colony.set_job_target(c, "mine", 3)
+    ctx.check("job target sets headcount", colony.job_target(c, "mine") == 3)
+    ctx.check("shifting job target increments", colony.shift_job_target(c, "mine", 1) == 4)
+    ctx.check("shifting job target decrements", colony.shift_job_target(c, "mine", -1) == 3)
+    colony.set_job_target(c, "mine", nil)
+    ctx.check("resetting job target restores auto", colony.job_target(c, "mine") == nil)
     ctx.check("capacity 10", colony.capacity(c) == 10, colony.capacity(c))
     ctx.check("hut does not spawn forage patches",
       #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30} == patches_pre, patches_pre)
@@ -304,6 +311,20 @@ core.register("m1_colony", {
       for _, list in pairs(hh) do assigned = assigned + #list end
       ctx.check("every colonist is assigned to a house roster", assigned == colony.live_colonists(c),
         assigned .. "/" .. colony.live_colonists(c))
+      local roster_jobs = {}
+      for _, list in pairs(hh) do
+        for _, un in ipairs(list) do
+          local st = storage.unit_state[un]
+          local j = st and st.job or "idle"
+          roster_jobs[j] = (roster_jobs[j] or 0) + 1
+        end
+      end
+      local jc = work.job_counts(c)
+      local match = true
+      for job, count in pairs(jc) do
+        if roster_jobs[job] ~= count then match = false end
+      end
+      ctx.check("aggregate job counts match the sum of house rosters", match == true)
       ctx.check("harvest yield lands in the worker's hut", saw.hut_output)
       ctx.check("supply crate emptied into colony stock", hall.get_item_count("coal") > 0, hall.get_item_count("coal"))
       ctx.check("demand crate filled from the warehouse", demand_crate.valid and demand_crate.get_item_count("stone") > 0,

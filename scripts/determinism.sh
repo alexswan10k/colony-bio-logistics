@@ -7,6 +7,7 @@
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"; need_bin
 SPIKE="${SPIKE:-m1_colony}"; TICKS="${TICKS:-14000}"
+MAP_SEED="${MAP_SEED:-1234567}"   # fixed so the two runs (and later re-runs) share one map
 WORK="$REPO_ROOT/build/determinism"; rm -rf "$WORK"; mkdir -p "$WORK/mods"
 DEST="$WORK/mods/${MOD_NAME}_${MOD_VERSION}"
 cp -R "$REPO_ROOT/mod" "$DEST"
@@ -17,7 +18,7 @@ cat > "$WORK/mods/mod-list.json" <<JSON
 JSON
 echo "== creating map"
 "$FACTORIO_BIN" --config <(printf '[path]\nwrite-data=%s\n' "$WORK/create-data") \
-  --mod-directory "$WORK/mods" --create "$WORK/map.zip" --disable-audio > "$WORK/create.log" 2>&1 \
+  --mod-directory "$WORK/mods" --create "$WORK/map.zip" --map-gen-seed "$MAP_SEED" --disable-audio > "$WORK/create.log" 2>&1 \
   || { tail -20 "$WORK/create.log"; exit 1; }
 
 run_once() {  # run_once <a|b>

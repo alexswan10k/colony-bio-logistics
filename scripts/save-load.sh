@@ -6,6 +6,7 @@
 #   PHASE1_TICKS=1200 PHASE2_TICKS=900 scripts/save-load.sh
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"; need_bin
+MAP_SEED="${MAP_SEED:-1234567}"   # fixed so a save/load mismatch is reproducible
 WORK="$REPO_ROOT/build/persist"; rm -rf "$WORK"; mkdir -p "$WORK/mods"
 WRITE="$WORK/write-data"; mkdir -p "$WRITE"
 cat > "$WORK/config.ini" <<INI
@@ -39,7 +40,7 @@ run() {  # run <logfile> <factorio args...>
   fi
 }
 echo "== creating map"
-run "$WORK/create.log" --create "$WORK/spike.zip"
+run "$WORK/create.log" --create "$WORK/spike.zip" --map-gen-seed "$MAP_SEED"
 # Phase 1 runs as a headless *server*: game.server_save only writes in multiplayer, and a dedicated server
 # ticks with nobody connected. The spike saves a few hundred ticks in; we wait for the file, then stop it.
 echo "== phase 1: build a colony and save (headless server)"

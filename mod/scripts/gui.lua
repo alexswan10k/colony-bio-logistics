@@ -558,7 +558,7 @@ events.on(defines.events.on_gui_checked_state_changed, function(ev)
   local m = colony.machines[e.unit_number]
   if name == "colony_supply_enabled" then
     m = colony_mod.set_machine(colony, e, ev.element.state)
-    if m and m.enabled and #m.requests == 0 then m.requests = recipe_requests(e) end
+    if m and m.enabled and next(m.requests) == nil then m.requests = recipe_requests(e) end
     fill_machine(body, m, e)
   elseif m then m.collect = ev.element.state end
 end)

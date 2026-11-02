@@ -816,6 +816,28 @@ scheduler.register("work.finish", function(d)
   go(e, hut.entity.position, 3)
 end)
 
+-- A `unit` standing inside a ghost blocks `revive` outright (the engine will not place an entity where a
+-- character stands). `go(..., 2)` can leave the builder on its own site, and an idle colonist never steps off
+-- by itself, so a blocked site used to be retried forever with the builder standing on it.
+local function unit_blocking(site)
+  local box = site.bounding_box
+  local r = math.max(box.right_bottom.x - box.left_top.x, box.right_bottom.y - box.left_top.y) / 2 + 1
+  for _, o in ipairs(site.surface.find_entities_filtered{position = site.position, radius = r, type = "unit"}) do
+    if o.valid then return o end
+  end
+end
+
+-- A walkable point just outside the ghost's footprint, on the side the colonist already stands, so it steps
+-- off rather than across the site.
+local function aside_from(site, from)
+  local box = site.bounding_box
+  local r = math.max(box.right_bottom.x - box.left_top.x, box.right_bottom.y - box.left_top.y) / 2 + 2.5
+  local dx, dy = from.x - site.position.x, from.y - site.position.y
+  local len = math.sqrt(dx * dx + dy * dy)
+  if len < 0.1 then dx, dy, len = 1, 0, 1 end
+  return {x = site.position.x + dx / len * r, y = site.position.y + dy / len * r}
+end
+
 scheduler.register("construct.finish", function(d)
   local st = storage.unit_state[d.un]
   if not (st and st.job == "construct") then return end
@@ -828,12 +850,26 @@ scheduler.register("construct.finish", function(d)
     -- `revive` consumes the ghost, so capture what we need for the message first.
     local pos = site and site.valid and {x = site.position.x, y = site.position.y}
     local ghost_name = site and site.valid and site.ghost_name
-    local built = site and site.valid and site.type == "entity-ghost" and site.revive{raise_revive = true}
+    -- `revive` returns (items it collided with, the new entity, the item request proxy): the entity is the
+    -- second value, so take it explicitly rather than testing the item list for truthiness. `raise_revive`
+    -- also re-delivers the ghost's blueprint tags to `on_built`, which is how a revived opt-in machine is
+    -- registered again (#36).
+    local built = site and site.valid and site.type == "entity-ghost" and select(2, site.revive{raise_revive = true})
     if built then
       st.carry = nil                            -- the ghost consumed the materials
       if colony.ghosts then colony.ghosts[st.site_key] = nil end
       popup(e.surface, pos or e.position, {"", "Built ", item_name(ghost_name)})
     else
+      -- The builder is the blocker: step it off the footprint and come back, instead of backing off for an
+      -- hour and leaving the ghost standing. Any other blocker (tree, biter, someone else's building) earns
+      -- the long back-off, because nothing about it changes just by waiting a few ticks.
+      local blocker = site and site.valid and unit_blocking(site)
+      if blocker and blocker.unit_number == d.un then
+        colony.claimed[st.site_key] = true       -- the site is still ours, just not reachable yet
+        st.state = "to_construct"                -- arriving again re-arms the work timer and retries
+        go(e, aside_from(site, e.position), 0.5)
+        return
+      end
       if st.carry then return_to_hall(colony, st.carry) end
       st.carry = nil
       colony.ghost_blocked = colony.ghost_blocked or {}

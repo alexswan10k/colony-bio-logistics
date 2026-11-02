@@ -9,6 +9,7 @@
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"; need_bin
 POP="${POP:-500}"; MACHINES="${MACHINES:-2000}"; TICKS="${TICKS:-3600}"; BUDGET_MS="${BUDGET_MS:-1.0}"
+MAP_SEED="${MAP_SEED:-1234567}"
 WORK="$REPO_ROOT/build/bench"; rm -rf "$WORK"; mkdir -p "$WORK/mods"
 WRITE="$WORK/write-data"; mkdir -p "$WRITE" "$WRITE/saves"
 cat > "$WORK/config.ini" <<INI
@@ -34,7 +35,7 @@ JSON
 FACT=(--config "$WORK/config.ini" --mod-directory "$WORK/mods" --disable-audio)
 
 echo "== creating map"
-"$FACTORIO_BIN" "${FACT[@]}" --create "$WORK/spike.zip" > "$WORK/create.log" 2>&1 || { tail -20 "$WORK/create.log"; exit 1; }
+"$FACTORIO_BIN" "${FACT[@]}" --create "$WORK/spike.zip" --map-gen-seed "$MAP_SEED" > "$WORK/create.log" 2>&1 || { tail -20 "$WORK/create.log"; exit 1; }
 cp "$WORK/spike.zip" "$WORK/baseline.zip"     # pristine map, kept for the no-colony baseline
 
 # build_town <name> [inert] : run a headless server that builds the town and saves it as colony-bench[-inert]

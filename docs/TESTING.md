@@ -25,6 +25,12 @@ Three headless gates cover the things the unit tests and the playable spike cann
   hall pushes the pollution component to -0.60, and with D under the leave line colonists pack up - proven
   distinct from starvation by checking the death list did not grow. Needs `TICKS=4000`; it shortens
   `storage.interval_override` to 150 so evaluations do not cost 3600 ticks each.
+- `scripts/headless-spike.sh m1_blueprint` - the #36 blueprint round-trip (26 checks): opt a furnace in and
+  give a demand crate filters, `create_blueprint` the pair, tag it, build the blueprint elsewhere and
+  `revive` the ghosts - the opt-in flag, `collect`, the supply rows and the crate filters all come back.
+  Also covers copy-paste in both directions (an opted-in source copies its settings, a plain source clears
+  the destination) and that a foreign tag on the same blueprint entity is not clobbered. `TICKS=400` is
+  plenty: the spike is event-driven, not a simulation.
 - `scripts/save-load.sh` - builds a live colony on a headless server, saves it with `game.server_save`, then
   reloads that save in a **new process** (`--test-save ... --test-arg m1_persist_load`) and asserts every
   registry, scheduler entry, rendering and job lock came back (24 checks). Anything stored in
@@ -35,6 +41,9 @@ Three headless gates cover the things the unit tests and the playable spike cann
 - `scripts/determinism.sh` - runs the same spike twice on the same map in separate processes and compares
   the reports *and* the final simulation checksum. This is the headless stand-in for a multiplayer desync
   test: a desync is two peers diverging on identical inputs.
+  All four harnesses create their world with `--map-gen-seed "$MAP_SEED"` (default `1234567`) instead of a
+  random map, so a failing spike can be re-run on the same terrain and the determinism gate compares a
+  world it did not just invent. `MAP_SEED=42 scripts/headless-spike.sh m1_colony` widens coverage on demand.
 - `scripts/bench-colony.sh` - the #22 UPS gate. Builds a synthetic town with `m1_bench` (colonists, cabins,
   huts, opted-in machines), saves it, then benchmarks four saves with `--benchmark --benchmark-verbose all`:
   vanilla (mod off), mod on with no colony, an "inert" control (same entities, nothing registered with the
@@ -66,6 +75,33 @@ Three headless gates cover the things the unit tests and the playable spike cann
   `has_output` / `need` / `damaged` on each machine, assignment looks at a 16-machine window rotated by a
   cursor, and population / food / stock are cached with a short TTL instead of being recomputed per
   assignment. `construct.scan` also used to read health for every machine every 300 ticks (a 13 ms tick).
+
+## Engine behaviour worth remembering (learned the expensive way)
+
+Each of these cost a debugging round in a spike; check them before assuming the API behaves the obvious way.
+
+- **`revive` returns three values**: `(items it collided with, the revived entity, the item request proxy)`.
+  Assigning the call to one variable gives you the *item list*, which is truthy on success - so it looks
+  like it worked and the entity is a table, not a `LuaEntity`. Use `select(2, ghost.revive{...})`.
+  (`clone` returns the entity first; don't assume.)
+- **2.0 methods are not all table-argument**: `copy_settings`, `die`, `damage`, `get_filter`... are declared
+  `takes_table = false` and take **positional** arguments (`dst.copy_settings(src, player)`), unlike
+  `revive{...}`. The API docs JSON at `lua-api.factorio.com/latest/runtime-api.json` carries
+  `parameters[].format.takes_table` per method - grep it instead of guessing.
+- **Blueprint tags are the only channel from a blueprint back into the world.** `BlueprintEntity.tags`
+  (via `LuaItemCommon.get/set_blueprint_entity_tags`) come back as `ev.tags` on `on_built_entity`,
+  `on_robot_built_entity`, `script_raised_revive` and `on_blueprint_settings_pasted`, and as `ghost.tags` on
+  the ghost itself. `LuaEntity.tags` is **ghost-only** - a placed entity has no tags, so state written there
+  is gone. Tags are basic Lua values, and a *sparse* table comes back with its numeric keys stringified
+  (row 3 becomes `["3"]`), so serialise dense lists (`mod/scripts/model/tags.lua`).
+- **`revive` refuses to place an entity where a `unit` stands**, and it does not move that unit. A colonist
+  that walks to its own ghost and stops on it blocks the build forever (#76).
+- **A headless server has no player and cannot make one** (`game.create_player` fails), so events that only
+  fire "as a player" - `on_entity_settings_pasted` without `by_player`, `on_player_setup_blueprint` - cannot
+  be exercised headlessly. Test the handler directly and say so in the report.
+- **`create_blueprint` / `build_blueprint` are script paths**: they do not raise the player events, so a
+  spike has to call the same helper the event handler calls (that is why `colony.tag_blueprint` takes a plain
+  index -> entity table as well as a `LuaLazyLoadedValue`).
 
 ## Early findings from `scripts/sim.sh` (proposal params, not final)
 - A 16-pop tier-1 colony needs ~1 food/colonist/interval of foraging output to hold; below that it stalls at the supply level.

@@ -8,6 +8,7 @@
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"; need_bin
 [ $# -ge 1 ] || { echo "usage: $0 <spike[:arg...]>..."; exit 1; }
+MAP_SEED="${MAP_SEED:-1234567}"   # fixed so a failing spike can be re-run on the same terrain
 WORK="$REPO_ROOT/build/headless"; rm -rf "$WORK"; mkdir -p "$WORK/mods"
 WRITE="$WORK/write-data"; mkdir -p "$WRITE"
 cat > "$WORK/config.ini" <<INI
@@ -29,7 +30,7 @@ cat > "$WORK/mods/mod-list.json" <<JSON
 {"name":"space-age","enabled":true},{"name":"${MOD_NAME}","enabled":true}]}
 JSON
 rm -rf "$WRITE/script-output/colony-spikes"
-echo "== creating map"; "$FACTORIO_BIN" --config "$WORK/config.ini" --mod-directory "$WORK/mods" --create "$WORK/spike.zip" --disable-audio > "$WORK/create.log" 2>&1 || { tail -30 "$WORK/create.log"; exit 1; }
+echo "== creating map"; "$FACTORIO_BIN" --config "$WORK/config.ini" --mod-directory "$WORK/mods" --create "$WORK/spike.zip" --map-gen-seed "$MAP_SEED" --disable-audio > "$WORK/create.log" 2>&1 || { tail -30 "$WORK/create.log"; exit 1; }
 echo "== running ${TICKS:-3600} ticks"
 "$FACTORIO_BIN" --config "$WORK/config.ini" --mod-directory "$WORK/mods" --benchmark "$WORK/spike.zip" --benchmark-ticks "${TICKS:-3600}" --disable-audio > "$WORK/run.log" 2>&1 || { tail -40 "$WORK/run.log"; exit 1; }
 OUT="$REPO_ROOT/spike-results/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$OUT"

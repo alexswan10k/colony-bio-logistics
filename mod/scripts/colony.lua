@@ -12,6 +12,7 @@ local colony_model = require("scripts.model.colony_model")
 local scenic = require("scripts.model.scenic")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
+local tags = require("scripts.model.tags")
 local work = require("scripts.work")
 local gui = require("scripts.gui")
 local M = {}
@@ -444,6 +445,7 @@ local function on_built(ev)
   local e = ev.entity or ev.created_entity
   if not (e and e.valid) then return end
   local name = name_of(e)
+  local dict = ev.tags     -- blueprint tags: the only colony state a blueprint can carry (#36)
   if name == M.HALL and e.type ~= "entity-ghost" then
     local owner = territory.owner_at(e.surface.index, e.position)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
@@ -495,6 +497,7 @@ local function on_built(ev)
     colony.crates[e.unit_number] = {entity = e, kind = M.CRATES[name], colony_id = colony.id,
       filters = {}, inflight = {}}
     script.register_on_object_destroyed(e)
+    if dict then M.apply_tags(colony, e, dict) end
   elseif (M.HOUSES[name] or labour.HUTS[name]) and e.type ~= "entity-ghost" then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -511,6 +514,10 @@ local function on_built(ev)
       h.sink = e.surface.create_entity{name = "colony-power-sink", position = e.position, force = e.force}
     end
     colony.houses[e.unit_number] = h
+  elseif dict and e.type ~= "entity-ghost" and gui.MACHINE_GUIS[e.type] then
+    -- A machine carries no colony prototype of ours, so only a blueprint tags can say it was opted in.
+    local colony = M.colony_of(e)
+    if colony then M.apply_tags(colony, e, dict) end
   end
 end
 
@@ -587,6 +594,137 @@ function M.set_machine(colony, e, enabled)
   end
   return m
 end
+
+-- ---------- blueprint / copy-paste persistence (#36) ----------
+-- Everything above lives in `storage`, which a blueprint cannot see. BlueprintEntity.tags is the one channel
+-- the engine carries from a blueprint back into the world (it arrives as `ev.tags` on build, and as
+-- `ghost.tags` on the ghost itself), so the colony mirrors its per-entity settings there and restores them on
+-- build, revive, copy-paste, clone and blueprint-paste-over.
+
+-- Exported rather than a local: `on_built` is defined earlier in this file and must reach it at runtime.
+function M.colony_of(e)
+  local owner = territory.owner_at(e.surface.index, e.position)
+  return owner and storage.colonies[owner]
+end
+
+-- The registry record behind an entity, wherever it stands: a blueprint source can be in any colony.
+function M.find_record(e)
+  if not (e and e.valid) then return end
+  local un = e.unit_number
+  if not un then return end
+  for _, colony in pairs(storage.colonies) do
+    local m = colony.machines[un]
+    if m and m.enabled then return colony, "machine", m end
+    local c = colony.crates and colony.crates[un]
+    if c then return colony, "crate", c end
+  end
+end
+
+-- Tag dictionary to write into a blueprint for this entity, or nil if the colony does not serve it.
+function M.entity_tags(e)
+  local _, kind, rec = M.find_record(e)
+  if kind == "machine" then return tags.dictionary(tags.machine(rec)) end
+  if kind == "crate" then return tags.dictionary(tags.crate(rec)) end
+end
+
+-- Restore settings a blueprint/copy carried. The payload is untrusted, so the model validates it.
+function M.apply_tags(colony, e, dict)
+  local payload = tags.decode(dict)
+  if not (payload and colony and e and e.valid) then return false end
+  if payload.machine then
+    if not gui.MACHINE_GUIS[e.type] then return false end
+    local m = M.set_machine(colony, e, true)
+    if not m then return false end
+    m.collect, m.requests = payload.machine.collect, payload.machine.requests
+    m.need, m.has_output = nil, nil
+    return true
+  elseif payload.crate then
+    local c = colony.crates and colony.crates[e.unit_number]
+    if not c then return false end
+    c.filters = payload.crate.filters
+    return true
+  end
+  return false
+end
+
+-- Copy rows out of a registry record into a fresh table: two machines must never share the same row list.
+local function copy_rows(rows)
+  local out = {}
+  for row, r in pairs(rows or {}) do
+    if r and r.item then out[row] = {item = r.item, count = r.count} end
+  end
+  return out
+end
+
+-- Copy the colony half of copy-paste. The engine copies the entity's own settings; the registry is ours, so
+-- a plain (un-opted-in) source clears the destination rather than leaving it serving silently.
+function M.copy_settings(src, dst)
+  if not (src and src.valid and dst and dst.valid) then return false end
+  local colony = M.colony_of(dst)
+  if not colony then return false end
+  local _, kind, rec = M.find_record(src)
+  if gui.MACHINE_GUIS[dst.type] then
+    local m = M.set_machine(colony, dst, kind == "machine")
+    if not m then return false end
+    -- Not `x and y or z`: collect is a boolean, so that idiom turns a copied false back into true.
+    if kind == "machine" then
+      m.collect, m.requests = rec.collect, copy_rows(rec.requests)
+    else
+      m.collect, m.requests = true, {}
+    end
+    m.need, m.has_output = nil, nil
+    return true
+  end
+  local c = colony.crates and colony.crates[dst.unit_number]
+  if c then
+    c.filters = kind == "crate" and copy_rows(rec.filters) or {}
+    return true
+  end
+  return false
+end
+
+-- Write our tags into the blueprint being created. `mapping` is a LuaLazyLoadedValue of blueprint entity
+-- index -> source entity, so the blueprint index never has to be guessed.
+function M.tag_blueprint(target, mapping)
+  if not (target and target.valid and mapping) then return 0 end
+  local ok, map = pcall(function() return mapping.get and mapping:get() or mapping end)
+  if not (ok and type(map) == "table") then return 0 end
+  local n = 0
+  for index, entity in pairs(map) do
+    local dict = M.entity_tags(entity)
+    if dict then
+      local wrote = pcall(function()
+        local existing = target.get_blueprint_entity_tags(index) or {}
+        for k, v in pairs(dict) do existing[k] = v end
+        target.set_blueprint_entity_tags(index, existing)
+      end)
+      if wrote then n = n + 1 end
+    end
+  end
+  return n
+end
+
+events.on(defines.events.on_player_setup_blueprint, function(ev)
+  M.tag_blueprint(ev.record or ev.stack, ev.mapping)
+end)
+
+events.on(defines.events.on_entity_settings_pasted, function(ev)
+  M.copy_settings(ev.source, ev.destination)
+end)
+
+events.on(defines.events.on_entity_cloned, function(ev)
+  M.copy_settings(ev.source, ev.destination)
+end)
+
+-- A blueprint pasted straight onto an existing entity (or ghost) skips both build paths above.
+events.on(defines.events.on_blueprint_settings_pasted, function(ev)
+  local e = ev.entity
+  if not (e and e.valid) then return end
+  local dict = ev.tags or (e.type == "entity-ghost" and e.tags) or nil
+  if not dict then return end
+  local colony = M.colony_of(e)
+  if colony then M.apply_tags(colony, e, dict) end
+end)
 
 -- Colony overview for the Town Hall panel (#38). Plain data, computed on demand (GUI refresh only).
 function M.stats(colony)

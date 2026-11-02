@@ -3,6 +3,7 @@ local spoilage = require("scripts.model.spoilage")
 local jobs = require("scripts.model.jobs")
 local cm = require("scripts.model.colony_model")
 local scenic = require("scripts.model.scenic")
+local tags = require("scripts.model.tags")
 
 describe("desirability", function()
   local good = {food_ratio = 1, free_housing_ratio = 0.5, scenic = 0.5, leisure = 0.5, pollution = 0, deaths = {}}
@@ -22,6 +23,67 @@ describe("desirability", function()
     local a = desirability.compute({food_ratio = 50, free_housing_ratio = 50})
     local b = desirability.compute({food_ratio = 1, free_housing_ratio = 1})
     near(a, b)
+  end)
+end)
+
+describe("entity tags (#36)", function()
+  local function machine(collect, requests)
+    return {collect = collect, requests = requests or {}}
+  end
+  it("round-trips a machine's opt-in, collect flag and supply rows", function()
+    local d = tags.dictionary(tags.machine(machine(false, {{item = "iron-plate", count = 40}, nil,
+      {item = "copper-plate", count = 7}})))
+    local back = tags.decode(d)
+    eq(back.machine.collect, false)
+    eq(back.machine.requests[1].item, "iron-plate"); eq(back.machine.requests[1].count, 40)
+    eq(back.machine.requests[2], nil, "the empty row stays empty")
+    eq(back.machine.requests[3].item, "copper-plate"); eq(back.machine.requests[3].count, 7)
+    eq(back.crate, nil)
+  end)
+  it("keeps sparse rows dense on the wire (Tags stringifies sparse keys)", function()
+    local wire = tags.machine(machine(true, {nil, nil, {item = "coal", count = 5}}))
+    for i, row in ipairs(wire.requests) do
+      eq(type(i), "number")
+      eq(row.item, "coal"); eq(row.row, 3)
+    end
+    eq(#wire.requests, 1)
+  end)
+  it("round-trips crate filters by row", function()
+    local back = tags.decode(tags.dictionary(tags.crate(
+      {filters = {{item = "stone", count = 50}, {item = "wood", count = 12}}})))
+    eq(back.crate.filters[1].item, "stone")
+    eq(back.crate.filters[2].count, 12)
+    eq(back.machine, nil)
+  end)
+  it("an empty filter list still travels, so a copy clears the destination", function()
+    local back = tags.decode(tags.dictionary(tags.crate({filters = {}})))
+    truthy(back.crate ~= nil)
+    eq(next(back.crate.filters), nil)
+  end)
+  it("says nothing for a dictionary that is not ours", function()
+    eq(tags.decode(nil), nil); eq(tags.decode("nope"), nil)
+    eq(tags.decode({}), nil); eq(tags.decode({other = {machine = true}}), nil)
+    eq(tags.decode({[tags.TAG] = {something = 1}}), nil)
+  end)
+  it("validates and clamps untrusted rows", function()
+    local back = tags.decode({[tags.TAG] = {machine = true, requests = {
+      {row = 1, item = "iron-plate", count = 99999},
+      {row = 9, item = "wood", count = 5},          -- beyond the panel's rows
+      {row = 0, item = "wood", count = 5},
+      {row = 2, item = 42, count = 5},              -- not an item name
+      {row = 3, item = "", count = 5},
+      "junk",
+    }}})
+    eq(back.machine.requests[1].count, 400)          -- crates.MAX_COUNT
+    eq(back.machine.requests[2], nil); eq(back.machine.requests[3], nil)
+    eq(back.machine.requests[9], nil)
+    eq(back.machine.collect, true, "absent collect defaults to true")
+  end)
+  it("decode is stable when the same row repeats", function()
+    local back = tags.decode({[tags.TAG] = {crate = true, filters = {
+      {row = 1, item = "stone", count = 5}, {row = 1, item = "wood", count = 9}}}})
+    eq(back.crate.filters[1].item, "stone", "first mention wins")
+    eq(#back.crate.filters, 1)
   end)
 end)
 

@@ -7,6 +7,7 @@ local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local colony = require("scripts.colony")
 local territory = require("scripts.territory")
+local tags = require("scripts.model.tags")
 
 local function count(t)
   local n = 0
@@ -53,6 +54,11 @@ core.register("m1_persist", {
     hall.insert{name = "colony-axe", count = 3}
     tent.health = tent.max_health - 50      -- damage with no repair pack in stock: the registry keeps it
     ctx.check("ghost placed", ghost ~= nil and ghost.valid)
+    -- Blueprint tags are engine data on the ghost (#36): a save must keep them, not just our registry.
+    if ghost and ghost.valid then
+      ghost.tags = tags.dictionary(tags.machine({collect = false, requests = {{item = "coal", count = 7}}}))
+      ctx.check("ghost carries blueprint tags", ghost.tags[tags.TAG] ~= nil)
+    end
 
     local lock_un
     ctx.after(400, function()
@@ -113,6 +119,11 @@ core.register("m1_persist_load", {
     local ghosts_valid = true
     for _, g in pairs(c.ghosts or {}) do if not g.valid then ghosts_valid = false end end
     ctx.check("ghost entities are still valid", ghosts_valid)
+    local tagged_ghost
+    for _, g in pairs(c.ghosts or {}) do if g.valid and g.tags and g.tags[tags.TAG] then tagged_ghost = g end end
+    ctx.check("blueprint tags survived the save", tagged_ghost ~= nil
+      and tagged_ghost.tags[tags.TAG].machine == true and tagged_ghost.tags[tags.TAG].collect == false,
+      tagged_ghost and tostring(tagged_ghost.tags[tags.TAG].collect) or "no tagged ghost")
     ctx.check("damage registry survived", count(c.repairs) == exp.repairs, count(c.repairs))
     ctx.check("job lock survived", exp.lock_un ~= nil and c.locks[exp.lock_un] == "chop",
       exp.lock_un and c.locks[exp.lock_un])

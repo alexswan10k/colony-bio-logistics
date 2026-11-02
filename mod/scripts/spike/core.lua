@@ -158,4 +158,17 @@ if ok and type(autorun) == "table" then
   end)
 end
 
+-- Headless post-load tests: scripts/save-load.sh runs `--test-save <save> --test-arg <spike>` and the mod
+-- runs that one spike on the first tick after the save loads. `script.test_arg` is only set by the CLI, so
+-- normal games and the autorun above never see it.
+local test_arg = script and script.test_arg
+if test_arg and test_arg ~= "" then
+  local fired = false
+  events.on(defines.events.on_tick, function()
+    if fired then return end
+    fired = true
+    core.run(test_arg, nil, {})
+  end)
+end
+
 return core

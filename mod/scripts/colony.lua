@@ -453,6 +453,11 @@ events.on(defines.events.on_object_destroyed, function(ev)
       colony.crates[un] = nil
       return
     end
+    if colony.machines and colony.machines[un] then
+      colony.machines[un] = nil
+      colony.machine_dirty = true
+      return
+    end
   end
 end)
 
@@ -471,12 +476,15 @@ function M.set_machine(colony, e, enabled)
     m.entity = e
     m.enabled = true
     colony.machines[e.unit_number] = m
+    colony.machine_dirty = true
+    script.register_on_object_destroyed(e)   -- so the registry (and the cached list) is pruned
     if not (m.badge and m.badge.valid) then
       m.badge = rendering.draw_sprite{sprite = M.BADGE_SPRITE, target = {entity = e, offset = {0, -1.3}},
         surface = e.surface, x_scale = 0.3, y_scale = 0.3, only_in_alt_mode = true}
     end
   elseif m then
     m.enabled = false
+    colony.machine_dirty = true
     if m.badge and m.badge.valid then m.badge.destroy() end
     m.badge = nil
   end

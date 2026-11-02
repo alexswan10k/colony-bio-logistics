@@ -73,7 +73,11 @@ local function hut_list(colony)
   return out
 end
 
+-- Sorted machine list, cached. A big town re-assigns colonists constantly and re-sorting thousands of
+-- machines on every assignment was the single worst tick in the #39 benchmark (2.2 s at 500 colonists).
+-- colony.set_machine / the destroy handler clear the cache; entries are only read here.
 local function machine_list(colony)
+  if colony.machine_cache and not colony.machine_dirty then return colony.machine_cache end
   local ids = {}
   for un, m in pairs(colony.machines) do
     if m.entity.valid then ids[#ids + 1] = un else colony.machines[un] = nil end
@@ -81,6 +85,7 @@ local function machine_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.machines[un] end
+  colony.machine_cache, colony.machine_dirty = out, false
   return out
 end
 
@@ -374,7 +379,7 @@ local function machine_demands(m)
 end
 
 local function machine_offer(m)
-  if not m.enabled or (m.blocked_until or 0) > game.tick then return nil end
+  if not m.entity.valid or not m.enabled or (m.blocked_until or 0) > game.tick then return nil end
   local demands = machine_demands(m)
   if #demands == 0 then return nil end
   return {kind = "supply", machine = m, priority = haul_plan.PRIORITY.request, key = m.entity.unit_number, demands = demands}
@@ -382,7 +387,7 @@ end
 
 -- Finished products leave the machine now; the load is filled from the machine, not the hall.
 local function collect_offer(m)
-  if not m.enabled or not m.collect then return nil end
+  if not m.entity.valid or not m.enabled or not m.collect then return nil end
   local inv = m.entity.get_output_inventory()
   if not inv or inv.is_empty() then return nil end
   local demands, available = {}, {}
@@ -552,7 +557,8 @@ end
 local function idle(colony, un, e)
   storage.unit_state[un] = {colony_id = colony.id, state = "idle"}
   set_label(e, "idle")
-  scheduler.after(M.RETRY_TICKS, "work.retry", {un = un})
+  -- Deterministic jitter by unit number: a town spawned in one tick would otherwise retry in lockstep.
+  scheduler.after(M.RETRY_TICKS + (un % 31) * 7, "work.retry", {un = un})
 end
 
 -- Start a haul trip if there is one; returns true when the colonist is on its way.
@@ -802,7 +808,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     st.state = "working"
     local e = colony.colonists[ev.unit_number]
     if e and e.valid and st.site.valid then work_ring(e, st.site.position) end
-    scheduler.after(M.WORK_TICKS, "work.finish", {un = ev.unit_number})
+    scheduler.after(M.WORK_TICKS + (ev.unit_number % 13) * 23, "work.finish", {un = ev.unit_number})
   elseif st.state == "to_hut" then
     local e = colony.colonists[ev.unit_number]
     local hut_entity = st.hut and st.hut.entity

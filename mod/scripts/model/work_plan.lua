@@ -5,6 +5,7 @@
 --   3. If no harvest slot is free, haul (rather than stand around); idle only if hauling is off too.
 local M = {}
 local jobs = require("scripts.model.jobs")
+local construct = require("scripts.model.construct")
 
 M.JOBS = jobs.JOBS          -- haul first: wins ties (keeps houses supplied)
 M.HAUL_SHARE = 0.3
@@ -33,6 +34,14 @@ function M.choose(s)
   local haul_on = jobs.enabled(priority, "haul")
 
   if haul_on and s.haul and pop > 0 and (counts.haul or 0) < M.haul_target(pop) then return "haul" end
+
+  -- Construction (#37): build/repair when it ranks at least as high as the best harvest job, capped to a
+  -- share of the colony so a wall never costs the town its dinner.
+  local c_rank = jobs.rank(priority, "construct")
+  if c_rank > 0 and (slots.construct or 0) > 0 and (counts.construct or 0) < construct.builders(pop) then
+    local harvest_rank = jobs.best_rank(priority, M.HARVEST, slots)
+    if not harvest_rank or c_rank <= harvest_rank then return "construct" end
+  end
 
   local rank = jobs.best_rank(priority, M.HARVEST, slots)
   if rank then

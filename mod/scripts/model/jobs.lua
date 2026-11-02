@@ -4,11 +4,12 @@
 -- old food-ratio behaviour while letting the player force a role ahead of everything else.
 local M = {}
 
--- Implemented roles. Guard/doctor/construct join this list when those jobs land (#47/#37).
-M.JOBS = {"haul", "forage", "chop", "mine", "farm"}
+-- Implemented roles. Guard/doctor join this list when those jobs land (#47).
+M.JOBS = {"haul", "forage", "chop", "mine", "farm", "construct"}
 M.MAX_RANK = 4
--- Haul rank 1, the three harvest roles in one rank-2 group (they then share by food ratio).
-M.DEFAULT = {haul = 1, forage = 2, chop = 2, mine = 2, farm = 2}
+-- Haul rank 1, the harvest roles and construction in one rank-2 group: harvesting splits by food ratio,
+-- and construction is capped to its own share of the workforce (construct.builders) rather than a food share.
+M.DEFAULT = {haul = 1, forage = 2, chop = 2, mine = 2, farm = 2, construct = 2}
 
 function M.defaults()
   local out = {}

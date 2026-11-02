@@ -6,6 +6,7 @@ local scheduler = require("scripts.scheduler")
 local territory = require("scripts.territory")
 local farm = require("scripts.model.farm")
 local crates = require("scripts.model.crates")
+local construct = require("scripts.model.construct")
 local desirability = require("scripts.model.desirability")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
@@ -354,7 +355,8 @@ local function on_built(ev)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, locks = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {}}
+      towers = {}, plots = {}, crates = {}, locks = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {},
+      ghosts = {}, repairs = {}, ghost_blocked = {}}
     storage.colonies[id] = colony
     territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)
     M.seed_forage(colony)   -- the claimed land already has berries on it
@@ -364,6 +366,7 @@ local function on_built(ev)
       right_bottom = {(cx + M.CLAIM_RADIUS + 1) * 32, (cy + M.CLAIM_RADIUS + 1) * 32}}
     script.register_on_object_destroyed(e)
     scheduler.after(M.interval(), "colony.evaluate", {colony_id = id})
+    scheduler.after(construct.SCAN_TICKS, "construct.scan", {colony_id = id})   -- #37 ghosts + damage
   elseif name == M.PLOT and e.type ~= "entity-ghost" then
     local owner = territory.owner_at(e.surface.index, e.position)
     local tile = e.surface.get_tile(e.position)
@@ -497,11 +500,14 @@ function M.stats(colony)
   local huts, machines = 0, 0
   for _, h in pairs(colony.huts) do if h.entity.valid then huts = huts + 1 end end
   for _, m in pairs(colony.machines) do if m.enabled and m.entity.valid then machines = machines + 1 end end
-  local towers = 0
+  local towers, ghosts, damaged = 0, 0, 0
   for _, t in pairs(colony.towers or {}) do if t.valid then towers = towers + 1 end end
+  for _, g in pairs(colony.ghosts or {}) do if g.valid then ghosts = ghosts + 1 end end
+  for _, r in pairs(colony.repairs or {}) do if r.valid and construct.needs_repair(r.health, r.max_health) then damaged = damaged + 1 end end
   return {pop = pop, capacity = capacity, food = food, food_target = target, food_ratio = food / target,
     tents = tents, cabins = cabins, huts = huts, machines = machines, towers = towers, chunks = chunks,
-    crates = #M.crate_list(colony), d = colony.d or 0, parts = colony.d_parts or {}}
+    crates = #M.crate_list(colony), ghosts = ghosts, damaged = damaged,
+    d = colony.d or 0, parts = colony.d_parts or {}}
 end
 
 return M

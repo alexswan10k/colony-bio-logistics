@@ -12,6 +12,7 @@ local haul_plan = require("scripts.model.haul_plan")
 local farm = require("scripts.model.farm")
 local mine_plan = require("scripts.model.mine_plan")
 local crates = require("scripts.model.crates")
+local construct = require("scripts.model.construct")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
@@ -23,7 +24,8 @@ M.MINE_PER_TRIP = 5         -- resource units mined per trip; each unit becomes 
 M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still feeds the biters
 M.CARRY_CAP = 20
 M.ORES = mine_plan.ORES   -- every ore a Miner's Hut can be pointed at
-M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", haul = "hauler"}
+M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", haul = "hauler",
+  construct = "builder"}
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
 
@@ -57,8 +59,8 @@ local function work_ring(e, pos)
 end
 
 local function item_name(item)
-  if prototypes.item[item] then return {"item-name." .. item} end
-  return item
+  if item and prototypes.item[item] then return {"item-name." .. item} end
+  return item or "?"
 end
 
 -- Labour buildings -------------------------------------------------------------------------------
@@ -94,6 +96,93 @@ function M.hut_info(h)
   return def, tools, labour.allowed(def.capacity, tools, h.limit), worker_count(h)
 end
 
+-- Construction (#37) ------------------------------------------------------------------------------
+-- Ghosts and damage are not event-delivered (a player blueprint does not fire on_built_entity), so on a
+-- timer each colony re-scans its own claimed area once and keeps a small registry. Assignment then reads
+-- the registry instead of scanning the surface per trip.
+local function sorted_keys(t)
+  local keys = {}
+  for k in pairs(t) do keys[#keys + 1] = k end
+  table.sort(keys)
+  return keys
+end
+
+local function construct_open(colony)
+  local ghosts, repairs = 0, 0
+  for _, k in ipairs(sorted_keys(colony.ghosts or {})) do
+    local g = colony.ghosts[k]
+    if g.valid then
+      if not colony.claimed[k] then ghosts = ghosts + 1 end
+    else colony.ghosts[k] = nil end
+  end
+  for _, k in ipairs(sorted_keys(colony.repairs or {})) do
+    local t = colony.repairs[k]
+    if t.valid and construct.needs_repair(t.health, t.max_health) then
+      if not colony.claimed[k] then repairs = repairs + 1 end
+    else colony.repairs[k] = nil end
+  end
+  return ghosts + repairs
+end
+
+local function colony_area(colony)
+  local cols = storage.colony_chunks[colony.surface_index] or {}
+  local minx, miny, maxx, maxy
+  for cx, col in pairs(cols) do
+    for cy, owner in pairs(col) do
+      if owner == colony.id then
+        minx = math.min(minx or cx, cx); maxx = math.max(maxx or cx, cx)
+        miny = math.min(miny or cy, cy); maxy = math.max(maxy or cy, cy)
+      end
+    end
+  end
+  if not minx then return nil end
+  return {{minx * 32, miny * 32}, {(maxx + 1) * 32, (maxy + 1) * 32}}
+end
+
+-- Damaged things the colony owns. Bounded: it reads its own registries, never the whole surface.
+local function repair_candidates(colony)
+  local out = {}
+  local function add(e)
+    if e and e.valid and construct.needs_repair(e.health, e.max_health) then out[#out + 1] = e end
+  end
+  add(colony.hall)
+  for _, h in ipairs(colony_mod.house_list(colony)) do add(h.entity) end
+  for _, h in ipairs(hut_list(colony)) do add(h.entity) end
+  for _, m in ipairs(machine_list(colony)) do add(m.entity) end
+  for _, c in ipairs(colony_mod.crate_list(colony)) do add(c.entity) end
+  for _, t in pairs(colony.towers or {}) do add(t) end
+  for _, p in pairs(colony.plots or {}) do add(p.entity) end
+  return out
+end
+
+local function construct_scan(colony)
+  colony.ghosts, colony.repairs = {}, {}
+  local hall = colony.hall
+  local area = colony_area(colony)
+  if not (hall and hall.valid and area) then return 0, 0 end
+  local ghosts = 0
+  for _, g in ipairs(hall.surface.find_entities_filtered{type = "entity-ghost", area = area, force = hall.force}) do
+    if g.valid and #construct.cost(g.ghost_prototype.items_to_place_this) > 0
+      and territory.owner_at(colony.surface_index, g.position) == colony.id then
+      colony.ghosts[key(g)] = g
+      ghosts = ghosts + 1
+    end
+  end
+  local repairs = 0
+  for _, e in ipairs(repair_candidates(colony)) do
+    colony.repairs[key(e)] = e
+    repairs = repairs + 1
+  end
+  return ghosts, repairs
+end
+
+scheduler.register("construct.scan", function(d)
+  local colony = storage.colonies[d.colony_id]
+  if not (colony and colony.hall and colony.hall.valid) then return end
+  construct_scan(colony)
+  scheduler.after(construct.SCAN_TICKS, "construct.scan", {colony_id = colony.id})
+end)
+
 local function job_slots(colony)
   local list = {}
   for _, h in ipairs(hut_list(colony)) do
@@ -101,10 +190,14 @@ local function job_slots(colony)
     list[#list + 1] = {job = h.job, allowed = allowed, workers = workers, hut = h}
   end
   local slots = labour.free_slots(list)
+  local capacity = labour.capacity_by_job(list)
   for _, job in ipairs({"forage", "chop", "mine", "farm"}) do
     if (colony.no_site[job] or 0) > game.tick then slots[job] = 0 end   -- nothing to harvest: don't thrash
   end
-  return slots, labour.capacity_by_job(list), list
+  -- Construction has no hut: its slots are the open ghosts/repairs in the registry, minus current builders.
+  capacity.construct = construct_open(colony)
+  slots.construct = math.max(capacity.construct - (job_counts(colony).construct or 0), 0)
+  return slots, capacity, list
 end
 
 -- Sites ------------------------------------------------------------------------------------------
@@ -372,6 +465,74 @@ local function return_to_hall(colony, stacks)
 end
 
 -- Trip start / finish ----------------------------------------------------------------------------
+local function stock_map(colony, cost)
+  local m = {}
+  for _, s in ipairs(cost) do m[s.item] = colony_mod.stock_count(colony, s.item) end
+  return m
+end
+
+-- Nearest open construction job: repairs first (keep what is already built), then ghosts the colony can pay for.
+local function find_construct_site(colony, pos)
+  local best, best_d, best_kind, best_cost
+  for _, k in ipairs(sorted_keys(colony.repairs or {})) do
+    local t = colony.repairs[k]
+    if t.valid then
+      if not colony.claimed[k] and construct.needs_repair(t.health, t.max_health)
+        and colony_mod.stock_count(colony, construct.REPAIR_PACK) > 0 then
+        local d = dist2(t.position, pos)
+        if not best_d or d < best_d then best, best_d, best_kind = t, d, "repair" end
+      end
+    else colony.repairs[k] = nil end
+  end
+  if best then return {kind = best_kind, target = best, key = key(best)} end
+  for _, k in ipairs(sorted_keys(colony.ghosts or {})) do
+    local g = colony.ghosts[k]
+    if g.valid then
+      if not colony.claimed[k] and (colony.ghost_blocked[k] or 0) <= game.tick then
+        local cost = construct.cost(g.ghost_prototype.items_to_place_this)
+        if #cost > 0 and construct.affordable(cost, stock_map(colony, cost)) then
+          local d = dist2(g.position, pos)
+          if not best_d or d < best_d then best, best_d, best_kind, best_cost = g, d, "build", cost end
+        end
+      end
+    else colony.ghosts[k] = nil end
+  end
+  if not best then return nil end
+  return {kind = "build", target = best, key = key(best), cost = best_cost}
+end
+
+-- Pay for the job up front (like a hauler taking a load), then walk there and work. Paying first means a
+-- ghost is never half-built by two colonists who both counted the same stock.
+local function start_construct(colony, un, e)
+  local site = find_construct_site(colony, e.position)
+  if not site then return false end
+  local carry, got = {}, 0
+  if site.kind == "build" then
+    for _, s in ipairs(site.cost) do
+      local n = colony_mod.take_stock(colony, s.item, s.count)
+      if n < s.count then                      -- someone else bought it first: put ours back and wait
+        if n > 0 then colony_mod.put_stock(colony, s.item, n) end
+        if #carry > 0 and colony.hall.valid then return_to_hall(colony, carry) end
+        return false
+      end
+      carry[#carry + 1] = {item = s.item, count = n}
+      got = got + n
+    end
+  else
+    local n = colony_mod.take_stock(colony, construct.REPAIR_PACK, 1)
+    if n < 1 then return false end
+    carry[1] = {item = construct.REPAIR_PACK, count = n}
+    got = n
+  end
+  if got <= 0 then return false end
+  colony.claimed[site.key] = true
+  storage.unit_state[un] = {colony_id = colony.id, job = "construct", state = "to_construct",
+    kind = site.kind, site = site.target, site_key = site.key, carry = carry}
+  set_label(e, M.LABELS.construct)
+  go(e, site.target.position, 2)
+  return true
+end
+
 local function start_trip(colony, un, hut)
   local e = colony.colonists[un]
   local site = find_site(colony, e, hut)
@@ -445,6 +606,10 @@ function M.assign(colony, un)
     if start_haul(colony, un, e, task) then return end
     idle(colony, un, e); return
   end
+  if job == "construct" then
+    if start_construct(colony, un, e) then return end
+    idle(colony, un, e); return
+  end
   for _, sl in ipairs(slot_list) do
     if sl.job == job and sl.allowed > sl.workers then
       sl.hut.workers[un] = true
@@ -459,7 +624,7 @@ end
 function M.release(st)
   if not st then return end
   local colony = storage.colonies[st.colony_id]
-  if colony and st.site_key and (st.job == "chop" or st.job == "forage" or st.job == "farm") then
+  if colony and st.site_key and (st.job == "chop" or st.job == "forage" or st.job == "farm" or st.job == "construct") then
     colony.claimed[st.site_key] = nil
   end
   if st.carry and colony then
@@ -557,6 +722,46 @@ scheduler.register("work.finish", function(d)
   go(e, hut.entity.position, 3)
 end)
 
+scheduler.register("construct.finish", function(d)
+  local st = storage.unit_state[d.un]
+  if not (st and st.job == "construct") then return end
+  local colony = storage.colonies[st.colony_id]
+  local e = colony and colony.colonists[d.un]
+  if not (colony and e and e.valid) then return end
+  if st.site_key then colony.claimed[st.site_key] = nil end
+  local site = st.site
+  if st.kind == "build" then
+    -- `revive` consumes the ghost, so capture what we need for the message first.
+    local pos = site and site.valid and {x = site.position.x, y = site.position.y}
+    local ghost_name = site and site.valid and site.ghost_name
+    local built = site and site.valid and site.type == "entity-ghost" and site.revive{raise_revive = true}
+    if built then
+      st.carry = nil                            -- the ghost consumed the materials
+      if colony.ghosts then colony.ghosts[st.site_key] = nil end
+      popup(e.surface, pos or e.position, {"", "Built ", item_name(ghost_name)})
+    else
+      if st.carry then return_to_hall(colony, st.carry) end
+      st.carry = nil
+      colony.ghost_blocked = colony.ghost_blocked or {}
+      colony.ghost_blocked[st.site_key] = game.tick + construct.RETRY_TICKS   -- blocked site: back off
+    end
+  else
+    local packs = 0
+    for _, s in ipairs(st.carry or {}) do if s.item == construct.REPAIR_PACK then packs = packs + s.count end end
+    st.carry = nil
+    if site and site.valid and packs > 0 then
+      local health, used = construct.repaired(site.health, site.max_health)
+      site.health = health
+      if used then
+        packs = packs - 1
+        popup(e.surface, site.position, {"", "Repaired ", item_name(site.name)})
+      end
+    end
+    if packs > 0 then return_to_hall(colony, {{item = construct.REPAIR_PACK, count = packs}}) end
+  end
+  M.assign(colony, d.un)
+end)
+
 events.on(defines.events.on_ai_command_completed, function(ev)
   local st = storage.unit_state[ev.unit_number]
   if not st then return end
@@ -565,6 +770,13 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   if ev.result ~= defines.behavior_result.success then
     M.release(st)
     M.assign(colony, ev.unit_number)
+    return
+  end
+  if st.state == "to_construct" then
+    st.state = st.kind == "build" and "building" or "repairing"
+    local e = colony.colonists[ev.unit_number]
+    if e and e.valid and st.site and st.site.valid then work_ring(e, st.site.position) end
+    scheduler.after(construct.WORK_TICKS, "construct.finish", {un = ev.unit_number})
     return
   end
   if st.state == "to_house" then

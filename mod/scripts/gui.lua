@@ -28,7 +28,8 @@ local function colony_at(e) local id = territory.owner_at(e.surface.index, e.pos
 -- ---------- household panel ----------
 -- Per-colonist job locks live on the house, not the Town Hall: a house lists only its own handful of
 -- occupants, so the panel stays usable when a town grows to hundreds of colonists.
-local LOCK_OPTS = {{"auto", "A"}, {"haul", "H"}, {"forage", "F"}, {"chop", "C"}, {"mine", "M"}, {"farm", "G"}}
+local LOCK_OPTS = {{"auto", "A"}, {"haul", "H"}, {"forage", "F"}, {"chop", "C"}, {"mine", "M"}, {"farm", "G"},
+  {"construct", "B"}}
 
 local function fill_roster(pane, colony, ids)
   colony.locks = colony.locks or {}
@@ -237,6 +238,9 @@ local function fill_info(frame, colony)
   frame.add{type = "label", caption = {"colony-gui-info.jobs",
     counts.haul or 0, counts.forage or 0, counts.chop or 0, counts.mine or 0, math.max(st.pop - busy, 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.territory", st.chunks, st.huts, st.machines, st.towers, st.crates}}
+  if st.ghosts > 0 or st.damaged > 0 then
+    frame.add{type = "label", caption = {"colony-gui-info.construction", st.ghosts, st.damaged}}
+  end
 
   frame.add{type = "line"}
   frame.add{type = "checkbox", name = "colony_accept_migrants", state = colony.accept_migrants ~= false,

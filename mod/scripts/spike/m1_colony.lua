@@ -51,6 +51,16 @@ core.register("m1_colony", {
     -- The supply crate holds coal, which nothing else produces, so seeing coal in the hall proves the
     -- provider leg. The demand crate wants stone that only the warehouse holds, proving both the filter
     -- and warehouse sourcing.
+    -- Construction (#37): a ghost inside territory is built from colony stock, and a damaged hall is
+    -- repaired with a repair pack. A second ghost far outside the claim proves territory is respected.
+    local chest_pos = {x = p.x - 10, y = p.y + 10}
+    local chest_ghost = s.create_entity{name = "entity-ghost", inner_name = "iron-chest",
+      position = chest_pos, force = "player", raise_built = true}
+    s.create_entity{name = "entity-ghost", inner_name = "iron-chest", position = {p.x + 220, p.y + 220},
+      force = "player", raise_built = true}
+    hall.insert{name = "iron-chest", count = 1}
+    hall.insert{name = "repair-pack", count = 1}
+    hall.health = hall.max_health - 100
     supply_crate.insert{name = "coal", count = 50}
     c.crates[demand_crate.unit_number].filters = {{item = "stone", count = 30}}
     warehouse.insert{name = "stone", count = 100}
@@ -200,6 +210,17 @@ core.register("m1_colony", {
       ctx.check("farmers planted crops", saw.planted)
       ctx.check("crops ripened", saw.ripe)
       ctx.check("farmers harvested produce", saw.produce, produce_total())
+      -- 1x1 entities snap to tile centres, so look near the ghost's spot rather than at the exact float.
+      local function chest_at(pos)
+        return s.find_entities_filtered{name = "iron-chest", position = pos, radius = 2}[1]
+      end
+      ctx.check("colonist built a ghost inside territory", chest_at(chest_pos) ~= nil,
+        "ghost still standing: " .. tostring(chest_ghost and chest_ghost.valid))
+      ctx.check("build cost came out of colony stock", hall.get_item_count("iron-chest") == 0,
+        hall.get_item_count("iron-chest"))
+      ctx.check("hall repaired with a repair pack", hall.health >= hall.max_health, hall.health)
+      ctx.check("repair pack consumed", hall.get_item_count("repair-pack") == 0, hall.get_item_count("repair-pack"))
+      ctx.check("ghost outside territory was not built", chest_at({x = p.x + 220, y = p.y + 220}) == nil)
       ctx.check("hall received resources", hall.get_item_count("iron-ore") + hall.get_item_count("colony-forage") > 0 or hall.get_item_count("wood") > 100)
       ctx.finish()
     end)

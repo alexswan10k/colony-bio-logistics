@@ -102,8 +102,8 @@ Players configure a per-colony **Priority Matrix** (ranked $1$ to $4$, or disabl
 **Machine opt-in (implemented):** ticking the supply box on a machine's panel, or dragging the **Colony logistics marker** selection tool over machines (alt-drag to opt out), registers the machine for colony hauling. Opted-in machines show a Town Hall badge in alt mode, so coverage is visible without opening each panel.
 
 ### 4.2 Explicit Tooling, 1:1 Mining & Pollution
-* **The Bootstrap Loop:** The player starts by hand-crafting **Iron Axes** and **Iron Pickaxes** and placing them in the Town Hall or a **Tool Rack**.
-* **Job Gating & Durability:** Colonists must equip an **Axe** to chop trees, a **Pickaxe** to mine ore, or carry **Repair Packs** to repair. Tools lose durability per action and are replaced from the Tool Rack when broken (upgrading from Iron $\rightarrow$ Steel $\rightarrow$ Tungsten/Plasma).
+* **The Bootstrap Loop:** The player starts by hand-crafting **Iron Axes** and **Iron Pickaxes** and placing them in the Town Hall or straight into the labour hut that needs them. There is no separate Tool Rack entity: **each labour hut is its own tool store** (implemented, #31 closed as superseded).
+* **Job Gating & Durability:** Colonists must work at a hut that holds the right tool: an **Axe** to chop trees, a **Pickaxe** to mine ore, a **Hoe** to farm, a **Basket** to forage, or carry **Repair Packs** to repair. A hut holds up to `capacity` tools, only employs as many colonists as it holds tools for (further capped by its panel's worker limit), and wears one tool per `TOOL_USES` completed trips of its own work, with a popup when a tool breaks. A hut short of tools raises a **tools-priority** haul request, so the player never hand-delivers replacements; this is why wear lives on the hut, not on the colonist - the tool is the employment slot. Tiers (Iron $\rightarrow$ Steel $\rightarrow$ Tungsten/Plasma) switch the tool item when the tech tree lands (#69), which is also when per-colonist gear becomes worth revisiting.
 * **1:1 Depletion & Pollution (Zero Electricity):** Mining depletes ore entities 1:1 (respecting Mining Productivity) and uses zero electricity, but emits localized **Pollution** via `surface.pollute()` so biters still evolve and react to colony industry.
 
 ---
@@ -139,7 +139,7 @@ Colonists can also directly load ingredients/fuel into—and empty products from
 Because heavy industry and mining generate pollution—which tanks **Desirability ($D$)** and causes **Smoker's Lung**—players have a natural reason to separate **clean Residential/Specialized Towns** from **polluted Industrial Outposts**, connecting them with **Passenger Trains**.
 
 ### 6.1 Residential Towns vs. Industrial Outposts (The Commuter Loop)
-* **Industrial Outpost Territory:** Built around ore patches, smelter arrays, or oil refineries. Instead of building Houses in the smog, the player builds an **Outpost Station**, a **Canteen / Breakroom** (stocked with basic food/water), and a **Tool Rack**.
+* **Industrial Outpost Territory:** Built around ore patches, smelter arrays, or oil refineries. Instead of building Houses in the smog, the player builds an **Outpost Station**, a **Canteen / Breakroom** (stocked with basic food/water), and the **tooled labour huts** for that site - each hut carries its own tools and output buffer, so an outpost needs no Town Hall to keep working.
 * **Passenger Coach & Station Platform:**
   * A new train wagon (`Passenger Coach`) that holds up to $20\text{--}40$ colonists, paired with a `Passenger Platform` placed adjacent to a vanilla Train Stop.
 * **How Commuting Works:**
@@ -246,7 +246,7 @@ To make building this mod manageable and testable at every step, here is a sugge
 
 * **Phase 1: Core Colony Loop (The Frontier MVP)**
   * Town Hall territory chunks, Tier 1 Housing, Desirability & Migration.
-  * Foraging/Hunting, Spoilage, Tool Racks (Iron Axes & Pickaxes), 1:1 Mining & Tree Chopping.
+  * Foraging/Hunting, Spoilage, tooled labour huts (Iron Axes & Pickaxes, hut-owned wear), 1:1 Mining & Tree Chopping.
   * Colony Crates + Non-destructive Opt-in Machine Hauling (`gui.relative` & Selection Tool) + Blueprint construction.
 * **Phase 2: Civilization, Industry & Commuter Trains**
   * Frontier Charter & Civic Treatise Science Packs + Town Archive.

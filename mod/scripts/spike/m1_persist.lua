@@ -67,7 +67,7 @@ core.register("m1_persist", {
         huts = count(c.huts), plots = count(c.plots), crates = count(c.crates),
         ghosts = count(c.ghosts), repairs = count(c.repairs), chunks = chunks_of(c),
         crate_un = crate.unit_number, lock_un = lock_un, next_colony_id = storage.next_colony_id,
-        hall_fish = hall.get_item_count("raw-fish"), scheduled = count(storage.scheduled),
+        hall_fish = hall.get_item_count("raw-fish"), scheduled = count(storage.scheduled), schema = storage.schema,
         labels = count(storage.unit_labels), unit_state = count(storage.unit_state),
       }
       storage.persist_expected = exp
@@ -97,7 +97,7 @@ core.register("m1_persist_load", {
     ctx.check("colony survived the round-trip", c ~= nil)
     if not c then return ctx.finish() end
     ctx.check("hall is valid after load", c.hall and c.hall.valid)
-    ctx.check("schema unchanged", storage.schema == 10, storage.schema)
+    ctx.check("schema unchanged", storage.schema == exp.schema, storage.schema)
     ctx.check("no colony was created twice", count(storage.colonies) == 1, count(storage.colonies))
     ctx.check("next colony id unchanged", storage.next_colony_id == exp.next_colony_id, storage.next_colony_id)
     ctx.check("colonists survived", colony.live_colonists(c) == exp.colonists,

@@ -29,26 +29,38 @@ Three headless gates cover the things the unit tests and the playable spike cann
   `auto_pause` is false in its server settings.
 - `scripts/determinism.sh` - runs the same spike twice on the same map in separate processes and compares
   the reports *and* the final simulation checksum. This is the headless stand-in for a multiplayer desync
-  test: a desync is two peers diverging on identical inputs. `m1_colony` (14000 ticks) currently produces
-  checksum `3313452784` on both runs.
+  test: a desync is two peers diverging on identical inputs.
 - `scripts/bench-colony.sh` - the #22 UPS gate. Builds a synthetic town with `m1_bench` (colonists, cabins,
-  huts, opted-in machines), saves it, then benchmarks three saves with `--benchmark`: vanilla (mod off),
-  mod on with no colony, and the town. An "inert" control (same entities, nothing registered with the
-  colony) separates the engine cost of the town from our Lua.
+  huts, opted-in machines), saves it, then benchmarks four saves with `--benchmark --benchmark-verbose all`:
+  vanilla (mod off), mod on with no colony, an "inert" control (same entities, nothing registered with the
+  colony) and the town itself - both with machines that only have output and with machines that also
+  request ore. Column 3 of the verbose CSV is the whole update, **column 44 is the Lua script time**, so
+  the budget is read directly instead of being inferred from a delta.
 
   Measured on the reference Mac (500 colonists, 40 cabins, 17 huts, 2000 opted-in furnaces, 1800 ticks):
 
-  | save | ms/tick |
-  |---|---|
-  | vanilla, no mod | 0.098 |
-  | mod on, no colony built | 0.107 |
-  | inert control (same entities, nothing registered) | 0.190 |
-  | colony | 5.159 |
+  | save | total ms/tick | script ms/tick |
+  |---|---|---|
+  | vanilla, no mod | 0.108 | - |
+  | mod on, no colony built | 0.107 | 0.001 |
+  | inert control (same entities, nothing registered) | 0.201 | 0.002 |
+  | colony, machines collect only | 0.797 | **0.579** |
+  | colony, machines also demand ore | 0.895 | **0.671** |
 
-  So "no colony built" costs 9 microseconds per tick, but the colony layer at target scale is **~5 ms**,
-  against the #22 budget of <1 ms. With machines set to 0 the layer is 1.10 ms, i.e. the per-assignment
-  sweep over every opted-in machine is ~3.9 ms of it. Fixing that (offer index / round-robin sweep) is the
-  remaining M1 performance work.
+  Budget is <1 ms of Lua per tick, so the gate **passes** with ~30% headroom, and "mod enabled, no colony"
+  costs 1 microsecond. Median tick is 0.2 ms; a tail of ~8 ms remains at the p99, from assignment bursts.
+
+  To attribute a budget miss, short-circuit a function (e.g. make `M.assign` return immediately), re-copy
+  the mod into `build/bench/mods` and re-run the two `--benchmark` passes; the drop is that function's cost.
+  `LuaProfiler` cannot be read as a number from Lua (only displayed as a localised string), so the
+  short-circuit delta is the practical profiler here.
+
+  How it got there (#75, measured with the same harness): the haul planner used to read every opted-in
+  machine's inventory on every assignment (`4.97 ms` at 2000 machines, and `17.3 ms` once those machines
+  actually had requests). Now a slice sweep visits 1/10 of the registry every 30 ticks and caches
+  `has_output` / `need` / `damaged` on each machine, assignment looks at a 16-machine window rotated by a
+  cursor, and population / food / stock are cached with a short TTL instead of being recomputed per
+  assignment. `construct.scan` also used to read health for every machine every 300 ticks (a 13 ms tick).
 
 ## Early findings from `scripts/sim.sh` (proposal params, not final)
 - A 16-pop tier-1 colony needs ~1 food/colonist/interval of foraging output to hold; below that it stalls at the supply level.

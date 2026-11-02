@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 10
+local SCHEMA = 11
 
 local migrations = {
   [1] = function()
@@ -51,6 +51,15 @@ local migrations = {
     -- construction (#37): ghost / damage registries refreshed by construct.scan
     for _, c in pairs(storage.colonies) do
       c.ghosts, c.repairs, c.ghost_blocked = c.ghosts or {}, c.repairs or {}, c.ghost_blocked or {}
+    end
+  end,
+  [11] = function()
+    -- machine index (#75): assignment reads cached demand/output sets instead of walking the registry
+    for _, c in pairs(storage.colonies) do
+      c.machine_cache, c.machine_dirty, c.machine_cursor = nil, true, 1
+      c.machine_offer_cursor, c.collect_offer_cursor = nil, nil
+      c.pop_cache, c.food_cache, c.stock_cache = nil, nil, nil
+      for _, m in pairs(c.machines or {}) do m.has_output, m.need, m.damaged = nil, nil, nil end
     end
   end,
 }

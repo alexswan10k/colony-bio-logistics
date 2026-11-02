@@ -20,7 +20,10 @@ core.register("m1_bench", {
     local machine_count = tonumber(ctx.args[2] or "") or 2000
     -- "inert" builds the same entities but registers nothing with the colony: it is the engine-cost
     -- baseline for the same map, so bench-colony.sh can net the colony's own Lua out of the total.
-    local inert = ctx.args[3] == "inert"
+    -- "demand" also gives every machine a request, which is the realistic case (a furnace wants ore) and
+    -- exercises the demand half of the machine index instead of just the collect half.
+    local mode = ctx.args[3] or ""
+    local inert, demand = mode == "inert", mode == "demand"
     local s, p = ctx.surface, ctx.position
     ctx.flat_area(115, "grass-1")            -- cleared square: cabins, huts and the machine field
     local hall = s.create_entity{name = "colony-town-hall", position = p, force = "player", raise_built = true}
@@ -54,7 +57,10 @@ core.register("m1_bench", {
         local e = s.create_entity{name = "stone-furnace",
           position = {x = p.x - 61 + col * 2, y = p.y + 30 + row * 2}, force = "player"}
         if e then
-          if not inert then colony.set_machine(c, e, true) end
+          if not inert then
+            colony.set_machine(c, e, true)
+            if demand then c.machines[e.unit_number].requests = {{item = "iron-ore", count = 20}} end
+          end
           machines = machines + 1
         end
       end
@@ -87,7 +93,7 @@ core.register("m1_bench", {
       ctx.log(string.format("at save: pop=%d machines=%d scheduled=%d", colony.live_colonists(c),
         machines, count(storage.scheduled)))
       -- server_save only writes in multiplayer (scripts/bench-colony.sh runs a headless server).
-      game.server_save(inert and "colony-bench-inert" or "colony-bench")
+      game.server_save(mode == "" and "colony-bench" or ("colony-bench-" .. mode))
       ctx.check("benchmark save requested", true)
       ctx.finish()
     end)

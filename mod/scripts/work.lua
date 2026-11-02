@@ -73,20 +73,38 @@ local function hut_list(colony)
   return out
 end
 
--- Sorted machine list, cached. A big town re-assigns colonists constantly and re-sorting thousands of
--- machines on every assignment was the single worst tick in the #39 benchmark (2.2 s at 500 colonists).
--- colony.set_machine / the destroy handler clear the cache; entries are only read here.
-local function machine_list(colony)
-  if colony.machine_cache and not colony.machine_dirty then return colony.machine_cache end
+-- Machine index (#75) ------------------------------------------------------------------------------
+-- find_haul_task used to walk every opted-in machine on every assignment and read its output inventory.
+-- At 2000 machines that was ~3.9 of the ~5 ms/tick the #39 benchmark measured, and nearly all of it was
+-- spent asking machines that had nothing to give. Machines are now swept in slices on a timer and the
+-- sweep records `has_output`; assignment only visits machines with a request or with output.
+M.MACHINE_SWEEP_TICKS = 30
+M.MACHINE_SWEEP_SHARE = 10   -- 1/N of the registry per sweep, so each machine is checked every 300 ticks
+M.MACHINE_OFFERS_PER_ASSIGN = 16   -- machines considered per trip; the cursor rotates through all of them
+
+-- Sorted unit numbers plus the two working sets, rebuilt only when the registry changes (or a sweep
+-- flips has_output). Everything downstream iterates the cached arrays, so the cost is per change rather
+-- than per assignment. Returned tables are read-only for callers.
+local function machine_ids(colony)
+  if colony.machine_ids_cache and not colony.machine_dirty then return colony.machine_ids_cache end
   local ids = {}
   for un, m in pairs(colony.machines) do
     if m.entity.valid then ids[#ids + 1] = un else colony.machines[un] = nil end
   end
   table.sort(ids)
-  local out = {}
-  for _, un in ipairs(ids) do out[#out + 1] = colony.machines[un] end
-  colony.machine_cache, colony.machine_dirty = out, false
-  return out
+  local demand, output, damaged = {}, {}, {}
+  for _, un in ipairs(ids) do
+    local m = colony.machines[un]
+    if m.enabled then
+      if m.need and #m.need > 0 then demand[#demand + 1] = m end   -- refreshed by the sweep
+      if m.has_output then output[#output + 1] = m end
+      if m.damaged then damaged[#damaged + 1] = m end
+    end
+  end
+  colony.machine_ids_cache, colony.machine_demand, colony.machine_output = ids, demand, output
+  colony.machine_damaged = damaged
+  colony.machine_dirty = false
+  return ids
 end
 
 local function worker_count(h)
@@ -153,7 +171,8 @@ local function repair_candidates(colony)
   add(colony.hall)
   for _, h in ipairs(colony_mod.house_list(colony)) do add(h.entity) end
   for _, h in ipairs(hut_list(colony)) do add(h.entity) end
-  for _, m in ipairs(machine_list(colony)) do add(m.entity) end
+  machine_ids(colony)   -- refreshes machine_damaged if the registry changed
+  for _, m in ipairs(colony.machine_damaged or {}) do add(m.entity) end
   for _, c in ipairs(colony_mod.crate_list(colony)) do add(c.entity) end
   for _, t in pairs(colony.towers or {}) do add(t) end
   for _, p in pairs(colony.plots or {}) do add(p.entity) end
@@ -378,18 +397,29 @@ local function machine_demands(m)
   return out
 end
 
+-- Offers use the need list the sweep cached, so an assignment never touches a machine inventory. In-flight
+-- loads are subtracted here because they change between sweeps.
 local function machine_offer(m)
   if not m.entity.valid or not m.enabled or (m.blocked_until or 0) > game.tick then return nil end
-  local demands = machine_demands(m)
-  if #demands == 0 then return nil end
+  local need = m.need
+  if not need then return nil end
+  local demands, any = {}, false
+  for _, d in ipairs(need) do
+    local n = d.count - (m.inflight[d.item] or 0)
+    if n >= 1 then demands[#demands + 1] = {item = d.item, count = n}; any = true end
+  end
+  if not any then return nil end
   return {kind = "supply", machine = m, priority = haul_plan.PRIORITY.request, key = m.entity.unit_number, demands = demands}
 end
 
 -- Finished products leave the machine now; the load is filled from the machine, not the hall.
-local function collect_offer(m)
+local function collect_offer(colony, m)
   if not m.entity.valid or not m.enabled or not m.collect then return nil end
   local inv = m.entity.get_output_inventory()
-  if not inv or inv.is_empty() then return nil end
+  if not inv or inv.is_empty() then
+    if m.has_output then m.has_output, colony.machine_dirty = false, true end   -- emptied since the sweep
+    return nil
+  end
   local demands, available = {}, {}
   for _, c in ipairs(inv.get_contents()) do
     demands[#demands + 1] = {item = c.name, count = c.count}
@@ -398,6 +428,49 @@ local function collect_offer(m)
   return {kind = "collect", machine = m, priority = haul_plan.PRIORITY.collect, key = m.entity.unit_number,
     demands = demands, available = available}
 end
+
+-- Slice sweep (#75): the only place that touches machine inventories when nobody is asking for a haul.
+-- Each machine is visited every MACHINE_SWEEP_TICKS * MACHINE_SWEEP_SHARE ticks; the sweep records what
+-- it saw (has_output, need) and assignment reads those flags. A machine's own request therefore lags by
+-- at most one sweep, which is invisible next to the time a colonist spends walking.
+scheduler.register("work.machine_sweep", function(d)
+  local colony = storage.colonies[d.colony_id]
+  if not (colony and colony.hall and colony.hall.valid) then return end
+  local ids = machine_ids(colony)
+  local n = #ids
+  if n > 0 then
+    local step = math.max(1, math.ceil(n / M.MACHINE_SWEEP_SHARE))
+    local cursor = colony.machine_cursor or 1
+    local changed = false
+    for i = 0, step - 1 do
+      local m = colony.machines[ids[(cursor - 1 + i) % n + 1]]
+      if m and m.entity.valid then
+        local has, need = false, nil
+        if m.enabled then
+          if m.collect then
+            local inv = m.entity.get_output_inventory()
+            has = inv ~= nil and not inv.is_empty()
+          end
+          if next(m.requests or {}) then
+            need = machine_demands(m)
+            if #need == 0 then need = nil end
+          end
+        end
+        if has ~= (m.has_output or false) then m.has_output, changed = has, true end
+        -- Health is read here too: construct.scan used to read it for every machine every 300 ticks,
+        -- which was a 13 ms tick at 2000 machines (#75).
+        local hurt = m.entity.health < m.entity.max_health
+        if hurt ~= (m.damaged or false) then m.damaged, changed = hurt, true end
+        if need and not m.need then m.need, changed = need, true
+        elseif not need and m.need then m.need, changed = nil, true
+        else m.need = need end
+      end
+    end
+    colony.machine_cursor = (cursor - 1 + step) % n + 1
+    if changed then colony.machine_dirty = true end
+  end
+  scheduler.after(M.MACHINE_SWEEP_TICKS, "work.machine_sweep", d)
+end)
 
 -- One destination per trip, possibly several item types. Returns an offer with `.load` filled in.
 local function find_haul_task(colony)
@@ -415,20 +488,35 @@ local function find_haul_task(colony)
   for _, c in ipairs(colony_mod.crate_list(colony, crates.DEMAND)) do
     local o = crate_demand_offer(c); if o then offers[#offers + 1] = o end
   end
-  for _, m in ipairs(machine_list(colony)) do
-    local o = machine_offer(m); if o then offers[#offers + 1] = o end
-    local c = collect_offer(m); if c then offers[#offers + 1] = c end
+  machine_ids(colony)   -- refresh the working sets if the registry changed
+  -- A big town has thousands of machines wanting the same ore; building an offer for every one of them on
+  -- every trip is what made the demand case 17 ms/tick in the #39 benchmark. Take a bounded slice instead:
+  -- any machine wanting an item we hold is a valid destination, and the cursor means every machine is still
+  -- looked at regularly (2000 machines / 16 per trip is a full pass every ~120 assignments).
+  local demand = colony.machine_demand or {}
+  local n = #demand
+  if n > 0 then
+    local take = math.min(n, M.MACHINE_OFFERS_PER_ASSIGN)
+    local cursor = colony.machine_offer_cursor or 1
+    for i = 0, take - 1 do
+      local o = machine_offer(demand[(cursor - 1 + i) % n + 1])
+      if o then offers[#offers + 1] = o end
+    end
+    colony.machine_offer_cursor = (cursor - 1 + take) % n + 1
+  end
+  local output = colony.machine_output or {}
+  local no, ocursor = #output, colony.collect_offer_cursor or 1
+  if no > 0 then
+    local take = math.min(no, M.MACHINE_OFFERS_PER_ASSIGN)
+    for i = 0, take - 1 do
+      local c = collect_offer(colony, output[(ocursor - 1 + i) % no + 1])
+      if c then offers[#offers + 1] = c end
+    end
+    colony.collect_offer_cursor = (ocursor - 1 + take) % no + 1
   end
   if #offers == 0 then return nil end
   haul_plan.order(offers)
-  local hall = {}
-  for _, o in ipairs(offers) do
-    for _, d in ipairs(o.demands) do
-      for _, item in ipairs(haul_plan.demand_items(d)) do
-        if hall[item] == nil then hall[item] = colony_mod.stock_count(colony, item) end
-      end
-    end
-  end
+  local hall = colony_mod.stock_table(colony)
   local offer, load = haul_plan.choose(offers, hall, M.CARRY_CAP)
   if not offer then return nil end
   offer.load = load
@@ -558,7 +646,7 @@ local function idle(colony, un, e)
   storage.unit_state[un] = {colony_id = colony.id, state = "idle"}
   set_label(e, "idle")
   -- Deterministic jitter by unit number: a town spawned in one tick would otherwise retry in lockstep.
-  scheduler.after(M.RETRY_TICKS + (un % 31) * 7, "work.retry", {un = un})
+  scheduler.after(M.RETRY_TICKS + (un * 37) % 240, "work.retry", {un = un})
 end
 
 -- Start a haul trip if there is one; returns true when the colonist is on its way.
@@ -798,6 +886,11 @@ events.on(defines.events.on_ai_command_completed, function(ev)
         for _, s in ipairs(st.carry) do
           st.inflight_target.inflight[s.item] = math.max((st.inflight_target.inflight[s.item] or 0) - s.count, 0)
         end
+        -- A machine just got items: its cached need list is stale, so drop it until the next sweep re-reads
+        -- the inventory. Without this the colony would re-request the same load every trip.
+        if st.inflight_target.requests then
+          st.inflight_target.need, colony.machine_dirty = nil, true
+        end
       end
       if #refused > 0 then return_to_hall(colony, refused) end
       if inserted == 0 then target.blocked_until = game.tick + 600 end   -- machine refuses these items: stop retrying for a while
@@ -808,7 +901,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     st.state = "working"
     local e = colony.colonists[ev.unit_number]
     if e and e.valid and st.site.valid then work_ring(e, st.site.position) end
-    scheduler.after(M.WORK_TICKS + (ev.unit_number % 13) * 23, "work.finish", {un = ev.unit_number})
+    scheduler.after(M.WORK_TICKS + (ev.unit_number * 23) % 240, "work.finish", {un = ev.unit_number})
   elseif st.state == "to_hut" then
     local e = colony.colonists[ev.unit_number]
     local hut_entity = st.hut and st.hut.entity

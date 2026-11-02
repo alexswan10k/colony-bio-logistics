@@ -35,6 +35,9 @@ M.CRATES = {
 }
 M.CLAIM_RADIUS = 1              -- chunks, Chebyshev => 3x3 chunks
 M.STARVE_AFTER = 4              -- consecutive evaluations with unmet critical need before a colonist dies
+M.POP_TTL = 5                   -- ticks a cached population count / food total / stock snapshot may be reused
+M.FOOD_TTL = 30
+M.STOCK_TTL = 30
 M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
 M.FOOD_PER_COLONIST = 1         -- food items per interval
 M.FOOD_ITEMS = {"colony-forage", "colony-produce", "raw-fish", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
@@ -68,7 +71,11 @@ function M.food_in(colony)
   return n
 end
 
+-- Population, food and stock are read on every assignment (the job matrix ratios, the affordable check) but
+-- change slowly, so they are cached with a short TTL (#75: recomputing them per assignment was ~0.4 ms/tick
+-- at 500 colonists). All three are pure reads; the prune of dead colonists just happens once per TTL.
 function M.live_colonists(colony)
+  if colony.pop_tick and game.tick - colony.pop_tick < M.POP_TTL then return colony.pop_cache end
   local n = 0
   for id, c in pairs(colony.colonists) do
     if c.valid then n = n + 1 else
@@ -76,6 +83,7 @@ function M.live_colonists(colony)
       if colony.locks then colony.locks[id] = nil end
     end
   end
+  colony.pop_cache, colony.pop_tick = n, game.tick
   return n
 end
 
@@ -120,16 +128,33 @@ function M.crate_list(colony, kind)
   return out
 end
 
--- Colony stock = Town Hall + warehouses. Supply trips take from the hall first (the town's working stock)
--- and fall back to bulk storage; deposits fill the hall first and overflow into the warehouse.
-function M.stock_count(colony, item)
+-- Colony stock (Town Hall + warehouses) as one table: an assignment asks about a dozen items and each
+-- question used to rebuild and sort the warehouse list. Supply trips still take from the hall first (the
+-- town's working stock) and fall back to bulk storage; deposits fill the hall first and overflow outward.
+function M.stock_table(colony)
+  if colony.stock_cache and game.tick - (colony.stock_tick or -1e9) < M.STOCK_TTL then return colony.stock_cache end
+  local t = {}
   local hall = colony.hall
-  local n = hall and hall.valid and hall.get_item_count(item) or 0
-  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do n = n + c.entity.get_item_count(item) end
-  return n
+  if hall and hall.valid then
+    local inv = hall.get_inventory(defines.inventory.chest)
+    if inv then for _, s in ipairs(inv.get_contents()) do t[s.name] = s.count end end
+  end
+  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
+    local inv = c.entity.get_inventory(defines.inventory.chest)
+    if inv then
+      for _, s in ipairs(inv.get_contents()) do t[s.name] = (t[s.name] or 0) + s.count end
+    end
+  end
+  colony.stock_cache, colony.stock_tick = t, game.tick
+  return t
+end
+
+function M.stock_count(colony, item)
+  return M.stock_table(colony)[item] or 0
 end
 
 function M.take_stock(colony, item, count)
+  colony.stock_cache = nil   -- stock moved: the cached snapshot is stale
   local taken = 0
   local hall = colony.hall
   if hall and hall.valid then taken = hall.remove_item{name = item, count = count} end
@@ -141,6 +166,7 @@ function M.take_stock(colony, item, count)
 end
 
 function M.put_stock(colony, item, count)
+  colony.stock_cache = nil   -- stock moved: the cached snapshot is stale
   local left = count
   local hall = colony.hall
   if hall and hall.valid then left = left - hall.insert{name = item, count = left} end
@@ -185,6 +211,7 @@ end
 
 -- Total food on hand (hall + house buffers); used by work planning and desirability.
 function M.total_food(colony)
+  if colony.food_tick and game.tick - colony.food_tick < M.FOOD_TTL then return colony.food_total end
   local n = M.food_in(colony)
   for _, h in ipairs(M.house_list(colony)) do
     local stock = M.house_stock(h)
@@ -203,6 +230,7 @@ function M.total_food(colony)
       end
     end
   end
+  colony.food_total, colony.food_tick = n, game.tick
   return n
 end
 
@@ -367,6 +395,7 @@ local function on_built(ev)
     script.register_on_object_destroyed(e)
     scheduler.after(M.interval(), "colony.evaluate", {colony_id = id})
     scheduler.after(construct.SCAN_TICKS, "construct.scan", {colony_id = id})   -- #37 ghosts + damage
+    scheduler.after(work.MACHINE_SWEEP_TICKS, "work.machine_sweep", {colony_id = id})   -- #75 machine output
   elseif name == M.PLOT and e.type ~= "entity-ghost" then
     local owner = territory.owner_at(e.surface.index, e.position)
     local tile = e.surface.get_tile(e.position)
@@ -472,9 +501,10 @@ M.BADGE_SPRITE = "entity/colony-town-hall"   -- SpritePath: the Town Hall's icon
 function M.set_machine(colony, e, enabled)
   local m = colony.machines[e.unit_number]
   if enabled then
-    m = m or {entity = e, requests = {}, collect = true, inflight = {}}
+    m = m or {entity = e, requests = {}, collect = true, inflight = {}, need = nil, has_output = nil}
     m.entity = e
     m.enabled = true
+    m.need, m.has_output = nil, nil      -- the sweep rediscovers both within a pass
     colony.machines[e.unit_number] = m
     colony.machine_dirty = true
     script.register_on_object_destroyed(e)   -- so the registry (and the cached list) is pruned
@@ -484,6 +514,7 @@ function M.set_machine(colony, e, enabled)
     end
   elseif m then
     m.enabled = false
+    m.need, m.has_output = nil, nil
     colony.machine_dirty = true
     if m.badge and m.badge.valid then m.badge.destroy() end
     m.badge = nil

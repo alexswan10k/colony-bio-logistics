@@ -80,6 +80,8 @@ core.register("m1_colony", {
     s.set_tiles{{name = "refined-concrete", position = {p.x + 24, p.y + 24}}}
     local badplot = build("colony-farm-plot", {p.x + 24, p.y + 24})
     ctx.check("farm plot rejected on paving", not (badplot and badplot.valid))
+    local overlap = build("colony-farm-plot", {p.x + 4, p.y - 12})
+    ctx.check("overlapping farm plot rejected", not (overlap and overlap.valid))
     -- Colony crates (#33): supply (provider), demand (requester), warehouse (bulk stock)
     local supply_crate = build("colony-supply-crate", {p.x + 10, p.y + 12})
     local demand_crate = build("colony-demand-crate", {p.x + 13, p.y + 12})
@@ -126,6 +128,13 @@ core.register("m1_colony", {
     local led = colony.ledger_snapshot(c)
     ctx.check("ledger aggregates stock and hut contents", led and led.totals["colony-meat"] == 2 and led.totals.stone == 100,
       led and (led.totals["colony-meat"] or 0) .. " meat, " .. (led.totals.stone or 0) .. " stone")
+    ctx.check("quota defaults to unlimited (0)", colony.quota_target(c, "stone") == 0 and not colony.quota_met(c, "stone"))
+    colony.set_quota(c, "stone", 50)
+    ctx.check("quota detects met target against ledger", colony.quota_met(c, "stone") == true)
+    colony.set_quota(c, "stone", 200)
+    ctx.check("raising quota clears met target", colony.quota_met(c, "stone") == false)
+    colony.set_quota(c, "stone", 0)
+    ctx.check("clearing quota restores unlimited", colony.quota_met(c, "stone") == false)
     ctx.check("capacity 10", colony.capacity(c) == 10, colony.capacity(c))
     ctx.check("hut does not spawn forage patches",
       #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30} == patches_pre, patches_pre)

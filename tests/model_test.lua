@@ -695,3 +695,38 @@ describe("resource ledger (#82)", function()
     eq(res.items[3].item, "colony-axe")
   end)
 end)
+
+describe("harvest quotas (#84)", function()
+  local quota = require("scripts.model.quota")
+  it("defaults to 0 (unlimited)", function()
+    eq(quota.target(nil, nil, "iron-ore"), 0)
+    eq(quota.met(0, 500), false)
+  end)
+  it("per-colony target overrides global settings", function()
+    local quotas = {["iron-ore"] = 500}
+    local globals = {["iron-ore"] = 1000}
+    eq(quota.target(quotas, globals, "iron-ore"), 500)
+    eq(quota.target(nil, globals, "iron-ore"), 1000)
+  end)
+  it("detects quota met when current reaches target", function()
+    eq(quota.met(500, 499), false)
+    eq(quota.met(500, 500), true)
+    eq(quota.met(500, 550), true)
+  end)
+  it("filters out resources at quota while preserving open ones in order", function()
+    local ores = {"iron-ore", "copper-ore", "coal"}
+    local quotas = {["iron-ore"] = 200, ["copper-ore"] = 500}
+    local counts = {["iron-ore"] = 200, ["copper-ore"] = 100, coal = 0}
+    local open = quota.open_resources(ores, quotas, nil, counts)
+    eq(#open, 2)
+    eq(open[1], "copper-ore")
+    eq(open[2], "coal")
+  end)
+  it("all_met returns true only when all items are capped and met", function()
+    local ores = {"iron-ore", "copper-ore"}
+    local quotas = {["iron-ore"] = 200, ["copper-ore"] = 500}
+    eq(quota.all_met(ores, quotas, nil, {["iron-ore"] = 200, ["copper-ore"] = 499}), false)
+    eq(quota.all_met(ores, quotas, nil, {["iron-ore"] = 200, ["copper-ore"] = 500}), true)
+    eq(quota.all_met(ores, {["iron-ore"] = 200}, nil, {["iron-ore"] = 200, ["copper-ore"] = 500}), false)
+  end)
+end)

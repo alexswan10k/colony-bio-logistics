@@ -19,6 +19,7 @@ local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local tags = require("scripts.model.tags")
 local ledger = require("scripts.model.ledger")
+local quota = require("scripts.model.quota")
 local work = require("scripts.work")
 local gui = require("scripts.gui")
 local M = {}
@@ -281,6 +282,42 @@ function M.ledger_snapshot(colony)
   }
   colony.ledger_cache, colony.ledger_tick = res, game.tick
   return res
+end
+
+-- --- harvest quotas (#84) --------------------------------------------------------------------------------
+function M.global_quotas()
+  local g = {}
+  if settings and settings.global then
+    for item in pairs(quota.RESOURCES) do
+      local s = settings.global["colony-quota-" .. item]
+      if s and s.value and s.value > 0 then g[item] = s.value end
+    end
+  end
+  return g
+end
+
+function M.quota_target(colony, item)
+  return quota.target(colony.quotas, M.global_quotas(), item)
+end
+
+function M.quota_met(colony, item)
+  local tgt = M.quota_target(colony, item)
+  if tgt <= 0 then return false end
+  local led = M.ledger_snapshot(colony)
+  local count = led and led.totals and led.totals[item] or 0
+  return quota.met(tgt, count)
+end
+
+function M.set_quota(colony, item, target)
+  colony.quotas = colony.quotas or {}
+  colony.quotas[item] = target
+  colony.ledger_cache = nil
+  for un in pairs(colony.colonists or {}) do
+    local st = storage.unit_state and storage.unit_state[un]
+    if st and st.state == "idle" then
+      work.assign(colony, un)
+    end
+  end
 end
 
 function M.take_stock(colony, item, count)
@@ -616,6 +653,13 @@ local function on_built(ev)
         e.destroy()
         return
       end
+      local existing = e.surface.find_entities_filtered{name = M.PLOT, position = e.position, radius = 0.4}
+      if #existing > 0 then
+        local p = ev.player_index and game.get_player(ev.player_index)
+        if p then p.create_local_flying_text{text = {"colony-message.plot-occupied"}, position = e.position} end
+        e.destroy()
+        return
+      end
     elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or M.HOUSES[name] or labour.HUTS[name] then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
@@ -645,7 +689,7 @@ local function on_built(ev)
     if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, locks = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {},
+      towers = {}, plots = {}, crates = {}, locks = {}, quotas = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {},
       ghosts = {}, repairs = {}, ghost_blocked = {}}
     storage.colonies[id] = colony
     territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)
@@ -664,6 +708,12 @@ local function on_built(ev)
     local tile = e.surface.get_tile(e.position)
     if not owner or not farm.plantable(tile.name) then
       refund(ev, e, name, owner and {"colony-message.bad-farmland"} or nil)
+      e.destroy()
+      return
+    end
+    local existing = e.surface.find_entities_filtered{name = M.PLOT, position = e.position, radius = 0.4}
+    if #existing > 1 then
+      refund(ev, e, name, {"colony-message.plot-occupied"})
       e.destroy()
       return
     end
@@ -856,6 +906,19 @@ events.on(defines.events.on_player_changed_surface, function(ev)
 end)
 events.on(defines.events.on_pre_player_left_game, function(ev)
   if ev.player_index then M.clear_cursor_overlay(ev.player_index) end
+end)
+events.on(defines.events.on_runtime_mod_setting_changed, function(ev)
+  if ev.setting and ev.setting:find("^colony%-quota%-") then
+    for _, colony in pairs(storage.colonies or {}) do
+      colony.ledger_cache = nil
+      for un in pairs(colony.colonists or {}) do
+        local st = storage.unit_state and storage.unit_state[un]
+        if st and st.state == "idle" then
+          work.assign(colony, un)
+        end
+      end
+    end
+  end
 end)
 
 events.on(defines.events.on_object_destroyed, function(ev)

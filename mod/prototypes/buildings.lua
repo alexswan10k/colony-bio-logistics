@@ -70,22 +70,26 @@ local compost_bin = chest_clone("iron-chest", "colony-compost-bin", "compost-bin
 
 -- Farm plot (#44 first slice): a 1x1 tilled tile the player places on farmland. Three graphics
 -- variations are the crop stages; the script switches graphics_variation as the crop grows.
--- No collision: colonists and the player walk over the field.
+-- Custom collision layer prevents overlapping plots without blocking walking player or colonists.
+data:extend{
+  {type = "collision-layer", name = "colony_farm_plot"},
+}
+
 local plot = {
   -- simple-entity-with-owner (not simple-entity): it has a unit_number, which the plot registry and
   -- destruction events are keyed by.
   type = "simple-entity-with-owner", name = "colony-farm-plot", localised_name = {"entity-name.colony-farm-plot"},
   icon = G .. "farm-plot-ripe.png", icon_size = 64,
   flags = {"placeable-neutral", "player-creation"},
-  collision_box = {{-0.2, -0.2}, {0.2, 0.2}}, collision_mask = {layers = {}},
+  collision_box = {{-0.45, -0.45}, {0.45, 0.45}}, collision_mask = {layers = {colony_farm_plot = true}},
   selection_box = {{-0.5, -0.5}, {0.5, 0.5}}, selectable_in_game = true,
   minable = {mining_time = 0.2, result = "colony-farm-plot"},
   pictures = {
-    {filename = G .. "farm-plot-fallow.png", size = 64, scale = 1},
-    {filename = G .. "farm-plot-growing.png", size = 64, scale = 1},
-    {filename = G .. "farm-plot-ripe.png", size = 64, scale = 1},
+    {filename = G .. "farm-plot-fallow.png", size = 64, scale = 0.5},
+    {filename = G .. "farm-plot-growing.png", size = 64, scale = 0.5},
+    {filename = G .. "farm-plot-ripe.png", size = 64, scale = 0.5},
   },
-  random_variation_on_create = false, render_layer = "object", max_health = 100,
+  random_variation_on_create = false, render_layer = "lower-object", max_health = 100,
 }
 
 -- Forage patch: a natural world feature (autoplaced on grass), not something a hut spawns.

@@ -238,10 +238,44 @@ scheduler.register("construct.scan", function(d)
   scheduler.after(construct.SCAN_TICKS, "construct.scan", {colony_id = colony.id})
 end)
 
+local function hut_resources(h)
+  if h.job == "mine" then
+    return mine_plan.order(h.ores)
+  elseif h.job == "chop" then
+    return {"wood"}
+  elseif h.job == "forage" then
+    return {"colony-forage"}
+  elseif h.job == "hunt" then
+    return {"colony-meat"}
+  elseif h.job == "fish" then
+    return {"colony-fish"}
+  elseif h.job == "farm" then
+    return {"colony-produce"}
+  end
+  return nil
+end
+
+local function hut_quota_met(colony, h)
+  local res = hut_resources(h)
+  if not res then return false, nil end
+  local last_item = nil
+  for _, item in ipairs(res) do
+    if colony_mod.quota_met(colony, item) then
+      last_item = item
+    else
+      return false, nil
+    end
+  end
+  return true, last_item
+end
+M.hut_resources = hut_resources
+M.hut_quota_met = hut_quota_met
+
 local function job_slots(colony)
   local list = {}
   for _, h in ipairs(hut_list(colony)) do
     local _, _, allowed, workers = M.hut_info(h)
+    if hut_quota_met(colony, h) then allowed = 0 end
     list[#list + 1] = {job = h.job, allowed = allowed, workers = workers, hut = h}
   end
   local slots = labour.free_slots(list)
@@ -277,15 +311,27 @@ local function find_site(colony, e, hut)
   local in_territory = function(t) return territory.owner_at(colony.surface_index, t.position) == colony.id end
   local free = function(t) return in_territory(t) and not colony.claimed[key(t)] end
   if hut.job == "forage" then
+    if colony_mod.quota_met(colony, "colony-forage") then return nil, "colony-forage" end
     return nearest(s.find_entities_filtered{name = "colony-forage-patch", position = base, radius = radius}, base, free)
   elseif hut.job == "chop" then
+    if colony_mod.quota_met(colony, "wood") then return nil, "wood" end
     return nearest(s.find_entities_filtered{position = base, radius = radius, type = "tree"}, base, free)
   elseif hut.job == "mine" then
     -- Ore priority: work the best-ranked ore that is actually in range, so a hut does not walk past iron
     -- to grab the nearest stone. Ores sharing a rank fall back to distance (the old behaviour).
+    -- Quota check (#84): skip any ore that has reached its quota; switch to the next open ore.
+    local any_met, last_met = false, nil
     for _, ore in ipairs(mine_plan.order(hut.ores)) do
-      local site = nearest(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = ore}, base, in_territory)
-      if site then return site end
+      if colony_mod.quota_met(colony, ore) then
+        any_met = true
+        last_met = ore
+      else
+        local site = nearest(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = ore}, base, in_territory)
+        if site then return site end
+      end
+    end
+    if any_met and hut_quota_met(colony, hut) then
+      return nil, last_met
     end
     return nil
   elseif hut.job == "preserve" then
@@ -293,11 +339,13 @@ local function find_site(colony, e, hut)
     -- Returning nil leaves it unstaffed (and `no_site` stops the town from thrashing on it for a while).
     return preserve.recipe(chest_contents(hut.entity) or {}) and hut.entity
   elseif hut.job == "fish" then
+    if colony_mod.quota_met(colony, "colony-fish") then return nil, "colony-fish" end
     -- The dock is the workplace: there is no world entity to harvest, the water is the resource, and whether
     -- there is enough of it was settled when the dock was built (model/fishing.lua). Everyone fishes the same
     -- dock, so it is never claimed.
     return hut.entity
   elseif hut.job == "hunt" then
+    if colony_mod.quota_met(colony, "colony-meat") then return nil, "colony-meat" end
     -- Game roams, so it is picked by position *now*; the engine's attack command then does the chasing.
     -- One animal is claimed at a time so three hunters do not all shoot the same boar.
     local list = {}
@@ -311,6 +359,7 @@ local function find_site(colony, e, hut)
     local pick = hunting.nearest(list, base, radius)
     return pick and pick.entity
   elseif hut.job == "farm" then
+    if colony_mod.quota_met(colony, "colony-produce") then return nil, "colony-produce" end
     -- Ripe plots first (food now), then fallow plots (plant for later); nearest wins, ties by unit_number.
     local best, best_ripe, best_d, r2 = nil, false, nil, radius * radius
     for un, plot in pairs(colony.plots or {}) do
@@ -729,10 +778,14 @@ end
 
 local function start_trip(colony, un, hut)
   local e = colony.colonists[un]
-  local site = find_site(colony, e, hut)
+  local site, quota_item = find_site(colony, e, hut)
   if not site then
     hut.workers[un] = nil
-    colony.no_site[hut.job] = game.tick + 600
+    if quota_item then
+      if e and e.valid then popup(e.surface, e.position, {"colony-message.quota-reached", item_name(quota_item)}) end
+    else
+      colony.no_site[hut.job] = game.tick + 600
+    end
     return false
   end
   -- Resources are shared; trees/patches/plots are not; an animal is claimed by unit_number because its
@@ -932,6 +985,7 @@ scheduler.register("work.finish", function(d)
   -- Yield goes into the hut that employed the colonist: the hut is the forward stockpile, and a hauler
   -- carries it inward (hut_collect_offer) instead of every worker walking each load to the Town Hall.
   st.carry = {{item = item, count = n}}
+  colony.ledger_cache = nil
   st.state = "to_hut"
   go(e, hut.entity.position, 3)
 end)
@@ -1121,6 +1175,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
       refused = st.carry or {}
     end
     st.carry = nil
+    colony.ledger_cache = nil
     if #refused > 0 then
       if e and e.valid and colony.hall.valid then
         st.carry, st.state = refused, "to_hall"     -- hut full or gone: fall back to the Town Hall
@@ -1137,6 +1192,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   elseif st.state == "to_hall" then
     if st.carry then return_to_hall(colony, st.carry) end
     st.carry = nil
+    colony.ledger_cache = nil
     M.assign(colony, ev.unit_number)
   end
 end)
@@ -1152,6 +1208,8 @@ events.on(defines.events.on_entity_died, function(ev)
   local n = hunting.MEAT_PER_KILL
   st.carry = st.carry or {}
   st.carry[#st.carry + 1] = {item = "colony-meat", count = n}
+  local colony = storage.colonies[st.colony_id]
+  if colony then colony.ledger_cache = nil end
   if ev.entity.surface and ev.entity.position then
     popup(ev.entity.surface, ev.entity.position, {"", "+" .. n .. " ", item_name("colony-meat")})
   end

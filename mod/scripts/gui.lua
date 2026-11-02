@@ -245,6 +245,58 @@ local function fill_info(frame, colony)
     frame.add{type = "label", caption = {"colony-gui-info.construction", st.ghosts, st.damaged}}
   end
 
+  -- Colony resource ledger (#82): Town Hall aggregate inventory + huts + in-transit yields
+  frame.add{type = "line"}
+  frame.add{type = "label", caption = {"colony-gui-info.resources-title"}, style = "bold_label"}
+  local ledger_data = colony_mod.ledger_snapshot(colony)
+  if not ledger_data or #ledger_data.items == 0 then
+    frame.add{type = "label", caption = {"colony-gui-info.resources-empty"}}
+  else
+    local scroll = frame.add{type = "scroll-pane", direction = "vertical"}
+    scroll.style.maximal_height = 160
+    local table_gui = scroll.add{type = "table", column_count = 5, draw_horizontal_lines = true}
+    table_gui.style.horizontal_spacing = 8
+    local h1 = table_gui.add{type = "label", caption = {"colony-gui-info.res-item"}, style = "bold_label"}
+    h1.style.width = 90
+    local h2 = table_gui.add{type = "label", caption = {"colony-gui-info.res-stock"}, style = "bold_label"}
+    h2.style.width = 45; h2.style.horizontal_align = "right"
+    local h3 = table_gui.add{type = "label", caption = {"colony-gui-info.res-huts"}, style = "bold_label"}
+    h3.style.width = 45; h3.style.horizontal_align = "right"
+    local h4 = table_gui.add{type = "label", caption = {"colony-gui-info.res-transit"}, style = "bold_label"}
+    h4.style.width = 45; h4.style.horizontal_align = "right"
+    local h5 = table_gui.add{type = "label", caption = {"colony-gui-info.res-total"}, style = "bold_label"}
+    h5.style.width = 45; h5.style.horizontal_align = "right"
+
+    for _, it in ipairs(ledger_data.items) do
+      local name_lbl = table_gui.add{type = "label", caption = {"", "[item=" .. it.item .. "] ", {"item-name." .. it.item}}}
+      name_lbl.style.width = 90
+
+      local tt = {"", {"item-name." .. it.item}, "\n", {"colony-gui-info.tt-stock", it.stock}}
+      if it.huts > 0 then
+        tt[#tt + 1] = "\n"
+        tt[#tt + 1] = {"colony-gui-info.tt-huts", it.huts}
+        for hut_name, count in pairs(it.hut_details) do
+          tt[#tt + 1] = "\n  • " .. count .. " in "
+          tt[#tt + 1] = {"entity-name." .. hut_name}
+        end
+      end
+      if it.transit > 0 then
+        tt[#tt + 1] = "\n"
+        tt[#tt + 1] = {"colony-gui-info.tt-transit", it.transit}
+      end
+      name_lbl.tooltip = tt
+
+      local l_stock = table_gui.add{type = "label", caption = tostring(it.stock)}
+      l_stock.style.width = 45; l_stock.style.horizontal_align = "right"
+      local l_huts = table_gui.add{type = "label", caption = it.huts > 0 and tostring(it.huts) or "-"}
+      l_huts.style.width = 45; l_huts.style.horizontal_align = "right"
+      local l_trans = table_gui.add{type = "label", caption = it.transit > 0 and tostring(it.transit) or "-"}
+      l_trans.style.width = 45; l_trans.style.horizontal_align = "right"
+      local l_tot = table_gui.add{type = "label", caption = tostring(it.total), style = "bold_label"}
+      l_tot.style.width = 45; l_tot.style.horizontal_align = "right"
+    end
+  end
+
   frame.add{type = "line"}
   frame.add{type = "checkbox", name = "colony_accept_migrants", state = colony.accept_migrants ~= false,
     caption = {"colony-gui-info.accept-migrants"}, tooltip = {"colony-gui-info.accept-migrants-tt"}}

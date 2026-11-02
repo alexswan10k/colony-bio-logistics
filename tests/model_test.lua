@@ -653,3 +653,45 @@ describe("yields (#41)", function()
     eq(y.WORK_TICKS, 480)
   end)
 end)
+
+describe("resource ledger (#82)", function()
+  local ledger = require("scripts.model.ledger")
+  it("aggregates stock, huts, and in-transit carries", function()
+    local data = {
+      stock = {wood = 50, ["iron-ore"] = 20},
+      huts = {
+        {name = "colony-woodcutter-hut", contents = {wood = 12}},
+        {name = "colony-miner-hut", contents = {["iron-ore"] = 15, coal = 5}},
+      },
+      transit = {
+        {item = "wood", count = 4},
+        {item = "colony-meat", count = 6},
+      },
+    }
+    local res = ledger.aggregate(data)
+    eq(res.totals.wood, 66)
+    eq(res.totals["iron-ore"], 35)
+    eq(res.totals.coal, 5)
+    eq(res.totals["colony-meat"], 6)
+    eq(res.grand_total, 66 + 35 + 5 + 6)
+    local wood_entry
+    for _, item in ipairs(res.items) do
+      if item.item == "wood" then wood_entry = item end
+    end
+    truthy(wood_entry)
+    eq(wood_entry.stock, 50)
+    eq(wood_entry.huts, 12)
+    eq(wood_entry.transit, 4)
+    eq(wood_entry.total, 66)
+    eq(wood_entry.hut_details["colony-woodcutter-hut"], 12)
+  end)
+  it("sorts food before raw materials before tools", function()
+    local data = {
+      stock = {["colony-axe"] = 2, wood = 10, ["colony-forage"] = 8},
+    }
+    local res = ledger.aggregate(data)
+    eq(res.items[1].item, "colony-forage")
+    eq(res.items[2].item, "wood")
+    eq(res.items[3].item, "colony-axe")
+  end)
+end)

@@ -123,6 +123,9 @@ core.register("m1_colony", {
     c.crates[demand_crate.unit_number].filters = {{item = "stone", count = 30}}
     warehouse.insert{name = "stone", count = 100}
     ctx.check("houses registered", tent and cabin and c.houses[tent.unit_number] and c.houses[cabin.unit_number] ~= nil)
+    local led = colony.ledger_snapshot(c)
+    ctx.check("ledger aggregates stock and hut contents", led and led.totals["colony-meat"] == 2 and led.totals.stone == 100,
+      led and (led.totals["colony-meat"] or 0) .. " meat, " .. (led.totals.stone or 0) .. " stone")
     ctx.check("capacity 10", colony.capacity(c) == 10, colony.capacity(c))
     ctx.check("hut does not spawn forage patches",
       #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30} == patches_pre, patches_pre)

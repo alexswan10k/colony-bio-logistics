@@ -18,6 +18,7 @@ local yields = require("scripts.model.yields")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local tags = require("scripts.model.tags")
+local ledger = require("scripts.model.ledger")
 local work = require("scripts.work")
 local gui = require("scripts.gui")
 local M = {}
@@ -214,6 +215,72 @@ end
 
 function M.stock_count(colony, item)
   return M.stock_table(colony)[item] or 0
+end
+
+-- Colony resource ledger (#82): aggregates Town Hall stock, warehouses, labour huts, salt pans, and
+-- in-transit carries by colonists into one inventory view.
+M.LEDGER_TTL = 30   -- ticks a cached ledger snapshot is kept while GUI is open
+
+function M.ledger_snapshot(colony)
+  if colony.ledger_cache and game.tick - (colony.ledger_tick or -1e9) < M.LEDGER_TTL then
+    return colony.ledger_cache
+  end
+  local stock = {}
+  local hall = colony.hall
+  if hall and hall.valid then
+    local inv = hall.get_inventory(defines.inventory.chest)
+    if inv then for _, s in ipairs(inv.get_contents()) do stock[s.name] = (stock[s.name] or 0) + s.count end end
+  end
+  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
+    if c.entity and c.entity.valid then
+      local inv = c.entity.get_inventory(defines.inventory.chest)
+      if inv then for _, s in ipairs(inv.get_contents()) do stock[s.name] = (stock[s.name] or 0) + s.count end end
+    end
+  end
+
+  local huts_data = {}
+  for _, h in pairs(colony.huts or {}) do
+    if h.entity and h.entity.valid then
+      local inv = h.entity.get_inventory(defines.inventory.chest)
+      if inv then
+        local contents = {}
+        for _, s in ipairs(inv.get_contents()) do contents[s.name] = s.count end
+        huts_data[#huts_data + 1] = {name = h.entity.name, contents = contents}
+      end
+    end
+  end
+  for _, sp in pairs(colony.salt_pans or {}) do
+    if sp.entity and sp.entity.valid then
+      local inv = sp.entity.get_inventory(defines.inventory.chest)
+      if inv then
+        local contents = {}
+        for _, s in ipairs(inv.get_contents()) do contents[s.name] = s.count end
+        huts_data[#huts_data + 1] = {name = sp.entity.name, contents = contents}
+      end
+    end
+  end
+
+  local transit_data = {}
+  for un, c in pairs(colony.colonists or {}) do
+    if c.valid then
+      local st = storage.unit_state and storage.unit_state[un]
+      if st and st.carry then
+        for _, cr in ipairs(st.carry) do
+          if cr.item and cr.count and cr.count > 0 then
+            transit_data[#transit_data + 1] = {item = cr.item, count = cr.count}
+          end
+        end
+      end
+    end
+  end
+
+  local res = ledger.aggregate{
+    stock = stock,
+    huts = huts_data,
+    transit = transit_data,
+  }
+  colony.ledger_cache, colony.ledger_tick = res, game.tick
+  return res
 end
 
 function M.take_stock(colony, item, count)

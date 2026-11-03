@@ -4,6 +4,7 @@
 -- the colonist is buried in the colony's first Cemetery with a free plot, else under a Grave where it fell.
 local events = require("scripts.events")
 local mortality = require("scripts.model.mortality")
+local commute = require("scripts.commute")
 local M = {}
 
 M.COLONIST = "colony-colonist"
@@ -55,6 +56,9 @@ events.on(defines.events.on_entity_died, function(ev)
   if not colony then return end
   colony.colonists[un] = nil
   if colony.locks then colony.locks[un] = nil end
+  colony.pop_cache, colony.pop_tick = nil, nil
+  -- A commuter (#50) dies as its home town's colonist: the death, the grave and the freed bed are the home's.
+  colony = commute.died(un) or colony
   local killer = ev.cause and ev.cause.valid and ev.cause
   local cause = mortality.cause{
     cause_type = killer and killer.type,

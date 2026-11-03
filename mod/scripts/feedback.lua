@@ -179,6 +179,12 @@ function M.update(colony)
     local r = advice.platform{stop = transit.stop_of(p) ~= nil, waiting = transit.waiting_count(colony, p)}
     report(p.entity, r, {"colony-status." .. r.key, r.args[1]})
   end
+  for _, c in ipairs(colony_mod.canteen_list(colony)) do
+    local meals = 0
+    for _, item in ipairs(colony_mod.MEAL_ITEMS) do meals = meals + c.entity.get_item_count(item) end
+    local r = advice.canteen{meals = meals, commuters = colony.commuters_here or 0, open = colony.deficit or 0}
+    report(c.entity, r, {"colony-status." .. r.key, r.args[1], r.args[2]})
+  end
   for _, c in ipairs(colony_mod.cemetery_list(colony)) do
     local r = advice.cemetery{graves = c.graves, plots = mortality.CEMETERY_PLOTS}
     report(c.entity, r, {"colony-status." .. r.key, r.args[1], r.args[2]})

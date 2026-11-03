@@ -54,6 +54,11 @@ Three headless gates cover the things the unit tests and the playable spike cann
   both run for a shelter at least 24 tiles from the threat while the other six carry on, they arrive and cannot be hurt,
   the Town Hall shows the attack, and once the biter is destroyed the alarm clears and everyone is vulnerable and back
   at work. A last phase lets six biters `attack_area` the town and only logs survivors and whether the alarm rose.
+- `scripts/headless-spike.sh m1_commute` - the #50 commuter spike (15 checks, `TICKS=12000`, shift 2400 ticks via
+  `storage.shift_override`): A (12 beds, 8 colonists, no huts) and outpost B (hall, Forager's Hut, Canteen with 20 fish,
+  no houses) 200 tiles apart on one line. B posts a deficit, five of A's idle colonists ride out while A holds their
+  beds, work and eat until the canteen is empty, then ride home; after B's hall is restocked a second shift comes out
+  and refills the canteen itself. A + B + riders + dead stays 8 throughout, and no commuter is ever sent as a migrant.
 - `scripts/headless-spike.sh m1_tavern` - the #48 Tavern spike (19 checks, `TICKS=5000`): haulers fill an empty
   Tavern with ale from the hall, a tent within 24 tiles is Inspired and one 30+ tiles away is not, recreation sits
   between 0 and 1 and shows in desirability, ale is consumed, the tooltip says `tavern-serving`, and once all ale is

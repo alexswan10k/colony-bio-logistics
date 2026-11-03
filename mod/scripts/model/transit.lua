@@ -25,20 +25,39 @@ function M.alights_here(group, here)
   return group.from ~= here or (group.stops or 0) >= M.RETURN_AFTER
 end
 
--- groups: array of {from = colony id, n = riders, stops = stops ridden}, oldest first. Returns how many get off
--- at colony `here` given `free` beds, and the groups left aboard (each with its stop counted).
-function M.alight(groups, here, free)
-  local out, left = 0, {}
-  free = math.max(free or 0, 0)
+-- groups: array of {from = colony id, n = riders, stops = stops ridden, kind = nil|"commute"|"return", home},
+-- oldest first. Three kinds of rider (#49, #50):
+--   * migrants (kind nil) get off away from `from` into `free` beds;
+--   * commuters on their way to work ("commute", from = home) get off away from home into `jobs` (the outpost's
+--     open job slots), or back at home after RETURN_AFTER stops: their beds there were held for them;
+--   * commuters on their way home ("return") get off only at `home`, beds or not.
+-- Returns how many get off at colony `here`, the groups left aboard (each with its stop counted), and the
+-- batches that got off: array of {kind, from, home, n}.
+function M.alight(groups, here, free, jobs)
+  local out, left, offs = 0, {}, {}
+  free, jobs = math.max(free or 0, 0), math.max(jobs or 0, 0)
   for _, g in ipairs(groups) do
-    local n = g.n
-    if M.alights_here(g, here) and free > 0 then
-      local off = math.min(n, free)
-      out, free, n = out + off, free - off, n - off
+    local n, off = g.n, 0
+    if g.kind == "return" then
+      if g.home == here then off = n end
+    elseif g.kind == "commute" then
+      if g.from == here then
+        if (g.stops or 0) >= M.RETURN_AFTER then off = n end
+      else
+        off = math.min(n, jobs)
+        jobs = jobs - off
+      end
+    elseif M.alights_here(g, here) then
+      off = math.min(n, free)
+      free = free - off
     end
-    if n > 0 then left[#left + 1] = {from = g.from, n = n, stops = (g.stops or 0) + 1} end
+    if off > 0 then
+      out, n = out + off, n - off
+      offs[#offs + 1] = {kind = g.kind, from = g.from, home = g.home, n = off}
+    end
+    if n > 0 then left[#left + 1] = {from = g.from, n = n, stops = (g.stops or 0) + 1, kind = g.kind, home = g.home} end
   end
-  return out, left
+  return out, left, offs
 end
 
 function M.riders(groups)

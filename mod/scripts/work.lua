@@ -9,6 +9,7 @@ local work_plan = require("scripts.model.work_plan")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local alarm = require("scripts.model.alarm")
+local commute = require("scripts.model.commute")
 local haul_plan = require("scripts.model.haul_plan")
 local farm = require("scripts.model.farm")
 local mine_plan = require("scripts.model.mine_plan")
@@ -802,6 +803,18 @@ local function tavern_offer(t)
     demands = demands}
 end
 
+-- A Canteen (#50) asks for food, any kind, up to its stock line.
+local function canteen_offer(colony, c)
+  local have = 0
+  for _, item in ipairs(colony_mod.MEAL_ITEMS) do have = have + c.entity.get_item_count(item) end
+  local inflight = 0
+  for _, n in pairs(c.inflight) do inflight = inflight + n end
+  local demands = commute.wants(colony_mod.MEAL_ITEMS, have, inflight)
+  if #demands == 0 then return nil end
+  return {kind = "supply", canteen = c, priority = haul_plan.PRIORITY.request, key = c.entity.unit_number,
+    demands = demands}
+end
+
 -- One destination per trip, possibly several item types. Returns an offer with `.load` filled in.
 -- `cap` is what the carrier holds: a colonist's hands by default, a truck's bed when one is driving.
 local function find_haul_task(colony, cap)
@@ -831,6 +844,9 @@ local function find_haul_task(colony, cap)
   end
   for _, t in ipairs(colony_mod.tavern_list(colony)) do
     local o = tavern_offer(t); if o then offers[#offers + 1] = o end
+  end
+  for _, c in ipairs(colony_mod.canteen_list(colony)) do
+    local o = canteen_offer(colony, c); if o then offers[#offers + 1] = o end
   end
   local bins = colony_mod.bin_list(colony)
   for _, b in ipairs(bins) do
@@ -905,7 +921,7 @@ local function take_load(colony, offer)
   end
   if #taken == 0 then return nil end
   if offer.kind == "supply" then
-    local target = offer.house or offer.machine or offer.hut or offer.crate or offer.pan or offer.pool or offer.tavern
+    local target = offer.house or offer.machine or offer.hut or offer.crate or offer.pan or offer.pool or offer.tavern or offer.canteen
     for _, s in ipairs(taken) do target.inflight[s.item] = (target.inflight[s.item] or 0) + s.count end
     return taken, target
   end
@@ -1060,6 +1076,7 @@ local function haul_trip(colony, task)
   elseif task.crate then dest = task.crate.entity.position
   elseif task.pool then dest = task.pool.entity.position
   elseif task.tavern then dest = task.tavern.entity.position
+  elseif task.canteen then dest = task.canteen.entity.position
   else dest = task.hut.entity.position end
   return {colony_id = colony.id, job = "haul", state = state, bin = task.bin,
     target = inflight_target or (task.kind == "collect" and task.machine or nil), inflight_target = inflight_target,
@@ -1252,7 +1269,8 @@ end
 
 -- Passenger rail (#49): send a colonist to a platform to wait for a train out. Its current trip is abandoned
 -- (carried goods go home, its hut seat frees up); the train itself is handled in scripts/transit.lua.
-function M.send_to_platform(colony, un, platform)
+-- `extra` = more fields for the rider's state (commuters, #50: `commute`, or `home` + `wait_since`), `label` its tag.
+function M.send_to_platform(colony, un, platform, extra, label)
   local e = colony.colonists[un]
   if not (e and e.valid and platform.entity.valid) then return false end
   local st = storage.unit_state[un]
@@ -1260,8 +1278,10 @@ function M.send_to_platform(colony, un, platform)
     if st.hut and st.hut.workers then st.hut.workers[un] = nil end
     M.release(st)
   end
-  storage.unit_state[un] = {colony_id = colony.id, job = "travel", state = "to_platform", platform = platform}
-  set_label(e, "leaving by train 🚉")
+  local nst = {colony_id = colony.id, job = "travel", state = "to_platform", platform = platform}
+  for k, v in pairs(extra or {}) do nst[k] = v end
+  storage.unit_state[un] = nst
+  set_label(e, label or "leaving by train 🚉")
   go(e, platform.entity.position, 2.5)
   return true
 end

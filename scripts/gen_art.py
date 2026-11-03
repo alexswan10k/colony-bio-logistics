@@ -405,6 +405,35 @@ def tavern():
 
 
 @asset
+def canteen():
+    """commuter canteen (#50): a low timber mess hall in the same 3/4 view. A big roof dominates the top, a chimney
+    smokes at the back, the front wall has a wide serving hatch under a striped cloth awning, and two small plank
+    picnic tables with benches stand on the ground in front"""
+    a = Art(128, 128)
+    a.ao(10, 70, 120, 122, .5, 4)
+    yf, yr, yt = house(a, 12, 116, 96, 24, 72, (164, 118, 74), (120, 70, 48), wall_tex=planks_h(7), rk=.62)
+    chimney(a, 92, yr + 6, 18)
+    a.line([(12, yf + 3), (116, yf + 3)], 2, WOOD_D, shade=.2)                           # wall beam under the eave
+    a.rect(30, 84, 98, 94, (46, 30, 20), shade=.1)                                       # serving hatch opening
+    a.shade([(30, 84), (98, 84), (98, 90), (30, 90)], .35)                               # hatch reveal shade
+    a.rect(26, 94, 102, 98, WOOD_L, tex=planks_h(3), shade=.25)                          # counter ledge
+    for i, x0 in enumerate(range(24, 104, 13)):                                          # striped cloth awning
+        col = (196, 60, 52) if i % 2 == 0 else (240, 232, 214)
+        a.poly([(x0, 75), (x0 + 13, 75), (x0 + 14, 84), (x0 + 1, 84)], col, shade=.12, hi=.2)
+    a.rect(22, 73, 106, 76, WOOD_D, shade=.2)                                            # awning rail
+    a.line([(24, 84), (104, 84)], 1.5, mul((196, 60, 52), .7), hi=0)                     # awning hem
+    a.glint(18, 78, 60, 88, .2)
+    for tx in (12, 74):                                                                  # picnic tables in front
+        a.rect(tx - 4, 104, tx + 38, 108, WOOD_L, tex=planks_h(3), shade=.25)            # bench, far side
+        a.rect(tx, 110, tx + 34, 116, PLANK, tex=planks_h(3), shade=.25)                 # table top, from above
+        a.rect(tx, 116, tx + 34, 120, WOOD_D, shade=.25)                                 # table front edge
+        a.rect(tx - 2, 122, tx + 36, 124, DARKWOOD, shade=.2)                            # bench, near side
+    smoke(a, 98, yr - 12, n=3, a0=.45)
+    a.save(path("canteen"), shadow=SHADOW)
+    icon_of("canteen")
+
+
+@asset
 def passenger_platform():
     """station platform (#49) in the same 3/4 view as the houses: a raised plank deck with a stone kerb and a
     yellow edge line, a lean-to canopy over the back half (roof seen from above, posts down to the deck), a

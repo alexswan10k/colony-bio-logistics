@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 25
+local SCHEMA = 26
 
 local migrations = {
   [1] = function()
@@ -130,6 +130,16 @@ local migrations = {
     -- Civil defence (#61): colony.alarms = array of {pos, ends, id}; colonists gain the to_shelter / sheltered /
     -- exposed states, and `alarm_check` marks a running upkeep loop.
     for _, c in pairs(storage.colonies) do c.alarms = c.alarms or {} end
+  end,
+  [26] = function()
+    -- Commuter outposts (#50): storage.commuters [unit_number] = {home, ends}; colony.canteens [unit_number] =
+    -- {entity, colony_id, inflight}; colony.away = the colony's commuters out at work (their beds are held);
+    -- colonies gain deficit / commuters_here / meal_owed on their next evaluation; coach groups gain kind/home.
+    storage.commuters = storage.commuters or {}
+    for _, c in pairs(storage.colonies) do
+      c.canteens = c.canteens or {}
+      c.away = c.away or 0
+    end
   end,
 }
 

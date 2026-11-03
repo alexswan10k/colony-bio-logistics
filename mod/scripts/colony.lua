@@ -31,6 +31,7 @@ local feedback = require("scripts.feedback")
 local transit = require("scripts.transit")
 local mortality = require("scripts.mortality")
 local shelter = require("scripts.shelter")
+local commute = require("scripts.commute")
 local mortality_model = require("scripts.model.mortality")
 local M = {}
 
@@ -42,6 +43,8 @@ M.MOTOR_POOL = "colony-motor-pool"
 M.TAVERN = "colony-tavern"
 M.PLATFORM = "colony-passenger-platform"
 M.CEMETERY = "colony-cemetery"
+M.CANTEEN = "colony-canteen"
+M.MEAL_ITEMS = commute.FOOD_ITEMS     -- what a Canteen serves (#50): the foods houses eat
 M.HUT_RADIUS = 48              -- working radius around a labour hut (other colonies' land excluded)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
 M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not regrow in lockstep
@@ -138,6 +141,18 @@ function M.tavern_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.taverns[un] end
+  return out
+end
+
+-- Canteens (#50), in a stable order: [unit_number] = {entity, colony_id, inflight}.
+function M.canteen_list(colony)
+  local ids = {}
+  for un, c in pairs(colony.canteens or {}) do
+    if c.entity.valid then ids[#ids + 1] = un else colony.canteens[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.canteens[un] end
   return out
 end
 
@@ -680,7 +695,7 @@ end
 local function leave_one(colony)
   local un
   for id, c in pairs(colony.colonists) do
-    if c.valid and (not un or id > un) then un = id end
+    if c.valid and (not un or id > un) and not commute.is_commuter(id) then un = id end   -- commuters are not ours to lose
   end
   if not un then return false end
   local c = colony.colonists[un]
@@ -775,13 +790,13 @@ function M.evaluate(data)
   colony.pollution = pollution
   local d, parts = desirability.compute({
     food_ratio = M.total_food(colony) / target,
-    free_housing_ratio = capacity > 0 and (capacity - pop) / capacity or 0,
+    free_housing_ratio = capacity > 0 and math.max(capacity - pop - (colony.away or 0), 0) / capacity or 0,
     scenic = colony.scenic or 0, leisure = rated > 0 and score_sum / rated or 0, recreation = colony.recreation or 0,
     pollution = pollution, deaths = colony.deaths,
     death_halflife = mortality_model.halflife(desirability.defaults.death_halflife, #M.cemetery_list(colony) > 0),
   })
   colony.d, colony.d_parts = d, parts
-  if colony.accept_migrants ~= false and d > desirability.defaults.migrate_in and pop < capacity then
+  if colony.accept_migrants ~= false and d > desirability.defaults.migrate_in and pop + (colony.away or 0) < capacity then
     local c = spawn_colonist(colony)
     if c then
       colony.hall.force.print({"colony-message.migrant-arrived", gps(c)})
@@ -793,7 +808,9 @@ function M.evaluate(data)
     local n = colony_model.leave_count(pop, d)
     -- With a Passenger Platform and room in another colony, leavers take the train instead (#49).
     n = n - transit.depart(colony, n, 0)
-    for _ = 1, n do if not leave_one(colony) then break end end
+    local gone = 0
+    for _ = 1, n do if leave_one(colony) then gone = gone + 1 else break end end
+    n = gone
     if n > 0 then
       colony.hall.force.print({"colony-message.colonists-left", n})
       if settings.global["colony-debug-log"].value then
@@ -802,8 +819,10 @@ function M.evaluate(data)
     end
   end
   -- Colonists with no bed (a house was removed) move by train when another colony has room (#49).
-  local homeless = M.live_colonists(colony) - M.capacity(colony) - transit.waiting_count(colony)
+  -- Commuters at work here (#50) sleep at home, so they are never homeless here.
+  local homeless = M.live_colonists(colony) - #commute.here(colony) - M.capacity(colony) - transit.waiting_count(colony)
   if homeless > 0 then transit.depart(colony, 0, homeless) end
+  commute.evaluate(colony)
   M.check_milestones(colony.hall.force)
   feedback.ensure(colony)
   -- Sleepers whose individual check was lost (save/load mid-walk) are woken here. Idle colonists already
@@ -935,7 +954,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.MOTOR_POOL or name == M.TAVERN or name == M.PLATFORM or name == M.CEMETERY or M.HOUSES[name] or labour.HUTS[name] then
+    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.MOTOR_POOL or name == M.TAVERN or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or M.HOUSES[name] or labour.HUTS[name] then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -964,7 +983,7 @@ local function on_built(ev)
     if owner then refund(ev, e, name, {"colony-message.hall-too-close"}); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {}, locks = {}, quotas = {}, job_targets = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {},
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}}
     storage.colonies[id] = colony
     M.seed_forage(colony)   -- the claimed land already has berries on it
@@ -1076,6 +1095,13 @@ local function on_built(ev)
     rendering.draw_circle{color = {0.4, 0.7, 1, 0.5}, width = 2, filled = false, radius = 10,
       target = e, surface = e.surface, only_in_alt_mode = true}
     script.register_on_object_destroyed(e)
+  elseif name == M.CANTEEN then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.canteens = colony.canteens or {}
+    colony.canteens[e.unit_number] = {entity = e, colony_id = colony.id, inflight = {}}
+    script.register_on_object_destroyed(e)
   elseif name == M.CEMETERY then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -1162,7 +1188,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or item_name == M.HALL or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -1273,6 +1299,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
       colony.taverns[un] = nil
       return
     end
+    if colony.canteens and colony.canteens[un] then
+      colony.canteens[un] = nil
+      return
+    end
     if colony.cemeteries and colony.cemeteries[un] then
       colony.cemeteries[un] = nil   -- the graves go with it; `buried` keeps the count
       return
@@ -1310,7 +1340,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
   end
 end)
 
-work.bind(M); gui.bind(M); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M)   -- avoids a require cycle (runtime require is illegal)
+work.bind(M); gui.bind(M); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M); commute.bind(M, transit)   -- avoids a require cycle (runtime require is illegal)
 
 -- ---------- opt-in machine registry (#34) ----------
 -- The badge is alt-mode only: a small Town Hall icon over every machine the colony serves, so the player
@@ -1617,7 +1647,8 @@ function M.stats(colony)
     crates = #M.crate_list(colony), ghosts = ghosts, damaged = damaged,
     d = colony.d or 0, parts = colony.d_parts or {},
     scenic = colony.scenic or 0, pollution = colony.pollution or 0,
-    fallen = colony.fallen or 0, buried = colony.buried or 0}
+    fallen = colony.fallen or 0, buried = colony.buried or 0,
+    away = colony.away or 0, commuters_here = #commute.here(colony)}
 end
 
 return M

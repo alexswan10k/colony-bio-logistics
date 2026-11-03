@@ -106,6 +106,14 @@ function M.platform(f)
   return {level = "green", key = "platform-idle", args = {}}
 end
 
+-- A Canteen's tooltip (#50). facts: meals (food on hand), commuters (at work here), open (commuters still wanted).
+function M.canteen(f)
+  if (f.meals or 0) <= 0 then return {level = "amber", key = "canteen-empty", args = {}} end
+  if (f.commuters or 0) > 0 then return {level = "green", key = "canteen-serving", args = {f.commuters, f.meals}} end
+  if (f.open or 0) > 0 then return {level = "green", key = "canteen-idle", args = {f.meals, f.open}} end
+  return {level = "green", key = "canteen-full", args = {f.meals}}
+end
+
 -- A Cemetery's tooltip (#53). facts: graves, plots. Green with room; amber when full, because the next dead
 -- are then buried where they fall.
 function M.cemetery(f)

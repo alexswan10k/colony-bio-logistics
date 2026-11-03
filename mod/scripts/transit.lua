@@ -8,6 +8,7 @@ local events = require("scripts.events")
 local transit = require("scripts.model.transit")
 local work = require("scripts.work")
 local mortality = require("scripts.mortality")
+local commute = require("scripts.commute")
 local M = {}
 
 M.COACH = "colony-passenger-coach"
@@ -71,7 +72,7 @@ local function room_elsewhere(colony)
       for _, p in ipairs(colony_mod.platform_list(other)) do
         if M.stop_of(p) then served = true; break end
       end
-      if served then room = room + math.max(colony_mod.capacity(other) - colony_mod.live_colonists(other), 0) end
+      if served then room = room + math.max(colony_mod.capacity(other) - colony_mod.live_colonists(other) - (other.away or 0), 0) end
     end
   end
   return room
@@ -91,7 +92,8 @@ function M.depart(colony, leaving, homeless)
   local ids = {}
   for un, c in pairs(colony.colonists) do
     local st = storage.unit_state[un]
-    if c.valid and not (st and (st.state == "waiting_train" or st.state == "to_platform" or st.state == "driving")) then
+    if c.valid and not (st and (st.state == "waiting_train" or st.state == "to_platform" or st.state == "driving"))
+        and not commute.is_commuter(un) then
       ids[#ids + 1] = un
     end
   end
@@ -127,22 +129,37 @@ events.on(defines.events.on_train_changed_state, function(ev)
   storage.coaches = storage.coaches or {}
   local arrived = 0
   -- Riders off first: they free seats for the people waiting, and they need beds that boarders are leaving.
+  -- Migrants need a free bed, commuters bound for work an open job slot (#50), commuters bound home nothing.
+  local arrived, commuters_in, home_again = 0, 0, 0
   for _, coach in ipairs(coaches) do
     local rec = storage.coaches[coach.unit_number]
     if rec then
-      local free = colony_mod.capacity(colony) - colony_mod.live_colonists(colony)
-      local off, left = transit.alight(rec.groups, colony.id, free)
+      local free = colony_mod.capacity(colony) - colony_mod.live_colonists(colony) - (colony.away or 0)
+      local _, left, offs = transit.alight(rec.groups, colony.id, free, colony.deficit or 0)
       rec.groups = left
-      for _ = 1, off do
-        if colony_mod.spawn_colonist(colony, p.entity.position) then arrived = arrived + 1 end
+      for _, b in ipairs(offs) do
+        local spawned = {}
+        for _ = 1, b.n do
+          local e = colony_mod.spawn_colonist(colony, p.entity.position)
+          if e then spawned[#spawned + 1] = e end
+        end
+        if b.kind == "commute" and b.from ~= colony.id then
+          commute.arrived(colony, b.from, spawned)
+          commuters_in = commuters_in + #spawned
+        elseif b.kind == "commute" or b.kind == "return" then
+          commute.back_home(colony, b.n)
+          home_again = home_again + #spawned
+        else
+          arrived = arrived + #spawned
+        end
       end
       draw_riders(coach, rec)
     end
   end
-  if arrived > 0 then
-    colony.hall.force.print({"colony-message.train-arrived", arrived,
-      string.format("[gps=%d,%d,%s]", math.floor(p.entity.position.x), math.floor(p.entity.position.y), p.entity.surface.name)})
-  end
+  local at = string.format("[gps=%d,%d,%s]", math.floor(p.entity.position.x), math.floor(p.entity.position.y), p.entity.surface.name)
+  if arrived > 0 then colony.hall.force.print({"colony-message.train-arrived", arrived, at}) end
+  if commuters_in > 0 then colony.hall.force.print({"colony-message.commuters-arrived", commuters_in, at}) end
+  if home_again > 0 then colony.hall.force.print({"colony-message.commuters-home", home_again}) end
   -- Then board, coach by coach, until the seats or the queue run out.
   local queue, qi = waiting_at(colony, p), 1
   for _, coach in ipairs(coaches) do
@@ -153,20 +170,37 @@ events.on(defines.events.on_train_changed_state, function(ev)
       storage.coaches[coach.unit_number] = rec
       script.register_on_object_destroyed(coach)
     end
-    local seats, boarded = transit.seats(rec.groups), 0
+    -- Each boarder joins a group by why it rides: a migrant, a commuter off to work, a commuter going home.
+    local seats, boarded, batches = transit.seats(rec.groups), 0, {}
     while seats > 0 and qi <= #queue do
       local un = queue[qi]
       qi = qi + 1
       local c = colony.colonists[un]
       if c and c.valid then
+        local st = storage.unit_state[un]
+        local kind, home = nil, nil
+        if st and st.commute then kind = "commute"
+        elseif st and st.home then kind, home = "return", st.home end
+        local k = (kind or "") .. ":" .. tostring(home)
+        local b = batches[k]
+        if not b then
+          b = {from = colony.id, n = 0, kind = kind, home = home}
+          batches[k] = b
+          batches[#batches + 1] = b
+        end
+        b.n = b.n + 1
         colony.colonists[un] = nil
         if colony.locks then colony.locks[un] = nil end
+        if storage.commuters then storage.commuters[un] = nil end
         c.destroy()     -- work's on_object_destroyed clears its state, label and anything it carried
         boarded, seats = boarded + 1, seats - 1
       end
     end
+    for _, b in ipairs(batches) do
+      rec.groups[#rec.groups + 1] = {from = b.from, n = b.n, stops = 0, kind = b.kind, home = b.home}
+      if b.kind == "commute" then commute.left_home(colony, b.n) end
+    end
     if boarded > 0 then
-      rec.groups[#rec.groups + 1] = {from = colony.id, n = boarded, stops = 0}
       colony.pop_cache, colony.pop_tick = nil, nil
       draw_riders(coach, rec)
     end
@@ -176,9 +210,16 @@ end)
 -- A coach destroyed in combat or a crash (on_entity_died, which fires before on_object_destroyed) kills its
 -- riders: each is a death in the colony it boarded from (#53). Any other removal (mined, deconstructed, a
 -- script) lets them climb down and walk back to that colony's Town Hall.
+-- Riders by the colony they belong to: a commuter's is its home (`from` on the way out, `home` on the way
+-- back), whose bed it holds; that hold is released here, since the rider is not coming back from this coach.
 local function each_origin(rec, fn)
   local by = {}
-  for _, g in ipairs(rec.groups or {}) do by[g.from] = (by[g.from] or 0) + g.n end
+  for _, g in ipairs(rec.groups or {}) do
+    local id = g.kind == "return" and g.home or g.from
+    by[id] = (by[id] or 0) + g.n
+    local home = g.kind and storage.colonies[id]
+    if home then commute.back_home(home, g.n) end
+  end
   local ids = {}
   for id in pairs(by) do ids[#ids + 1] = id end
   table.sort(ids)

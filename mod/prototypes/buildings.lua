@@ -80,6 +80,8 @@ local tavern = chest_clone("iron-chest", "colony-tavern", "tavern", 8, 1)
 local motorpool = chest_clone("steel-chest", "colony-motor-pool", "motor-pool", 8, 1.5)
 -- Passenger Platform (#49): colonists wait here for a train. Build it within 10 tiles of a train stop.
 local platform = chest_clone("iron-chest", "colony-passenger-platform", "passenger-platform", 4, 1)
+-- Canteen (#50): an outpost's food stop for commuters from other rail-linked colonies.
+local canteen = chest_clone("iron-chest", "colony-canteen", "canteen", 8, 1)
 
 -- Passenger Coach (#49): a vanilla cargo wagon, recoloured and renamed. Colonists ride it abstractly (no seats),
 -- so `inventory_size` stays at 1 and the wagon's own inventory is not used for passengers.
@@ -250,7 +252,7 @@ end
 
 data:extend({
   hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
-  smokehouse, kitchen, tavern, motorpool, platform, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
+  smokehouse, kitchen, tavern, motorpool, platform, canteen, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -273,6 +275,7 @@ data:extend({
   item_of(tavern, "tavern", "z[colony]-l1[tavern]"),
   item_of(motorpool, "motor-pool", "z[colony]-l2[motor-pool]"),
   item_of(platform, "passenger-platform", "z[colony]-l3[passenger-platform]"),
+  item_of(canteen, "canteen", "z[colony]-l5[canteen]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(warehouse, "warehouse", "z[colony]-l[warehouse]"),
@@ -356,6 +359,7 @@ data:extend({
   recipe("colony-tavern", {wood = 40, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-motor-pool", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 20, ["iron-gear-wheel"] = 10}, 3, 1, false),
   recipe("colony-passenger-platform", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
+  recipe("colony-canteen", {wood = 30, ["stone-brick"] = 10, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-passenger-coach", {["cargo-wagon"] = 1, wood = 20}, 5, 1, false),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4, false),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1, 1, false),

@@ -98,5 +98,6 @@ data:extend({
     {"colony-civic-governance", "railway"}, {
       unlock("colony-passenger-platform"),
       unlock("colony-passenger-coach"),
+      unlock("colony-canteen"),
     }),
 })

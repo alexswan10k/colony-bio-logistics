@@ -28,6 +28,7 @@ local well = require("scripts.model.well")
 local construct = require("scripts.model.construct")
 local science = require("scripts.model.science")
 local illness = require("scripts.model.illness")
+local headcount = require("scripts.model.headcount")
 local motor = require("scripts.model.motor")
 local recreation = require("scripts.model.recreation")
 local M = {}
@@ -395,6 +396,56 @@ local function job_slots(colony)
   return slots, capacity, list, active
 end
 
+-- Identify harvest jobs whose resources are missing in the colony (#84, priority tuning).
+-- Completely empty resources (stock == 0) take strict precedence; otherwise jobs below target quota.
+local function colony_missing_jobs(colony)
+  local led = colony_mod.ledger_snapshot(colony)
+  local totals = led and led.totals or {}
+  local empty = {}
+  local below_target = {}
+
+  -- 1. Chop: wood
+  if not colony_mod.quota_met(colony, "wood") then
+    local cnt = totals["wood"] or 0
+    local tgt = colony_mod.quota_target(colony, "wood")
+    if cnt == 0 then empty.chop = true end
+    if tgt > 0 and cnt < tgt then below_target.chop = true end
+  end
+
+  -- 2. Mine: ores
+  local mine_ores = {"iron-ore", "copper-ore", "coal", "stone"}
+  for _, ore in ipairs(mine_ores) do
+    if not colony_mod.quota_met(colony, ore) then
+      local cnt = totals[ore] or 0
+      local tgt = colony_mod.quota_target(colony, ore)
+      if cnt == 0 then empty.mine = true end
+      if tgt > 0 and cnt < tgt then below_target.mine = true end
+    end
+  end
+
+  -- 3. Food: forage, farm, hunt, fish
+  local target_food = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
+  local total_food = colony_mod.total_food(colony)
+  local food_ratio = total_food / target_food
+  if total_food == 0 then
+    if not colony_mod.quota_met(colony, "colony-forage") then empty.forage = true end
+    if not colony_mod.quota_met(colony, "colony-produce") then empty.farm = true end
+    if not colony_mod.quota_met(colony, "colony-meat") then empty.hunt = true end
+    if not colony_mod.quota_met(colony, "colony-fish") then empty.fish = true end
+  elseif food_ratio < 1.0 then
+    if not colony_mod.quota_met(colony, "colony-forage") then below_target.forage = true end
+    if not colony_mod.quota_met(colony, "colony-produce") then below_target.farm = true end
+    if not colony_mod.quota_met(colony, "colony-meat") then below_target.hunt = true end
+    if not colony_mod.quota_met(colony, "colony-fish") then below_target.fish = true end
+  end
+
+  local has_empty = false
+  for _, v in pairs(empty) do if v then has_empty = true; break end end
+  if has_empty then return empty end
+  return below_target
+end
+M.colony_missing_jobs = colony_missing_jobs
+
 -- Sites ------------------------------------------------------------------------------------------
 local function dist2(a, b) local dx, dy = a.x - b.x, a.y - b.y; return dx * dx + dy * dy end
 
@@ -519,7 +570,24 @@ local function find_site(colony, e, hut)
         for _, entry in ipairs(available) do
           if entry.demand > 0 then demanded[#demanded + 1] = entry end
         end
-        local candidates = #demanded > 0 and demanded or available
+        local candidates
+        if #demanded > 0 then
+          candidates = demanded
+        else
+          local led = colony_mod.ledger_snapshot(colony)
+          local totals = led and led.totals or {}
+          local missing_ores = {}
+          for _, entry in ipairs(available) do
+            if (totals[entry.ore] or 0) == 0 then
+              missing_ores[#missing_ores + 1] = entry
+            end
+          end
+          if #missing_ores > 0 then
+            candidates = missing_ores
+          else
+            candidates = available
+          end
+        end
 
         -- Round robin among candidates sharing this rank
         local cursor = ((hut.ore_cursor or 0) % #candidates) + 1
@@ -1488,13 +1556,34 @@ function M.assign(colony, un)
     end
   end
 
+  local counts = job_counts(colony)
+  if st and st.job then counts[st.job] = math.max((counts[st.job] or 1) - 1, 0) end
+  local slots, capacity, slot_list, hut_count = job_slots(colony)
+  local task, backlog = find_haul_task(colony)
+  local missing = colony_missing_jobs(colony)
+  local pop = math.max(colony_mod.live_colonists(colony) - 1, 0)
+  local haul_wanted = headcount.target(colony.job_targets, "haul") or work_plan.haul_target(math.max(pop, 1), backlog)
+
   -- Keep the current post while its hut stands, still holds a slot for us and matches the player's lock.
   -- This is the common case by far, and it is the difference between an O(1) assignment and rebuilding the
   -- whole job matrix for every colonist that finishes a trip (#22 re-measured it).
   local prev_hut = st and st.hut
   if prev_hut then
     local capped = not lock and colony_mod.headcount_capped(colony, prev_hut.job)
-    if not capped and prev_hut.entity and prev_hut.entity.valid and prev_hut.workers and prev_hut.workers[un]
+    local should_switch = false
+    if not lock then
+      -- If deliveries are waiting and town is under haul target, don't stay stuck at hut
+      if task and (counts.haul or 0) < haul_wanted then
+        should_switch = true
+      else
+        local any_missing = false
+        for _, m in pairs(missing) do if m then any_missing = true; break end end
+        if any_missing and not missing[prev_hut.job] then
+          should_switch = true
+        end
+      end
+    end
+    if not capped and not should_switch and prev_hut.entity and prev_hut.entity.valid and prev_hut.workers and prev_hut.workers[un]
         and (not lock or lock == prev_hut.job) then
       local _, _, allowed, workers = M.hut_info(prev_hut)
       if workers <= allowed and start_trip(colony, un, prev_hut) then return end
@@ -1502,36 +1591,61 @@ function M.assign(colony, un)
     if prev_hut.workers then prev_hut.workers[un] = nil end
   end
 
-  local counts = job_counts(colony)
-  if st and st.job then counts[st.job] = math.max((counts[st.job] or 1) - 1, 0) end
-  local slots, capacity, slot_list, hut_count = job_slots(colony)
-  local task, backlog = find_haul_task(colony)
-  -- Player lock (#38): this colonist works only the chosen role, even when the matrix would send it elsewhere.
-  local job
-  if lock then
-    job = lock
-  else
-    local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
-    job = work_plan.choose{food_ratio = colony_mod.total_food(colony) / target, counts = counts,
-      slots = slots, capacity = capacity, hut_count = hut_count, pop = math.max(colony_mod.live_colonists(colony) - 1, 0),
-      haul = task ~= nil, backlog = backlog, priority = colony.priority, targets = colony.job_targets}
-  end
+  local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
+  local choose_state = {
+    food_ratio = colony_mod.total_food(colony) / target,
+    counts = counts,
+    slots = slots,
+    capacity = capacity,
+    hut_count = hut_count,
+    pop = pop,
+    haul = task ~= nil,
+    backlog = backlog,
+    priority = colony.priority,
+    targets = colony.job_targets,
+    missing = missing,
+    cursor = colony.harvest_cursor or 0,
+  }
 
-  if not job then idle(colony, un, e); return end
-  if job == "haul" then
-    if start_drive(colony, un, e, task) then return end
-    if start_haul(colony, un, e, task) then return end
-    idle(colony, un, e); return
+  for attempt = 1, 2 do
+    local job
+    if lock then
+      job = lock
+    else
+      job = work_plan.choose(choose_state)
+      if job and (job == "chop" or job == "mine" or job == "forage" or job == "farm" or job == "hunt" or job == "fish") then
+        colony.harvest_cursor = ((colony.harvest_cursor or 0) + 1) % 1000000
+      end
+    end
+
+    if not job then idle(colony, un, e); return end
+    if job == "haul" then
+      if start_drive(colony, un, e, task) then return end
+      if start_haul(colony, un, e, task) then return end
+      idle(colony, un, e); return
+    end
+    if job == "construct" then
+      if start_construct(colony, un, e) then return end
+      idle(colony, un, e); return
+    end
+    local candidate_huts = candidates_for(slot_list, job)
+    local started = false
+    for _, sl in ipairs(candidate_huts) do
+      sl.hut.workers[un] = true
+      if start_trip(colony, un, sl.hut) then
+        started = true
+        return
+      end
+    end
+    -- If all candidates for this job failed (e.g. no site / missing inputs, comms #4), retry once with other roles
+    if not started and attempt == 1 and not lock then
+      slots[job] = 0
+      choose_state.slots = slots
+    else
+      idle(colony, un, e)
+      return
+    end
   end
-  if job == "construct" then
-    if start_construct(colony, un, e) then return end
-    idle(colony, un, e); return
-  end
-  for _, sl in ipairs(candidates_for(slot_list, job)) do
-    sl.hut.workers[un] = true
-    if start_trip(colony, un, sl.hut) then return end
-  end
-  idle(colony, un, e)
 end
 
 -- Aborted trip: release reservations, claims and carried goods.

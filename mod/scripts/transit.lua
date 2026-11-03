@@ -146,6 +146,9 @@ events.on(defines.events.on_train_changed_state, function(ev)
         if b.kind == "commute" and b.from ~= colony.id then
           commute.arrived(colony, b.from, spawned)
           commuters_in = commuters_in + #spawned
+          local lost = b.n - #spawned
+          local home = storage.colonies and storage.colonies[b.from]
+          if lost > 0 and home then commute.back_home(home, lost) end
         elseif b.kind == "commute" or b.kind == "return" then
           commute.back_home(colony, b.n)
           home_again = home_again + #spawned

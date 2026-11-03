@@ -293,6 +293,32 @@ describe("work_plan", function()
   it("keeps hauling below its share before starting a lower-ranked harvest job", function()
     eq(wp.choose(s{pop = 9, haul = true, priority = {haul = 1, forage = 4, chop = 4, mine = 4}}), "haul")
   end)
+  it("allows a lone colonist to haul when there is haul work", function()
+    eq(wp.choose(s{pop = 0, haul = true}), "haul")
+  end)
+  it("prioritises missing resources over abundant ones", function()
+    -- wood is abundant (missing = false), iron/mine is missing (missing = true)
+    local state = s{pop = 3, missing = {mine = true, chop = false, forage = false},
+      slots = {chop = 2, mine = 2, forage = 2}, capacity = {chop = 2, mine = 2, forage = 2}}
+    eq(wp.choose(state), "mine")
+  end)
+  it("round-robins across missing harvest resources", function()
+    local state0 = s{pop = 3, cursor = 0, missing = {chop = true, mine = true},
+      slots = {chop = 2, mine = 2}, capacity = {chop = 2, mine = 2}}
+    local state1 = s{pop = 3, cursor = 1, missing = {chop = true, mine = true},
+      slots = {chop = 2, mine = 2}, capacity = {chop = 2, mine = 2}}
+    local j0 = wp.choose(state0)
+    local j1 = wp.choose(state1)
+    truthy(j0 == "chop" or j0 == "mine")
+    truthy(j1 == "chop" or j1 == "mine")
+    truthy(j0 ~= j1, "expected round-robin to pick different jobs, got " .. tostring(j0) .. " and " .. tostring(j1))
+  end)
+  it("falls through to hauling when all harvest resources reach threshold", function()
+    -- none are missing, haul task available
+    local state = s{pop = 3, missing = {mine = false, chop = false, forage = false}, haul = true,
+      slots = {chop = 2, mine = 2, forage = 2}, capacity = {chop = 2, mine = 2, forage = 2}}
+    eq(wp.choose(state), "haul")
+  end)
   it("gives every harvest role a share, and the shares add up (a nil share would crash choose)", function()
     for _, ratio in ipairs({0.1, 0.75, 2}) do
       local shares, sum = wp.desired_shares(ratio), 0

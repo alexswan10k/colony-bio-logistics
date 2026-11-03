@@ -2,6 +2,7 @@
 -- once per colony evaluation: exposure rolls, the Clinic's cures, and untreated illness running its course.
 local illness = require("scripts.model.illness")
 local mortality = require("scripts.mortality")
+local commute = require("scripts.commute")
 local M = {}
 
 M.CLINIC = "colony-clinic"
@@ -65,6 +66,7 @@ local function kill(colony, un, kind)
   colony.colonists[un] = nil                      -- struck off first, so mortality's handler does not count it twice
   if colony.locks then colony.locks[un] = nil end
   colony.pop_cache, colony.pop_tick = nil, nil
+  colony = commute.died(un) or colony
   mortality.record(colony, pos, surface, "illness", true)
   e.die()
   colony.hall.force.print({"colony-message.died-illness", {"colony-illness." .. kind}, colony_mod.gps(pos, surface)})

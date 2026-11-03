@@ -49,8 +49,8 @@ function M.choose(s)
   local haul_on = jobs.enabled(priority, "haul")
 
   local haul_capped = headcount.is_capped(targets, "haul", counts.haul)
-  local haul_wanted = headcount.target(targets, "haul") or M.haul_target(pop, s.backlog)
-  if haul_on and s.haul and pop > 0 and not haul_capped and (counts.haul or 0) < haul_wanted then
+  local haul_wanted = headcount.target(targets, "haul") or M.haul_target(math.max(pop, 1), s.backlog)
+  if haul_on and s.haul and not haul_capped and (counts.haul or 0) < haul_wanted then
     return "haul"
   end
 
@@ -103,20 +103,37 @@ function M.choose(s)
 
   -- Check harvest rank
   if harvest_rank then
-    local shares = M.desired_shares(s.food_ratio)
-    local best, best_gap
-    for _, job in ipairs(M.HARVEST) do
-      if (eligible_harvest_slots[job] or 0) > 0 and jobs.rank(priority, job) == harvest_rank then
-        local tgt = headcount.target(targets, job)
-        -- Every staffable hut gets one worker before the food share can double up on another hut. Without
-        -- this, a role's whole share fills the oldest hut and a hut built further out never gets anyone.
-        local floor = math.min(math.max(1, hut_count[job] or 0), capacity[job] or 0)
-        local wanted = tgt or math.max(shares[job] * (1 - M.HAUL_SHARE) * pop, floor)
-        local gap = wanted - (counts[job] or 0)
-        if not best_gap or gap > best_gap then best, best_gap = job, gap end
+    if s.missing then
+      local missing_candidates = {}
+      for _, job in ipairs(M.HARVEST) do
+        if (eligible_harvest_slots[job] or 0) > 0 and jobs.rank(priority, job) == harvest_rank then
+          local wanted_by_target = targets and targets[job] and (counts[job] or 0) < targets[job]
+          if s.missing[job] or wanted_by_target then
+            missing_candidates[#missing_candidates + 1] = job
+          end
+        end
       end
+      if #missing_candidates > 0 then
+        local idx = ((s.cursor or 0) % #missing_candidates) + 1
+        return missing_candidates[idx]
+      end
+      -- When s.missing is provided and no harvest roles have missing resources, stop collecting (frees up for hauling).
+    else
+      local shares = M.desired_shares(s.food_ratio)
+      local best, best_gap
+      for _, job in ipairs(M.HARVEST) do
+        if (eligible_harvest_slots[job] or 0) > 0 and jobs.rank(priority, job) == harvest_rank then
+          local tgt = headcount.target(targets, job)
+          -- Every staffable hut gets one worker before the food share can double up on another hut. Without
+          -- this, a role's whole share fills the oldest hut and a hut built further out never gets anyone.
+          local floor = math.min(math.max(1, hut_count[job] or 0), capacity[job] or 0)
+          local wanted = tgt or math.max(shares[job] * (1 - M.HAUL_SHARE) * pop, floor)
+          local gap = wanted - (counts[job] or 0)
+          if not best_gap or gap > best_gap then best, best_gap = job, gap end
+        end
+      end
+      if best then return best end
     end
-    if best then return best end
   end
 
   -- Fallbacks if earlier prioritized roles were skipped
@@ -125,7 +142,7 @@ function M.choose(s)
   if can_preserve then return "preserve" end
   if can_research then return "research" end
 
-  if haul_on and s.haul and pop > 0 and not haul_capped then return "haul" end
+  if haul_on and s.haul and not haul_capped then return "haul" end
   return nil
 end
 

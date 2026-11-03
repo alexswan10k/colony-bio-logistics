@@ -80,7 +80,7 @@ data:extend({
       unlock("colony-hoe"),
     }),
   tech("colony-recreation", "icon-tavern.png", 40, {"colony-frontier-pack"}, 15,
-    {"colony-advanced-agriculture"}, {
+    {"colony-advanced-agriculture", "colony-water-infrastructure"}, {
       unlock("colony-tavern"),
       unlock("colony-ale"),
     }),

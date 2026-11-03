@@ -180,7 +180,10 @@ local function run_outpost(colony)
         if walk_home(colony, un) then walked = walked + 1 end
       end
     elseif commute.shift_over(game.tick, rec.ends, night, fed) then
-      if not (p and work.send_to_platform(colony, un, p, {home = rec.home, wait_since = game.tick}, "going home 🚉")) then
+      local home = storage.colonies and storage.colonies[rec.home]
+      if not (home and home.hall.valid) then
+        if walk_home(colony, un) then walked = walked + 1 end
+      elseif not (p and work.send_to_platform(colony, un, p, {home = rec.home, wait_since = game.tick}, "going home 🚉")) then
         if walk_home(colony, un) then walked = walked + 1 end
       end
     else

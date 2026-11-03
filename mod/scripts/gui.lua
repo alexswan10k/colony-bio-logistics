@@ -99,7 +99,7 @@ local function fill_house(frame, h, colony)
     local parts = {}
     for _, opt in ipairs(need.options) do
       if opt.power then parts[#parts + 1] = powered and {"colony-gui.powered"} or {"colony-gui.no-power"}
-      else parts[#parts + 1] = string.format("[item=%s] %d (%.1f/colonist)", opt.item, stock[opt.item] or 0, opt.per) end
+      else parts[#parts + 1] = string.format("[item=%s] %d (%.1f/colonist per %ds)", opt.item, stock[opt.item] or 0, opt.per, math.floor(colony_mod.interval() / 60)) end
     end
     local caption = {"", "    "}
     for i, part in ipairs(parts) do
@@ -365,7 +365,7 @@ local function fill_info(frame, colony)
   local nxt = milestones.next(facts, researched)
   if nxt then
     frame.add{type = "label", caption = {"colony-gui-info.next-milestone", {"technology-name." .. nxt.tech},
-      nxt.have, nxt.need}, tooltip = {"technology-description." .. nxt.tech}}
+      nxt.have, nxt.need}, tooltip = {"colony-milestone." .. nxt.tech}}
   end
   frame.add{type = "label", caption = {"colony-gui-info.population", st.pop, st.capacity}}
   frame.add{type = "label", caption = {"colony-gui-info.housing", st.tents, st.cabins, st.homesteads or 0, st.apartments or 0, math.max(st.capacity - st.pop, 0)}}
@@ -382,7 +382,8 @@ local function fill_info(frame, colony)
     frame.add{type = "label", caption = {"colony-gui-info.fallen", st.fallen, st.buried or 0}}
   end
   local parts = st.parts
-  frame.add{type = "label", caption = {"colony-gui-info.desirability", string.format("%.2f", st.d)}}
+  frame.add{type = "label", caption = {"colony-gui-info.desirability", string.format("%.2f", st.d),
+    string.format("%.2f", desirability.defaults.migrate_in), string.format("%.2f", desirability.defaults.leave_below)}}
   frame.add{type = "label", caption = {"colony-gui-info.desirability-parts",
     string.format("%.2f", parts.food or 0), string.format("%.2f", parts.housing or 0),
     string.format("%.2f", parts.scenic or 0), string.format("%.2f", parts.leisure or 0),

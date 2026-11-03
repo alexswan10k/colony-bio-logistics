@@ -335,7 +335,15 @@ local function toolsmith_wanted(colony)
     end
   end
   table.sort(built)   -- pairs order is not stable
-  return toolsmith.wanted(gap_tools, built, colony_mod.stock_table(colony))
+  -- Ingredients already hauled into a Toolsmith (and tools made but not yet carried home) count as stock:
+  -- otherwise the hall runs dry of iron the moment it is delivered and the Toolsmith idles on a full chest.
+  local stock = colony_mod.stock_table(colony)
+  for _, h in pairs(colony.huts) do
+    if h.entity.valid and h.entity.name == toolsmith.NAME then
+      for item, n in pairs(chest_contents(h.entity) or {}) do stock[item] = (stock[item] or 0) + n end
+    end
+  end
+  return toolsmith.wanted(gap_tools, built, stock)
 end
 
 -- Which tool this Toolsmith makes next, and its recipe, or nil. Only recipes the force has researched count.

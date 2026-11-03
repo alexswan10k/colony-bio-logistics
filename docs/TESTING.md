@@ -40,6 +40,11 @@ Three headless gates cover the things the unit tests and the playable spike cann
   Also covers copy-paste in both directions (an opted-in source copies its settings, a plain source clears
   the destination) and that a foreign tag on the same blueprint entity is not clobbered. `TICKS=400` is
   plenty: the spike is event-driven, not a simulation.
+- `scripts/headless-spike.sh m1_tavern` - the #48 Tavern spike (19 checks, `TICKS=5000`): haulers fill an empty
+  Tavern with ale from the hall, a tent within 24 tiles is Inspired and one 30+ tiles away is not, recreation sits
+  between 0 and 1 and shows in desirability, ale is consumed, the tooltip says `tavern-serving`, and once all ale is
+  gone the buff clears. It clears one evaluation *after* the last ale is poured (evaluations read stock before
+  consuming), so the spike waits for in-flight ale to land before stripping it.
 - `scripts/headless-spike.sh m1_motor` - the #60 Motor Pool spike (26 checks, `TICKS=6000`): a pool checks a car
   out for a full hand-load with more wanted, the `colony-truck` carries 100 in one trip at 2.5x colonist speed,
   the driver waits under its stop order, the truck parks when its fuel is spent, the car goes back to the pool,
@@ -134,6 +139,9 @@ Each of these cost a debugging round in a spike; check them before assuming the 
 - **`create_blueprint` / `build_blueprint` are script paths**: they do not raise the player events, so a
   spike has to call the same helper the event handler calls (that is why `colony.tag_blueprint` takes a plain
   index -> entity table as well as a `LuaLazyLoadedValue`).
+- **Factorio 2.1 merged a recipe's `category` / `additional_categories` into `categories`**, and a recipe that still
+  sets `category` stops the game at the data stage. Leave the field out for plain crafting (the default), or use
+  `categories = {...}`.
 - **`LuaEntity.active` is read-only in 2.0** (the first `m1_motor` version crashed with "LuaEntity::active is
   read only"). To park a unit so it stays put, give it a long `defines.command.stop` with `ticks_to_wait` set to
   4294967295 and `distraction = none`, and clear it by issuing the next command.

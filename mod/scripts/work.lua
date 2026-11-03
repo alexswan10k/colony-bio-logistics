@@ -24,6 +24,7 @@ local well = require("scripts.model.well")
 local construct = require("scripts.model.construct")
 local science = require("scripts.model.science")
 local motor = require("scripts.model.motor")
+local recreation = require("scripts.model.recreation")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
@@ -792,6 +793,14 @@ local function pool_offer(colony, p)
     demands = demands}
 end
 
+-- A Tavern (#48) asks for ale up to its stock line.
+local function tavern_offer(t)
+  local demands = recreation.wants(t.entity.get_item_count(recreation.ITEM), t.inflight[recreation.ITEM])
+  if #demands == 0 then return nil end
+  return {kind = "supply", tavern = t, priority = haul_plan.PRIORITY.request, key = t.entity.unit_number,
+    demands = demands}
+end
+
 -- One destination per trip, possibly several item types. Returns an offer with `.load` filled in.
 -- `cap` is what the carrier holds: a colonist's hands by default, a truck's bed when one is driving.
 local function find_haul_task(colony, cap)
@@ -818,6 +827,9 @@ local function find_haul_task(colony, cap)
   end
   for _, p in ipairs(colony_mod.pool_list(colony)) do
     local o = pool_offer(colony, p); if o then offers[#offers + 1] = o end
+  end
+  for _, t in ipairs(colony_mod.tavern_list(colony)) do
+    local o = tavern_offer(t); if o then offers[#offers + 1] = o end
   end
   local bins = colony_mod.bin_list(colony)
   for _, b in ipairs(bins) do
@@ -892,7 +904,7 @@ local function take_load(colony, offer)
   end
   if #taken == 0 then return nil end
   if offer.kind == "supply" then
-    local target = offer.house or offer.machine or offer.hut or offer.crate or offer.pan or offer.pool
+    local target = offer.house or offer.machine or offer.hut or offer.crate or offer.pan or offer.pool or offer.tavern
     for _, s in ipairs(taken) do target.inflight[s.item] = (target.inflight[s.item] or 0) + s.count end
     return taken, target
   end
@@ -1007,7 +1019,7 @@ local function start_trip(colony, un, hut)
   end
   storage.unit_state[un] = {colony_id = colony.id, job = hut.job, hut = hut, state = "to_site", site = site,
     site_key = key(site)}
-  set_label(e, M.LABELS[hut.job])
+  set_label(e, M.LABELS[hut.job] .. (colony_mod.is_inspired(colony, un) and " ★" or ""))
   go(e, site, 1.5)
   return true
 end
@@ -1046,6 +1058,7 @@ local function haul_trip(colony, task)
   elseif task.machine then dest = task.machine.entity.position
   elseif task.crate then dest = task.crate.entity.position
   elseif task.pool then dest = task.pool.entity.position
+  elseif task.tavern then dest = task.tavern.entity.position
   else dest = task.hut.entity.position end
   return {colony_id = colony.id, job = "haul", state = state, bin = task.bin,
     target = inflight_target or (task.kind == "collect" and task.machine or nil), inflight_target = inflight_target,
@@ -1714,7 +1727,9 @@ events.on(defines.events.on_ai_command_completed, function(ev)
       local def = labour.HUTS[st.hut.entity.name]
       update_lab_status(st.hut.entity, worker_count(st.hut), def and def.capacity or 2)
     end
-    scheduler.after(M.WORK_TICKS + (ev.unit_number * 23) % 240, "work.finish", {un = ev.unit_number})
+    -- Inspired colonists (served by a Tavern, #48) finish each job sooner.
+    local ticks = recreation.work_ticks(M.WORK_TICKS, colony_mod.is_inspired(colony, ev.unit_number))
+    scheduler.after(ticks + (ev.unit_number * 23) % 240, "work.finish", {un = ev.unit_number})
   elseif st.state == "to_hut" then
     local e = unit_entity(colony, ev.unit_number)
     local hut_entity = st.hut and st.hut.entity

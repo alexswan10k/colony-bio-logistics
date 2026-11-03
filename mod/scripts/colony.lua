@@ -15,6 +15,7 @@ local wildlife = require("scripts.wildlife")
 local fishing = require("scripts.model.fishing")
 local salt = require("scripts.model.salt")
 local well = require("scripts.model.well")
+local recreation = require("scripts.model.recreation")
 local yields = require("scripts.model.yields")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
@@ -34,6 +35,7 @@ M.WATCHTOWER = "colony-watchtower"
 M.PLOT = "colony-farm-plot"
 M.WELL = "colony-well"
 M.MOTOR_POOL = "colony-motor-pool"
+M.TAVERN = "colony-tavern"
 M.HUT_RADIUS = 48              -- working radius around a labour hut (other colonies' land excluded)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
 M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not regrow in lockstep
@@ -106,6 +108,18 @@ function M.salt_pan_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.salt_pans[un] end
+  return out
+end
+
+-- Taverns (#48), in a stable order: [unit_number] = {entity, colony_id, inflight, owed, houses, inspired}.
+function M.tavern_list(colony)
+  local ids = {}
+  for un, t in pairs(colony.taverns or {}) do
+    if t.entity.valid then ids[#ids + 1] = un else colony.taverns[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.taverns[un] end
   return out
 end
 
@@ -182,6 +196,42 @@ function M.households(colony)
   local out = {}
   for i, h in ipairs(houses) do out[h.entity.unit_number] = split[i] or {} end
   return out
+end
+
+-- Taverns pour ale for the houses around them (#48, model/recreation.lua): marks each house `inspired` and returns
+-- the share of the town that was served. Runs once per colony evaluation.
+function M.serve_taverns(colony, houses, occ)
+  local taverns = M.tavern_list(colony)
+  if #taverns == 0 then
+    for _, h in ipairs(houses) do h.inspired = nil end
+    return 0
+  end
+  local tl, hl = {}, {}
+  for i, t in ipairs(taverns) do
+    tl[i] = {position = t.entity.position, ale = t.entity.get_item_count(recreation.ITEM), owed = t.owed}
+  end
+  for i, h in ipairs(houses) do hl[i] = {position = h.entity.position, occupants = occ[i] or 0} end
+  local served, used, owed, coverage = recreation.serve(tl, hl)
+  for i, t in ipairs(taverns) do
+    if used[i] > 0 then t.entity.remove_item{name = recreation.ITEM, count = used[i]} end
+    t.owed, t.houses, t.inspired = owed[i], 0, 0
+  end
+  for i, h in ipairs(houses) do
+    local ti = served[i]
+    h.inspired = ti ~= nil or nil
+    if ti then
+      taverns[ti].houses = taverns[ti].houses + 1
+      taverns[ti].inspired = taverns[ti].inspired + (occ[i] or 0)
+    end
+  end
+  return coverage
+end
+
+-- Is this colonist Inspired (+25% work speed)? True when its house was served by a Tavern last evaluation.
+function M.is_inspired(colony, un)
+  local e = M.house_of_colonist(colony, un)
+  local h = e and colony.houses[e.unit_number]
+  return h ~= nil and h.inspired == true
 end
 
 function M.house_of_colonist(colony, un)
@@ -677,6 +727,7 @@ function M.evaluate(data)
       else h.hungry = 0 end
     end
   end
+  colony.recreation = M.serve_taverns(colony, houses, occ)
   local kept = {}
   for _, a in ipairs(colony.deaths) do if a < 40 then kept[#kept + 1] = a + 1 end end
   colony.deaths = kept
@@ -693,7 +744,7 @@ function M.evaluate(data)
   local d, parts = desirability.compute({
     food_ratio = M.total_food(colony) / target,
     free_housing_ratio = capacity > 0 and (capacity - pop) / capacity or 0,
-    scenic = colony.scenic or 0, leisure = rated > 0 and score_sum / rated or 0,
+    scenic = colony.scenic or 0, leisure = rated > 0 and score_sum / rated or 0, recreation = colony.recreation or 0,
     pollution = pollution, deaths = colony.deaths,
   })
   colony.d, colony.d_parts = d, parts
@@ -846,7 +897,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.MOTOR_POOL or M.HOUSES[name] or labour.HUTS[name] then
+    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.MOTOR_POOL or name == M.TAVERN or M.HOUSES[name] or labour.HUTS[name] then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -875,7 +926,7 @@ local function on_built(ev)
     if owner then refund(ev, e, name, {"colony-message.hall-too-close"}); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, locks = {}, quotas = {}, job_targets = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, locks = {}, quotas = {}, job_targets = {},
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}}
     storage.colonies[id] = colony
     M.seed_forage(colony)   -- the claimed land already has berries on it
@@ -978,6 +1029,15 @@ local function on_built(ev)
     colony.pools = colony.pools or {}
     colony.pools[e.unit_number] = {entity = e, colony_id = colony.id, inflight = {}, out = 0}
     script.register_on_object_destroyed(e)
+  elseif name == M.TAVERN then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.taverns = colony.taverns or {}
+    colony.taverns[e.unit_number] = {entity = e, colony_id = colony.id, inflight = {}, owed = 0}
+    rendering.draw_circle{color = {0.9, 0.6, 0.2, 0.5}, width = 2, filled = false, radius = recreation.RADIUS,
+      target = e, surface = e.surface, only_in_alt_mode = true}
+    script.register_on_object_destroyed(e)
   elseif (M.HOUSES[name] or labour.HUTS[name]) then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -1048,7 +1108,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or item_name == M.HALL or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.MOTOR_POOL or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -1149,6 +1209,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.wells and colony.wells[un] then
       colony.wells[un] = nil
+      return
+    end
+    if colony.taverns and colony.taverns[un] then
+      colony.taverns[un] = nil
       return
     end
     if colony.pools and colony.pools[un] then

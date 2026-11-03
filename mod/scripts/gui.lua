@@ -365,7 +365,8 @@ local function fill_info(frame, colony)
   frame.add{type = "label", caption = {"colony-gui-info.desirability-parts",
     string.format("%.2f", parts.food or 0), string.format("%.2f", parts.housing or 0),
     string.format("%.2f", parts.scenic or 0), string.format("%.2f", parts.leisure or 0),
-    string.format("%.2f", parts.pollution or 0), string.format("%.2f", parts.deaths or 0)}}
+    string.format("%.2f", parts.pollution or 0), string.format("%.2f", parts.deaths or 0),
+    string.format("%.2f", parts.recreation or 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.desirability-inputs",
     string.format("%.2f", st.scenic or 0), string.format("%.2f", st.pollution or 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.jobs",

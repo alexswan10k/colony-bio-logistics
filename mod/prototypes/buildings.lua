@@ -74,6 +74,8 @@ local saltpan = chest_clone("wooden-chest", "colony-salt-pan", "salt-pan", 6, 1)
 -- equipment, so `labour.HUTS` leaves `tool` out and `hut_info` reports capacity as the gate instead.
 local smokehouse = chest_clone("iron-chest", "colony-smokehouse", "smokehouse", 8, 1)
 local kitchen = chest_clone("iron-chest", "colony-kitchen", "kitchen", 8, 1)
+-- Tavern (#48): serves ale to the houses around it; served colonists are Inspired.
+local tavern = chest_clone("iron-chest", "colony-tavern", "tavern", 8, 1)
 -- Motor Pool (#60): holds vanilla cars and fuel; haulers check a car out as a colony truck for big loads.
 local motorpool = chest_clone("steel-chest", "colony-motor-pool", "motor-pool", 8, 1.5)
 
@@ -207,7 +209,7 @@ end
 
 data:extend({
   hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
-  smokehouse, kitchen, motorpool, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
+  smokehouse, kitchen, tavern, motorpool, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
   plot, bush, sink, marker,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -227,6 +229,7 @@ data:extend({
   item_of(saltpan, "salt-pan", "z[colony]-k[salt-pan]"),
   item_of(smokehouse, "smokehouse", "z[colony]-l[smokehouse]"),
   item_of(kitchen, "kitchen", "z[colony]-l1[kitchen]"),
+  item_of(tavern, "tavern", "z[colony]-l1[tavern]"),
   item_of(motorpool, "motor-pool", "z[colony]-l2[motor-pool]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
@@ -307,6 +310,7 @@ data:extend({
   recipe("colony-salt-pan", {wood = 10, ["stone-brick"] = 10}, 2, 1, false),
   recipe("colony-smokehouse", {wood = 25, ["stone-brick"] = 10, ["iron-plate"] = 5}, 3, 1, false),
   recipe("colony-kitchen", {wood = 30, ["stone-brick"] = 15, ["iron-plate"] = 10}, 3, 1, false),
+  recipe("colony-tavern", {wood = 40, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-motor-pool", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 20, ["iron-gear-wheel"] = 10}, 3, 1, false),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4, false),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1, 1, false),
@@ -354,4 +358,14 @@ data:extend({
    subgroup = "raw-resource", order = "z[colony]-b1[bread]", stack_size = 100,
    spoil_ticks = 60 * 60 * 60, spoil_result = "spoilage", localised_name = {"item-name.colony-bread"},
    localised_description = {"item-description.colony-bread"}},
+  {type = "item", name = "colony-ale", icon = G .. "icon-ale.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-b2[ale]", stack_size = 50,
+   localised_name = {"item-name.colony-ale"}, localised_description = {"item-description.colony-ale"}},
+  {type = "recipe", name = "colony-ale", enabled = false, energy_required = 4,
+   ingredients = {{type = "item", name = "colony-produce", amount = 2},
+                  {type = "item", name = "colony-water", amount = 2}},
+   results = {{type = "item", name = "colony-ale", amount = 2}},
+   icon = G .. "icon-ale.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-b2[ale]",
+   localised_name = {"recipe-name.colony-ale"}},
 })

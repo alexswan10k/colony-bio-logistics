@@ -9,6 +9,7 @@ local housing = require("scripts.model.housing")
 local workshop = require("scripts.model.workshop")
 local jobs = require("scripts.model.jobs")
 local motor = require("scripts.model.motor")
+local recreation = require("scripts.model.recreation")
 local work = require("scripts.work")
 local M = {}
 
@@ -38,7 +39,8 @@ local function house_status(h)
   elseif r.key == "house-lacking" then
     return r, {"colony-status." .. r.key, need(r.args[1])}
   end
-  return r, {"colony-status." .. r.key, r.args[1], r.args[2]}
+  local key = (r.key == "house-ok" and h.inspired) and "house-ok-inspired" or r.key
+  return r, {"colony-status." .. key, r.args[1], r.args[2]}
 end
 
 -- A hut short of its tool, where the hall workshop could make one: which ingredient is missing, if any.
@@ -156,6 +158,11 @@ function M.update(colony)
     for _, t in pairs(storage.trucks or {}) do if t.pool == p then out = out + 1 end end
     local r = advice.pool{cars = contents[motor.CAR] or 0, fuel = motor.fuel_count(contents), tank = p.tank, out = out}
     report(p.entity, r, {"colony-status." .. r.key, r.args[1], r.args[2], r.args[3]})
+  end
+  for _, t in ipairs(colony_mod.tavern_list(colony)) do
+    local ale = t.entity.get_item_count(recreation.ITEM)
+    local r = advice.tavern{ale = ale, houses = t.houses or 0, inspired = t.inspired or 0}
+    report(t.entity, r, {"colony-status." .. r.key, r.args[1], r.args[2], r.args[3]})
   end
   local r, label, icon = hall_status(colony)
   report(colony.hall, r, label, icon)

@@ -91,6 +91,14 @@ function M.pool(f)
   return {level = "green", key = "pool-ready", args = {f.cars, f.fuel or 0}}
 end
 
+-- A Tavern's tooltip (#48). facts: ale (on tap), houses and inspired (served at the last evaluation). Amber, never
+-- red: a dry Tavern only means nobody gets the bonus.
+function M.tavern(f)
+  if (f.ale or 0) <= 0 then return {level = "amber", key = "tavern-dry", args = {}} end
+  if (f.houses or 0) == 0 then return {level = "amber", key = "tavern-idle", args = {f.ale}} end
+  return {level = "green", key = "tavern-serving", args = {f.houses, f.inspired or 0, f.ale}}
+end
+
 -- State of one machine request row. have = in the machine, inflight = on a hauler, stock = colony stock.
 function M.request(f)
   if f.have >= f.count then return "stocked" end

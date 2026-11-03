@@ -78,6 +78,11 @@ data:extend({
       unlock("colony-farm-plot"),
       unlock("colony-hoe"),
     }),
+  tech("colony-recreation", "icon-tavern.png", 40, {"colony-frontier-pack"}, 15,
+    {"colony-advanced-agriculture"}, {
+      unlock("colony-tavern"),
+      unlock("colony-ale"),
+    }),
   tech("colony-civic-governance", "icon-civic-pack.png", 50, {"colony-frontier-pack"}, 20,
     {"colony-water-infrastructure", "colony-advanced-agriculture"}, {
       unlock("colony-university"),

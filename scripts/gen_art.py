@@ -381,6 +381,30 @@ def motor_pool():
 
 
 @asset
+def tavern():
+    """timber tavern (#48): half-timbered front, warm lit windows, a hanging sign with a mug"""
+    a = Art(128, 128)
+    a.ao(10, 84, 124, 124, .5, 4)
+    yf, yr, yt = house(a, 14, 114, 114, 28, 76, (150, 104, 66), (126, 62, 44), wall_tex=planks_v(7), rk=.8)
+    for x in (14, 40, 66, 92, 112):
+        a.rect(x - 2, yf, x + 2, 114, WOOD_D, shade=.2)                                  # timber posts
+    a.line([(14, yf + 12), (114, yf + 12)], 3, WOOD_D, shade=.2)                         # timber beam
+    chimney(a, 86, yr + 2, 20)
+    door(a, 22, 94, 40, 114)
+    window(a, 50, 92, 62, 104, lit=True)
+    window(a, 70, 92, 82, 104, lit=True)
+    a.line([(94, 90), (112, 90)], 2, IRON_D)                                             # sign bracket
+    a.line([(99, 90), (99, 96)], 1, IRON_D, hi=0)
+    a.line([(107, 90), (107, 96)], 1, IRON_D, hi=0)
+    a.rect(97, 96, 109, 110, WOOD_L, r=2, tex=planks_h(3), shade=.25)                    # hanging board
+    a.rect(100, 99, 105, 107, (236, 180, 70), r=1, shade=.2)                             # mug body
+    a.ell(99, 96, 106, 100, (250, 246, 232), shade=.15, edge=.3)                         # foam
+    a.ell(104, 101, 109, 105, (236, 180, 70), shade=.2)                                  # handle
+    a.save(path("tavern"), shadow=SHADOW)
+    icon_of("tavern")
+
+
+@asset
 def watchtower():
     a = Art(128, 128)
     a.ao(12, 98, 122, 126, .55, 5)
@@ -661,6 +685,12 @@ def icons_food():
         a.line([(x - 3, 26), (x + 3, 42)], 3, (238, 192, 122), hi=0, edge=.3)
     a.glint(14, 22, 36, 32, .3)
     done(a, "icon-bread")
+    a = Art(64, 64)                                                                                     # ale (foamy mug)
+    a.line([(42, 30), (52, 30), (52, 46), (42, 46)], 4, (206, 142, 46), shade=.3)
+    a.rect(12, 22, 42, 56, (206, 142, 46), r=3, shade=.32, tex=speckle(.5, 30))
+    a.ell(10, 12, 44, 26, (246, 240, 222), shade=.2, edge=.3)
+    a.glint(16, 30, 24, 50, .35)
+    done(a, "icon-ale")
     a = Art(64, 64)                                                                                     # produce
     a.poly([(32, 14), (52, 30), (44, 56), (20, 56), (12, 30)], (226, 132, 48), shade=.32)
     for y in (28, 36, 44):

@@ -804,7 +804,8 @@ function M.evaluate(data)
     death_halflife = mortality_model.halflife(desirability.defaults.death_halflife, #M.cemetery_list(colony) > 0),
   })
   colony.d, colony.d_parts = d, parts
-  if colony.accept_migrants ~= false and d > desirability.defaults.migrate_in and pop + (colony.away or 0) < capacity and M.total_food(colony) > 0 then
+  if colony.accept_migrants ~= false and d > desirability.defaults.migrate_in and pop + (colony.away or 0) < capacity
+      and (M.total_food(colony) > 0 or pop == 0) then   -- the first settler forages for itself
     local c = spawn_colonist(colony)
     if c then
       colony.hall.force.print({"colony-message.migrant-arrived", gps(c)})

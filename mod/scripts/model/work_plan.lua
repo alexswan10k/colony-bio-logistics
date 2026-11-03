@@ -103,6 +103,7 @@ function M.choose(s)
 
   -- Check harvest rank
   if harvest_rank then
+    -- Missing resources first (empty stock, or below a player quota), round-robin between them.
     if s.missing then
       local missing_candidates = {}
       for _, job in ipairs(M.HARVEST) do
@@ -113,27 +114,37 @@ function M.choose(s)
           end
         end
       end
-      if #missing_candidates > 0 then
-        local idx = ((s.cursor or 0) % #missing_candidates) + 1
-        return missing_candidates[idx]
+      -- Every staffable role gets its first worker before a missing one doubles up: otherwise one ore the
+      -- huts can never reach (no copper in range) pulls the whole town into the mines.
+      local unstaffed_missing, unstaffed = {}, {}
+      for _, job in ipairs(missing_candidates) do
+        if (counts[job] or 0) == 0 then unstaffed_missing[#unstaffed_missing + 1] = job end
       end
-      -- When s.missing is provided and no harvest roles have missing resources, stop collecting (frees up for hauling).
-    else
-      local shares = M.desired_shares(s.food_ratio)
-      local best, best_gap
       for _, job in ipairs(M.HARVEST) do
-        if (eligible_harvest_slots[job] or 0) > 0 and jobs.rank(priority, job) == harvest_rank then
-          local tgt = headcount.target(targets, job)
-          -- Every staffable hut gets one worker before the food share can double up on another hut. Without
-          -- this, a role's whole share fills the oldest hut and a hut built further out never gets anyone.
-          local floor = math.min(math.max(1, hut_count[job] or 0), capacity[job] or 0)
-          local wanted = tgt or math.max(shares[job] * (1 - M.HAUL_SHARE) * pop, floor)
-          local gap = wanted - (counts[job] or 0)
-          if not best_gap or gap > best_gap then best, best_gap = job, gap end
+        if (eligible_harvest_slots[job] or 0) > 0 and jobs.rank(priority, job) == harvest_rank and (counts[job] or 0) == 0 then
+          unstaffed[#unstaffed + 1] = job
         end
       end
-      if best then return best end
+      for _, list in ipairs{unstaffed_missing, unstaffed, missing_candidates} do
+        if #list > 0 then return list[((s.cursor or 0) % #list) + 1] end
+      end
     end
+    -- Otherwise the usual shares. A hut whose quota is met already has no slots (work.job_slots), so this
+    -- stops at the quota; with no quota (0 = unlimited) gathering simply carries on.
+    local shares = M.desired_shares(s.food_ratio)
+    local best, best_gap
+    for _, job in ipairs(M.HARVEST) do
+      if (eligible_harvest_slots[job] or 0) > 0 and jobs.rank(priority, job) == harvest_rank then
+        local tgt = headcount.target(targets, job)
+        -- Every staffable hut gets one worker before the food share can double up on another hut. Without
+        -- this, a role's whole share fills the oldest hut and a hut built further out never gets anyone.
+        local floor = math.min(math.max(1, hut_count[job] or 0), capacity[job] or 0)
+        local wanted = tgt or math.max(shares[job] * (1 - M.HAUL_SHARE) * pop, floor)
+        local gap = wanted - (counts[job] or 0)
+        if not best_gap or gap > best_gap then best, best_gap = job, gap end
+      end
+    end
+    if best then return best end
   end
 
   -- Fallbacks if earlier prioritized roles were skipped

@@ -39,6 +39,7 @@ M.WORK_TICKS = yields.WORK_TICKS
 -- Tools the Toolsmith has made since the game started. A diagnostic for the spikes, not game state: it is not saved.
 M.tools_made = 0
 M.RETRY_TICKS = 300
+M.SMALL_TOWN = 8           -- below this many colonists a harvester also checks for waiting deliveries
 M.RETRY_BACKOFF_MAX = 4     -- an idle colonist that keeps finding nothing waits up to this many retry periods (#22)
 M.RETRY_BACKOFF_POP = 100   -- ...but only in big towns: one extra retry period per this many colonists
 M.YIELD = {forage = yields.FORAGE, chop = yields.CHOP}
@@ -398,6 +399,9 @@ end
 
 -- Identify harvest jobs whose resources are missing in the colony (#84, priority tuning).
 -- Completely empty resources (stock == 0) take strict precedence; otherwise jobs below target quota.
+local HARVEST_JOB = {}
+for _, j in ipairs(work_plan.HARVEST) do HARVEST_JOB[j] = true end
+
 local function colony_missing_jobs(colony)
   local led = colony_mod.ledger_snapshot(colony)
   local totals = led and led.totals or {}
@@ -441,7 +445,13 @@ local function colony_missing_jobs(colony)
 
   local has_empty = false
   for _, v in pairs(empty) do if v then has_empty = true; break end end
-  if has_empty then return empty end
+  if has_empty then
+    -- Empty stock comes first, but hungry towns still feed themselves.
+    for _, job in ipairs{"forage", "farm", "hunt", "fish"} do
+      if below_target[job] then empty[job] = true end
+    end
+    return empty
+  end
   return below_target
 end
 M.colony_missing_jobs = colony_missing_jobs
@@ -1556,13 +1566,8 @@ function M.assign(colony, un)
     end
   end
 
-  local counts = job_counts(colony)
-  if st and st.job then counts[st.job] = math.max((counts[st.job] or 1) - 1, 0) end
-  local slots, capacity, slot_list, hut_count = job_slots(colony)
-  local task, backlog = find_haul_task(colony)
-  local missing = colony_missing_jobs(colony)
   local pop = math.max(colony_mod.live_colonists(colony) - 1, 0)
-  local haul_wanted = headcount.target(colony.job_targets, "haul") or work_plan.haul_target(math.max(pop, 1), backlog)
+  local missing
 
   -- Keep the current post while its hut stands, still holds a slot for us and matches the player's lock.
   -- This is the common case by far, and it is the difference between an O(1) assignment and rebuilding the
@@ -1570,17 +1575,22 @@ function M.assign(colony, un)
   local prev_hut = st and st.hut
   if prev_hut then
     local capped = not lock and colony_mod.headcount_capped(colony, prev_hut.job)
+    -- A harvester leaves its post when another resource is missing, or (small towns only: it rebuilds the haul
+    -- list) when deliveries are waiting and the town is short of haulers. Kept off the common path otherwise:
+    -- keeping the post must stay O(1) (#22).
     local should_switch = false
-    if not lock then
-      -- If deliveries are waiting and town is under haul target, don't stay stuck at hut
-      if task and (counts.haul or 0) < haul_wanted then
+    if not lock and HARVEST_JOB[prev_hut.job] then
+      missing = colony_missing_jobs(colony)
+      local mates = 0
+      for _ in pairs(prev_hut.workers or {}) do mates = mates + 1 end
+      -- Never strip a hut of its last worker for another resource (see work_plan.choose).
+      if next(missing) and not missing[prev_hut.job] and mates >= 2 then
         should_switch = true
-      else
-        local any_missing = false
-        for _, m in pairs(missing) do if m then any_missing = true; break end end
-        if any_missing and not missing[prev_hut.job] then
-          should_switch = true
-        end
+      elseif pop < M.SMALL_TOWN then
+        local task, backlog = find_haul_task(colony)
+        local counts = task and job_counts(colony)
+        local haul_wanted = task and (headcount.target(colony.job_targets, "haul") or work_plan.haul_target(math.max(pop, 1), backlog))
+        if task and (counts.haul or 0) < haul_wanted then should_switch = true end
       end
     end
     if not capped and not should_switch and prev_hut.entity and prev_hut.entity.valid and prev_hut.workers and prev_hut.workers[un]
@@ -1590,6 +1600,12 @@ function M.assign(colony, un)
     end
     if prev_hut.workers then prev_hut.workers[un] = nil end
   end
+
+  local counts = job_counts(colony)
+  if st and st.job then counts[st.job] = math.max((counts[st.job] or 1) - 1, 0) end
+  local slots, capacity, slot_list, hut_count = job_slots(colony)
+  local task, backlog = find_haul_task(colony)
+  missing = missing or colony_missing_jobs(colony)
 
   local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
   local choose_state = {

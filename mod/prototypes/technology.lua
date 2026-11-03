@@ -60,7 +60,7 @@ data:extend({
   milestone("colony-logistics", "icon-watchtower.png", {"colony-hunting-fishing"}, {
     "colony-watchtower", "colony-demand-crate", "colony-logistics-marker"}),
   milestone("colony-food-preservation", "icon-smokehouse.png", {"colony-logistics"}, {
-    "colony-salt-pan", "colony-smokehouse", "colony-town-archive", "colony-frontier-pack"}),
+    "colony-salt-pan", "colony-salt-from-stone", "colony-smokehouse", "colony-town-archive", "colony-frontier-pack"}),
   tech("colony-frontier-charter", "icon-frontier-pack.png", 15, {"colony-frontier-pack"}, 10,
     {"colony-food-preservation"}, {
     unlock("colony-frontier-pack-fish"),

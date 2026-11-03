@@ -653,14 +653,20 @@ function M.evaluate(data)
   })
   colony.d, colony.d_parts = d, parts
   if colony.accept_migrants ~= false and d > desirability.defaults.migrate_in and pop < capacity then
-    if spawn_colonist(colony) and settings.global["colony-debug-log"].value then
-      game.print("[colony " .. colony.id .. "] migrant arrived, D=" .. string.format("%.2f", d))
+    if spawn_colonist(colony) then
+      colony.hall.force.print({"colony-message.migrant-arrived"})
+      if settings.global["colony-debug-log"].value then
+        game.print("[colony " .. colony.id .. "] migrant arrived, D=" .. string.format("%.2f", d))
+      end
     end
   elseif d < desirability.defaults.leave_below then
     local n = colony_model.leave_count(pop, d)
     for _ = 1, n do if not leave_one(colony) then break end end
-    if n > 0 and settings.global["colony-debug-log"].value then
-      game.print("[colony " .. colony.id .. "] " .. n .. " colonist(s) left, D=" .. string.format("%.2f", d))
+    if n > 0 then
+      colony.hall.force.print({"colony-message.colonists-left", n})
+      if settings.global["colony-debug-log"].value then
+        game.print("[colony " .. colony.id .. "] " .. n .. " colonist(s) left, D=" .. string.format("%.2f", d))
+      end
     end
   end
   -- Sleepers whose individual check was lost (save/load mid-walk) are woken here. Idle colonists already
@@ -764,7 +770,7 @@ local function on_built(ev)
       local owner = territory.owner_at(e.surface.index, e.position)
       if owner then
         local p = ev.player_index and game.get_player(ev.player_index)
-        if p then p.create_local_flying_text{text = {"colony-message.outside-territory"}, position = e.position} end
+        if p then p.create_local_flying_text{text = {"colony-message.hall-too-close"}, position = e.position} end
         e.destroy()
         return
       end
@@ -818,7 +824,7 @@ local function on_built(ev)
 
   if name == M.HALL then
     local owner = territory.owner_at(e.surface.index, e.position)
-    if owner then refund(ev, e, name); e.destroy(); return end   -- no overlapping halls
+    if owner then refund(ev, e, name, {"colony-message.hall-too-close"}); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
       towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, locks = {}, quotas = {}, job_targets = {},
@@ -980,7 +986,9 @@ function M.update_cursor_overlay(player)
   elseif player.cursor_ghost then
     item_name = player.cursor_ghost.name
   end
-  if item_name ~= M.WATCHTOWER and item_name ~= M.HALL then return end
+  if not (item_name == M.WATCHTOWER or item_name == M.HALL or M.HOUSES[item_name] or labour.HUTS[item_name]
+      or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
+      or item_name == M.WELL or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}

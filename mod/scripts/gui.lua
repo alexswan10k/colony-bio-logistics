@@ -25,6 +25,7 @@ local MACHINE_GUIS = {
 M.MACHINE_GUIS = MACHINE_GUIS   -- selection tool (#35) opts in exactly the machines that have a panel
 
 local function colony_at(e) return colony_mod.colony_of(e) end
+local fill_crate, crate_ctx   -- defined with the crate panel below; the click handler above needs them
 
 -- ---------- household panel ----------
 -- Per-colonist job locks live on the house, not the Town Hall: a house lists only its own handful of
@@ -65,13 +66,18 @@ local function fill_house(frame, h, colony)
     local ok = h.sat and h.sat[need.id]
     local line = frame.add{type = "flow", direction = "horizontal"}
     line.add{type = "label", caption = {"colony-gui.need-" .. need.id}, style = "bold_label"}
-    line.add{type = "label", caption = ok == nil and "-" or (ok and "[color=green]OK[/color]" or "[color=red]MISSING[/color]")}
+    line.add{type = "label", caption = ok == nil and "-" or (ok and {"colony-gui.ok"} or {"colony-gui.missing"})}
     local parts = {}
     for _, opt in ipairs(need.options) do
-      if opt.power then parts[#parts + 1] = powered and "[color=green]powered[/color]" or "[color=gray]no power[/color]"
+      if opt.power then parts[#parts + 1] = powered and {"colony-gui.powered"} or {"colony-gui.no-power"}
       else parts[#parts + 1] = string.format("[item=%s] %d (%.1f/colonist)", opt.item, stock[opt.item] or 0, opt.per) end
     end
-    frame.add{type = "label", caption = "    " .. table.concat(parts, "  |  ")}
+    local caption = {"", "    "}
+    for i, part in ipairs(parts) do
+      if i > 1 then caption[#caption + 1] = "  |  " end
+      caption[#caption + 1] = part
+    end
+    frame.add{type = "label", caption = caption}
   end
   local demand = housing.demand(tier, stock, h.inflight, powered, h.occupants or 0)
   if #demand == 0 then frame.add{type = "label", caption = {"colony-gui.fully-stocked"}}
@@ -552,7 +558,7 @@ local function crate_contents(c)
   return out, map
 end
 
-local function fill_crate(frame, c)
+function fill_crate(frame, c)
   frame.clear()
   local contents, map = crate_contents(c)
   if c.kind == crates.DEMAND then
@@ -598,7 +604,7 @@ local function open_crate(player, e)
   fill_crate(body, c)
 end
 
-local function crate_ctx(ev)
+function crate_ctx(ev)
   local player = game.get_player(ev.player_index)
   local e = player and player.opened
   if not (e and e.valid and player.opened_gui_type == defines.gui_type.entity) then return end

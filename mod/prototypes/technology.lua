@@ -35,10 +35,7 @@ data:extend({
     unlock("colony-frontier-pack-fish"),
   }),
   tech("colony-food-preservation", "icon-salt-pan.png", 25, {"colony-frontier-pack"}, 15,
-    {"colony-frontier-charter"}, {
-      unlock("colony-salt-pan"),
-      unlock("colony-smokehouse"),
-    }),
+    {"colony-frontier-charter"}),
   tech("colony-water-infrastructure", "icon-well.png", 30, {"colony-frontier-pack"}, 15,
     {"colony-frontier-charter"}, {
       unlock("colony-well"),

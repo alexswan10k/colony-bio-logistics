@@ -25,17 +25,14 @@ Colony boundaries work like a mix of **Factorio Roboports** and **The Settlers**
 
 ### 2.2 Housing Tiers (Age of Empires Meets City Builder)
 Houses must be placed within a colony's territory radius. They act as both the population cap increaser and the hub where colonists rest and consume goods.
-* **Tier 1: Shacks / Tents**
-  * **Capacity:** $2\text{--}4$ Colonists.
-  * **Upkeep:** Raw Food (Foraged Berries, Raw Meat, Fish) + Wood.
-* **Tier 2: Homesteads / Cottages**
-  * **Capacity:** $6\text{--}8$ Colonists.
-  * **Upkeep:** Preserved/Cooked Food (Bread, Salted Meat, Smoked Fish) + Water + Coal/Wood.
-* **Tier 3: Apartment Blocks**
-  * **Capacity:** $16+$ Colonists.
-  * **Upkeep:** Gourmet/Canned Food + Electricity + Consumer Goods (Clothing, Furniture, Medical Supplies) + Access to Recreation.
-* **Tier 4: Interplanetary Arcologies / Habitat Domes**
-  * **Capacity:** $32+$ Colonists (Required on hostile planets & orbital platforms; acts as both Housing and Territory Emitter).
+Implemented tiers (`model/housing.lua`; each need is met by its first workable option, and haulers bring what the hall has):
+* **Tier 1: Tent (4 colonists) and Cabin (6 colonists)**, available from the start (Tent) and the Mining Camp milestone (Cabin).
+  * **Upkeep:** Food (forage, fish, meat, produce, then bread, with preserved food eaten last) + heat (wood; a Cabin also takes power).
+* **Tier 2: Homestead (8 colonists, 3x3)**, unlocked by Water Infrastructure. Cabins upgrade into it.
+  * **Upkeep:** Food + Water (`colony-water`, 0.5 per colonist per interval, from a Colony Well or bottling) + heat (power, coal or wood).
+* **Tier 3: Apartment (16 colonists, 4x4)**, unlocked by Civic Governance.
+  * **Upkeep:** Food + Water + mandatory electricity + Comfort (`colony-furniture`, 0.1 per colonist per interval).
+* **Tier 4: Interplanetary Arcologies / Habitat Domes** (planned, #63): **capacity 32+**, required on hostile planets and orbital platforms; acts as both Housing and Territory Emitter.
   * **Upkeep:** Pressurized Air/Water + Multi-Planet Luxury Goods + Bioflux/Advanced Medicine.
 
 ### 2.3 Desirability, Migration & Natural Reproduction
@@ -122,7 +119,7 @@ last** in `housing.FOOD`, because it is the food that keeps.
    * **Canneries:** Seal food with Steel/Iron Plates into **Canned Rations** ($3+\text{ hours}$ shelf life).
    * **Refrigerated Warehouses & Wagons:** Powered storage that drastically slows spoilage.
 
-**M1 farming slice (implemented, first pass of #44):** the player places **Farm plots** (1x1, 4 per wood recipe) on farmland inside colony territory; a **Farm Hut** (3 farmers, one **hoe** each, 30-tile radius) plants fallow plots, the crop ripens in 60 s, and a farmer harvests it into **Colony produce** (spoils in 30 min) and carries it to the Town Hall. Plots are free to plant and yield 8 produce at fertility 1.0. Vanilla 2.0 exposes no per-tile fertility (spike s06), so `model/farm.lua` maps tile names to fertility: grass 1.0, dirt 0.85, dry dirt 0.5, red desert 0.45, sand 0.25, landfill 0.6. Below 0.35 a plot cannot be placed, and water/paving cannot be farmed, so poor soil visibly yields less - the first hook for geographic specialization.
+**M1 farming slice (implemented, first pass of #44):** the player places **Farm plots** (1x1, 4 per wood recipe) on farmland inside colony territory; a **Farm Hut** (3 farmers, one **hoe** each, 30-tile radius) plants fallow plots, the crop ripens in 60 s, and a farmer harvests it into **Colony produce** (spoils in 30 min) and carries it to the Town Hall. Plots are free to plant and yield 8 produce at fertility 1.0; a plot planted with one **fertilizer** (from the Compost Bin, #78, hauled to the Farm Hut on request) yields double, 16. Fertilizer is spent when the plot is planted, not when it is harvested (`model/farm.lua`, #44). Vanilla 2.0 exposes no per-tile fertility (spike s06), so `model/farm.lua` maps tile names to fertility: grass 1.0, dirt 0.85, dry dirt 0.5, red desert 0.45, sand 0.25, landfill 0.6. Below 0.35 a plot cannot be placed, and water/paving cannot be farmed, so poor soil visibly yields less - the first hook for geographic specialization.
 
 **M2 farming slice (implemented, #44):** Fertilizer consumer + Colony Kitchens + Bread. Haulers deliver fertilizer from Compost Bins/stock to the Farm Hut on request-priority haul offers; farmers spend 1 fertilizer per fallow plot planted, boosting harvest yield $2\times$ (16 produce at 1.0 fertility). Colony Kitchens (2 cooks, supply-gated, no tool) combine 1 colony produce + 1 colony water (from well/bottling) into 1 Colony Bread (60 min shelf life), eaten last alongside preserved fish/meat. Farm Hut GUI displays plot breakdown (fallow, growing, ripe, fertilized) and local fertilizer stock.
 
@@ -263,10 +260,13 @@ As colonies advance to Tier 2 and Tier 3 Housing, colonists desire **Recreation 
 The **Town Hall workshop** (`model/workshop.lua`) makes a missing tool from colony stock when a hut is waiting on it (one per 10 s, unlocked recipes only), so woodcutters keep foragers in baskets without the player crafting them. Problems are reported where the player looks (`scripts/feedback.lua`, every 5 s): a status line on every house, hut and hall tooltip, and native custom alerts for red problems (a house about to starve, a hut that cannot get its tool, no sites in range, no food at all), toggled by the per-player `colony-alerts` setting. Carried goods are drawn over the colonist carrying them.
 
 Colonies have their own **Tech Subtree** researched in a **Town Archive** (Early) or **University** (Late) staffed by educated colonists:
-1. **Frontier Charter (Tier 1):** *Lumber + Salted/Smoked Food + Stone Bricks* $\rightarrow$ Unlocks Homesteads, Farms, Fishing Docks, Salt Pans, Watchtowers, Steel Tools.
-2. **Civic Treatise (Tier 2):** *Paper + Textiles/Clothing + Herbal Medicine + Iron Gear* $\rightarrow$ Unlocks Apartment Blocks, Clinics, Passenger Trains & Commuting, Motor Pools, Taverns.
-3. **Bio-Ecological Data (Tier 3):** *Canned Rations + Pharmaceuticals + Cultural Insights (Tourism) + Advanced Circuits* $\rightarrow$ Unlocks Resorts, Habitat Domes, Enviro-Suits, Cryo-Colonist Pods, Nurseries.
-4. **Interplanetary Sovereignty Codex (Tier 4):** *Multi-Planet Inputs (Bioflux, Tungsten, Holmium, Cryo-tech)* $\rightarrow$ Unlocks Arcologies, Orbital Hydroponics, Space Platform EVA Crew, Cybernetic Upgrades.
+The tree as built (`prototypes/technology.lua`). It opens only after the **Food Preservation** milestone, and every tech in it is paid for with Frontier Charters:
+1. **Frontier Charter** (15 packs): unlocks the fish pack recipe. Prerequisite for everything below.
+2. **Water Infrastructure** (30 packs): Homestead, Colony Well, Water Bottling, Furniture. Prerequisite for Civic Governance.
+3. **Advanced Agriculture** (25 packs): Farm Hut, Farm Plot, Hoe. Prerequisite for Civic Governance.
+4. **Civic Governance** (50 packs; needs Water Infrastructure and Advanced Agriculture): University, Apartment, Kitchen, and the Civic Treatise pack recipe. The Civic Treatise pack is defined but no tech consumes it yet.
+
+Later tiers are planned, not built: **Bio-Ecological Data** (Resorts, Habitat Domes, Enviro-Suits, Cryo-Colonist Pods, Nurseries) and **Interplanetary Sovereignty Codex** (Arcologies, Orbital Hydroponics, Space Platform EVA Crew) are tracked in #69, and the Clinic, Passenger Train and Motor Pool unlocks in #47, #49 and #60.
 
 * **Implementation details (#42, #19):**
   * **Lab Whitelist Isolation:** Vanilla labs reject custom colony packs (`can_insert == false`, `insert() == 0`), and colony labs reject vanilla packs. Isolation is enforced at the C++ engine level.

@@ -19,7 +19,10 @@
 ## Regression gates (#39)
 Three headless gates cover the things the unit tests and the playable spike cannot:
 
-- `scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (71 checks).
+- `scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (108 checks). It includes the onboarding
+  path: building a Town Hall completes the Settlement milestone, every house and hut gets a status line, the hall
+  workshop makes a missing tool from stock, and an untooled hut says so on its tooltip. The milestone techs are
+  granted before the research queue check, so that check tests research, not onboarding.
 - `scripts/headless-spike.sh m1_desirability` - the desirability inputs and leaving (19 checks): migrants
   arrive on a fed/housed site, scenic rises when trees are planted in the sampled box, `pollute()` at the
   hall pushes the pollution component to -0.60, and with D under the leave line colonists pack up - proven
@@ -37,7 +40,7 @@ Three headless gates cover the things the unit tests and the playable spike cann
   plenty: the spike is event-driven, not a simulation.
 - `scripts/save-load.sh` - builds a live colony on a headless server, saves it with `game.server_save`, then
   reloads that save in a **new process** (`--test-save ... --test-arg m1_persist_load`) and asserts every
-  registry, scheduler entry, rendering and job lock came back (24 checks). Anything stored in
+  registry, scheduler entry, rendering and job lock came back (25 checks). Anything stored in
   `storage.persist_expected` must be plain data - a Lua object there would not survive serialisation.
   Gotchas: `server_save` only writes in multiplayer, `auto_save` is ignored in `--test-save`, `auto_save`
   and `server_save` both need `<write-data>/saves` to exist, and a dedicated server sits at tick 0 unless
@@ -55,18 +58,20 @@ Three headless gates cover the things the unit tests and the playable spike cann
   request ore. Column 3 of the verbose CSV is the whole update, **column 44 is the Lua script time**, so
   the budget is read directly instead of being inferred from a delta.
 
-  Measured on the reference Mac (500 colonists, 40 cabins, 17 huts, 2000 opted-in furnaces, 1800 ticks):
+  Measured on the reference Mac (500 colonists, 83 cabins, 20 huts, 2000 opted-in furnaces, 3600 ticks), run
+  2026-11-03 at commit 12c0854 (`scripts/bench-colony.sh`):
 
   | save | total ms/tick | script ms/tick |
   |---|---|---|
-  | vanilla, no mod | 0.108 | - |
-  | mod on, no colony built | 0.107 | 0.001 |
-  | inert control (same entities, nothing registered) | 0.201 | 0.002 |
-  | colony, machines collect only | 0.797 | **0.579** |
-  | colony, machines also demand ore | 0.895 | **0.671** |
+  | vanilla, no mod | 0.096 | - |
+  | mod on, no colony built | 0.101 | 0.002 |
+  | inert control (same entities, nothing registered) | 0.201 | 0.008 |
+  | colony, machines collect only | 0.557 | **0.333** |
+  | colony, machines also demand ore | 0.582 | **0.357** |
 
-  Budget is <1 ms of Lua per tick, so the gate **passes** with ~30% headroom, and "mod enabled, no colony"
-  costs 1 microsecond. Median tick is 0.2 ms; a tail of ~8 ms remains at the p99, from assignment bursts.
+  Budget is <1 ms of Lua per tick, so the gate **passes** with ~60% headroom, and "mod enabled, no colony"
+  costs 2 microseconds of script time. An earlier run (before the milestone and feedback work) saw a median tick of
+  0.2 ms and a p99 tail of ~8 ms from assignment bursts; the percentiles have not been re-measured since.
 
   To attribute a budget miss, short-circuit a function (e.g. make `M.assign` return immediately), re-copy
   the mod into `build/bench/mods` and re-run the two `--benchmark` passes; the drop is that function's cost.

@@ -1,5 +1,5 @@
 # Bio-Logistics Colonies (Factorio 2.0 + Space Age)
-Colony-simulation mod. See [design document](docs/factorio_colony_mod_design_document.md). Status: **pre-alpha / feasibility spikes** (GitHub milestone M0).
+Colony-simulation mod. See [design document](docs/factorio_colony_mod_design_document.md). Status: **pre-alpha, milestone M2 in progress** (M0 spikes and the M1 core loop are done; see [AGENTS.md](AGENTS.md) for the current state and open issues).
 
 - Run the feasibility spikes: [docs/SPIKES.md](docs/SPIKES.md)
 - Build, link, release (Steam / mod portal): [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)

@@ -23,6 +23,7 @@ local salt = require("scripts.model.salt")
 local well = require("scripts.model.well")
 local construct = require("scripts.model.construct")
 local science = require("scripts.model.science")
+local motor = require("scripts.model.motor")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
@@ -52,6 +53,14 @@ end
 local job_counts = M.job_counts
 
 -- Floating job label above each colonist (makes the colony legible).
+-- The entity behind a unit number: a colonist, or a truck a hauler is driving (#60).
+local function unit_entity(colony, un)
+  local e = colony.colonists[un]
+  if e then return e end
+  local t = storage.trucks and storage.trucks[un]
+  return t and t.entity
+end
+
 local function set_label(e, text)
   local obj = storage.unit_labels[e.unit_number]
   if obj and obj.valid then obj.text = text; return end
@@ -767,8 +776,25 @@ scheduler.register("work.machine_sweep", function(d)
   scheduler.after(M.MACHINE_SWEEP_TICKS, "work.machine_sweep", d)
 end)
 
+-- Cars a pool has out on the road right now (a handful at most, so counting beats keeping a counter in sync).
+local function trucks_out(pool)
+  local n = 0
+  for _, t in pairs(storage.trucks or {}) do if t.pool == pool then n = n + 1 end end
+  return n
+end
+
+-- A Motor Pool (#60) asks for fuel, and for cars while the colony has any in stock.
+local function pool_offer(colony, p)
+  local demands = motor.wants(chest_contents(p.entity) or {}, p.inflight,
+    {[motor.CAR] = colony_mod.stock_count(colony, motor.CAR)}, trucks_out(p))
+  if #demands == 0 then return nil end
+  return {kind = "supply", pool = p, priority = haul_plan.PRIORITY.request, key = p.entity.unit_number,
+    demands = demands}
+end
+
 -- One destination per trip, possibly several item types. Returns an offer with `.load` filled in.
-local function find_haul_task(colony)
+-- `cap` is what the carrier holds: a colonist's hands by default, a truck's bed when one is driving.
+local function find_haul_task(colony, cap)
   local offers = {}
   for _, h in ipairs(colony_mod.house_list(colony)) do
     local o = house_offer(colony, h); if o then offers[#offers + 1] = o end
@@ -789,6 +815,9 @@ local function find_haul_task(colony)
   end
   for _, w in ipairs(colony_mod.well_list(colony)) do
     local o = well_offer(w); if o then offers[#offers + 1] = o end
+  end
+  for _, p in ipairs(colony_mod.pool_list(colony)) do
+    local o = pool_offer(colony, p); if o then offers[#offers + 1] = o end
   end
   local bins = colony_mod.bin_list(colony)
   for _, b in ipairs(bins) do
@@ -832,7 +861,7 @@ local function find_haul_task(colony)
   if #offers == 0 then return nil end
   haul_plan.order(offers)
   local hall = colony_mod.stock_table(colony)
-  local offer, load = haul_plan.choose(offers, hall, M.CARRY_CAP)
+  local offer, load = haul_plan.choose(offers, hall, cap or M.CARRY_CAP)
   if not offer then return nil end
   offer.load = load
   return offer
@@ -856,7 +885,7 @@ local function take_load(colony, offer)
   end
   if #taken == 0 then return nil end
   if offer.kind == "supply" then
-    local target = offer.house or offer.machine or offer.hut or offer.crate or offer.pan
+    local target = offer.house or offer.machine or offer.hut or offer.crate or offer.pan or offer.pool
     for _, s in ipairs(taken) do target.inflight[s.item] = (target.inflight[s.item] or 0) + s.count end
     return taken, target
   end
@@ -993,23 +1022,188 @@ local function idle(colony, un, e)
 end
 
 -- Start a haul trip if there is one; returns true when the colonist is on its way.
-local function start_haul(colony, un, e, task)
-  if not task then return false end
+-- Take a task's load and build the hauler state that delivers it: (state table, destination), or nil.
+local function haul_trip(colony, task)
   local taken, inflight_target = take_load(colony, task)
-  if not taken then return false end
+  if not taken then return nil end
   local dest, state = nil, "to_house"
   if task.kind == "collect" then dest, state = colony.hall.position, "to_hall"
   elseif task.kind == "compost" then dest, state = task.bin.entity.position, "to_bin"
   elseif task.house then dest = task.house.entity.position
   elseif task.machine then dest = task.machine.entity.position
   elseif task.crate then dest = task.crate.entity.position
+  elseif task.pool then dest = task.pool.entity.position
   else dest = task.hut.entity.position end
-  storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = state, bin = task.bin,
+  return {colony_id = colony.id, job = "haul", state = state, bin = task.bin,
     target = inflight_target or (task.kind == "collect" and task.machine or nil), inflight_target = inflight_target,
-    carry = taken}
-  set_label(e, "hauler")
+    carry = taken}, dest
+end
+
+local function start_haul(colony, un, e, task, label)
+  if not task then return false end
+  local st, dest = haul_trip(colony, task)
+  if not st then return false end
+  storage.unit_state[un] = st
+  set_label(e, label or "hauler")
   go(e, dest, 3)
   return true
+end
+
+-- Motor Pool trucks (#60) --------------------------------------------------------------------------
+-- A car cannot be driven by a unit, so the hauler does not sit in a `car`: it walks to the pool, waits inside it
+-- (teleported onto the pool under a stop order, labelled "driving"), and a `colony-truck` unit does the trip in its
+-- place. The truck is a hauler with a bigger load and a faster walk. It keeps taking big loads until its fuel is
+-- spent or there is nothing big left to move, then drives back, the car goes back on the pool's floor, and the
+-- hauler steps out where the truck stopped.
+M.POOL_REACH = 48    -- a hauler only detours to a pool this close (tiles)
+
+-- The nearest pool within reach that has a car and fuel, or nil.
+local function dispatch_pool(colony, pos)
+  local best, best_d
+  for _, p in ipairs(colony_mod.pool_list(colony)) do
+    local d = dist2(p.entity.position, pos)
+    local contents = chest_contents(p.entity) or {}
+    if d <= M.POOL_REACH * M.POOL_REACH and (not best_d or d < best_d)
+        and (motor.can_dispatch(contents) or ((contents[motor.CAR] or 0) > 0 and (p.tank or 0) > 0)) then
+      best, best_d = p, d
+    end
+  end
+  return best
+end
+
+-- Put a checked-out car back: on the pool's floor, or in colony stock when the pool is gone or full.
+local function return_car(colony, pool)
+  if pool and pool.entity.valid and pool.entity.insert{name = motor.CAR, count = 1} > 0 then return end
+  return_to_hall(colony, {{item = motor.CAR, count = 1}})
+end
+
+-- Is the haul this colonist was about to make big enough for a truck? `task.load` is already capped at one
+-- colonist's hands, so a full hand-load with more still wanted is the signal.
+local function wants_truck(task)
+  return task and haul_plan.total(task.load) >= M.CARRY_CAP and motor.worth_truck(haul_plan.deficit(task))
+end
+
+-- Send a hauler to the pool to check a car out. The car and the truck-sized load are both claimed now, exactly
+-- as a hauler on foot claims its load when it sets off: otherwise the walkers empty the source 20 at a time
+-- while the driver is still on the way to the pool, and the truck comes out to nothing (the m1_motor spike).
+local function start_drive(colony, un, e, task)
+  if not (next(colony.pools or {}) and wants_truck(task)) then return false end
+  local pool = dispatch_pool(colony, e.position)
+  if not pool then return false end
+  local big = find_haul_task(colony, motor.CAPACITY)
+  if not (big and motor.worth_truck(haul_plan.total(big.load))) then return false end
+  if pool.entity.remove_item{name = motor.CAR, count = 1} < 1 then return false end
+  local trip, dest = haul_trip(colony, big)
+  if not trip then return_car(colony, pool); return false end
+  storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = "to_pool", pool = pool, car = true,
+    carry = trip.carry, inflight_target = trip.inflight_target, trip = trip, dest = dest}
+  set_label(e, "hauler → motor pool")
+  go(e, pool.entity.position, 3)
+  return true
+end
+
+-- Burn one fuel item from the pool. Returns the trips it bought, or nil when the pool is dry. Trips a parked
+-- truck had left (`pool.tank`) are used first, so fuel already burnt is never thrown away.
+local function burn_fuel(pool)
+  if not (pool and pool.entity.valid) then return nil end
+  if (pool.tank or 0) > 0 then
+    local trips = pool.tank
+    pool.tank = nil
+    return trips
+  end
+  local fuel, trips = motor.refuel(chest_contents(pool.entity) or {})
+  if not fuel or pool.entity.remove_item{name = fuel, count = 1} < 1 then return nil end
+  return trips
+end
+
+-- The hauler arrived at the pool: fuel up, bring the truck out, and wait inside.
+local function board(colony, un, e, st)
+  local pool = st.pool
+  local trips = burn_fuel(pool)
+  local pos = trips and e.surface.find_non_colliding_position("colony-truck", pool.entity.position, 8, 0.5)
+  local truck = pos and e.surface.create_entity{name = "colony-truck", position = pos, force = e.force}
+  if not truck then
+    if trips then pool.tank = (pool.tank or 0) + trips end   -- nowhere to put the truck: keep the fuel
+    return false                                        -- the caller releases the car and the load
+  end
+  script.register_on_object_destroyed(truck)
+  storage.trucks[truck.unit_number] = {entity = truck, colony_id = colony.id, driver = un, pool = pool, trips = trips - 1}
+  storage.unit_state[truck.unit_number] = st.trip      -- the load the driver claimed at checkout rides in the truck
+  storage.unit_state[un] = {colony_id = colony.id, job = "haul", state = "driving", truck = truck.unit_number}
+  -- `LuaEntity.active` is read-only in 2.0, so the driver is parked with a stop order instead: it waits on the
+  -- pool, and the next command (release_driver -> assign) replaces it.
+  e.teleport(pool.entity.position)
+  e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
+  set_label(e, "driving 🚚")
+  show_carry(e)
+  popup(e.surface, pos, "🚚")
+  set_label(truck, "truck 🚚")
+  go(truck, st.dest, 3)
+  return true
+end
+
+-- The driver climbs out next to wherever the truck stopped and goes back to the job matrix.
+local function release_driver(colony, t, pos)
+  local d = colony.colonists[t.driver]
+  if not (d and d.valid) then return end
+  local spot = d.surface.find_non_colliding_position("colony-colonist", pos, 8, 0.5)
+  if spot then d.teleport(spot) end
+  storage.unit_state[t.driver] = {colony_id = colony.id, state = "idle"}
+  M.assign(colony, t.driver)
+end
+
+local function park(colony, tun)
+  local t = storage.trucks[tun]
+  if not t then return end
+  storage.trucks[tun], storage.unit_state[tun] = nil, nil
+  local e = t.entity
+  local pos = e.valid and e.position or (t.pool.entity.valid and t.pool.entity.position) or colony.hall.position
+  return_car(colony, t.pool)
+  if t.pool.entity.valid and (t.trips or 0) > 0 then t.pool.tank = (t.pool.tank or 0) + t.trips end
+  if e.valid then e.destroy() end
+  release_driver(colony, t, pos)
+end
+M.park = park
+
+local function send_home(colony, tun, e)
+  local t = storage.trucks[tun]
+  local dest = (t.pool.entity.valid and t.pool.entity) or colony.hall
+  storage.unit_state[tun] = {colony_id = colony.id, job = "haul", state = "to_park"}
+  set_label(e, "truck → motor pool")
+  go(e, dest.position, 4)
+end
+
+-- A truck's own assignment: another big load while it has fuel, a driver and daylight; otherwise home.
+local function assign_truck(colony, tun)
+  local t = storage.trucks[tun]
+  local e = t.entity
+  if not e.valid then storage.trucks[tun] = nil; return end
+  local driver = colony.colonists[t.driver]
+  if not (driver and driver.valid) or M.is_sleep_time(e.surface) or t.trips <= 0 then
+    return send_home(colony, tun, e)
+  end
+  local task = find_haul_task(colony, motor.CAPACITY)
+  if task and motor.worth_truck(haul_plan.total(task.load)) and start_haul(colony, tun, e, task, "truck 🚚") then
+    t.trips = t.trips - 1
+    return
+  end
+  send_home(colony, tun, e)
+end
+
+-- Back at the pool: refuel and go again if the tank is what stopped it, otherwise park.
+local function truck_home(colony, tun)
+  local t = storage.trucks[tun]
+  if not t then return end
+  local driver = colony.colonists[t.driver]
+  if t.trips <= 0 and driver and driver.valid and t.entity.valid and not M.is_sleep_time(t.entity.surface) then
+    local task = find_haul_task(colony, motor.CAPACITY)
+    local trips = task and motor.worth_truck(haul_plan.total(task.load)) and burn_fuel(t.pool)
+    if trips then
+      t.trips = trips
+      return assign_truck(colony, tun)
+    end
+  end
+  park(colony, tun)
 end
 
 function M.is_sleep_time(surface)
@@ -1028,9 +1222,12 @@ local function candidates_for(slot_list, job)
 end
 
 function M.assign(colony, un)
+  if storage.trucks and storage.trucks[un] then return assign_truck(colony, un) end
   local e = colony.colonists[un]
   if not (e and e.valid and colony.hall.valid) then return end
   local st = storage.unit_state[un]
+  -- Waiting inside a Motor Pool while its truck works: the truck decides when the shift ends.
+  if st and st.state == "driving" and storage.trucks and storage.trucks[st.truck] then return end
   local lock = colony.locks and colony.locks[un]
 
   -- Night time: colonists return to their house to sleep
@@ -1079,6 +1276,7 @@ function M.assign(colony, un)
 
   if not job then idle(colony, un, e); return end
   if job == "haul" then
+    if start_drive(colony, un, e, task) then return end
     if start_haul(colony, un, e, task) then return end
     idle(colony, un, e); return
   end
@@ -1097,6 +1295,7 @@ end
 function M.release(st)
   if not st then return end
   local colony = storage.colonies[st.colony_id]
+  if colony and st.car then return_car(colony, st.pool); st.car = nil end
   if colony and st.site_key and (st.job == "chop" or st.job == "forage" or st.job == "farm"
       or st.job == "construct" or st.job == "hunt") then
     colony.claimed[st.site_key] = nil
@@ -1362,14 +1561,24 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   if not st then return end
   local colony = storage.colonies[st.colony_id]
   if not colony then return end
+  -- A truck heading home parks wherever it gave up, rather than looping on an unreachable pool.
+  if st.state == "to_park" then truck_home(colony, ev.unit_number); return end
   if ev.result ~= defines.behavior_result.success and st.job ~= "hunt" and st.state ~= "to_bed" then
     M.release(st)
     M.assign(colony, ev.unit_number)
     return
   end
+  if st.state == "to_pool" then
+    local e = unit_entity(colony, ev.unit_number)
+    if not (e and e.valid and st.pool.entity.valid and board(colony, ev.unit_number, e, st)) then
+      M.release(st)                                -- car back to the pool (or hall), the claimed load to the hall
+      M.assign(colony, ev.unit_number)
+    end
+    return
+  end
   if st.state == "to_bed" then
     st.state = "sleeping"
-    local e = colony.colonists[ev.unit_number]
+    local e = unit_entity(colony, ev.unit_number)
     if e and e.valid then
       set_label(e, "sleeping 💤")
       popup(e.surface, e.position, "💤")
@@ -1385,11 +1594,11 @@ events.on(defines.events.on_ai_command_completed, function(ev)
       st.attempts = (st.attempts or 0) + 1
       st.site_key = "boar:" .. animal.unit_number
       colony.claimed[st.site_key] = true
-      M.command_attack(colony.colonists[ev.unit_number], animal)
+      M.command_attack(unit_entity(colony, ev.unit_number), animal)
       return
     end
     st.site = nil
-    local e = colony.colonists[ev.unit_number]
+    local e = unit_entity(colony, ev.unit_number)
     if st.carry and st.hut and st.hut.entity.valid and e and e.valid then
       use_tool(st.hut)                          -- a kill is a completed trip: the rifle wears once
       st.state = "to_hut"
@@ -1402,7 +1611,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   end
   if st.state == "to_construct" then
     st.state = st.kind == "build" and "building" or "repairing"
-    local e = colony.colonists[ev.unit_number]
+    local e = unit_entity(colony, ev.unit_number)
     if e and e.valid and st.site and st.site.valid then work_ring(e, st.site.position) end
     scheduler.after(construct.WORK_TICKS, "construct.finish", {un = ev.unit_number})
     return
@@ -1434,7 +1643,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
       st.carry = nil
       -- Spoilage (#78): a house that fills up with garbage cannot take food, and this colonist is already
       -- standing here, so clearing it costs a trip nobody had to plan.
-      local e = colony.colonists[ev.unit_number]
+      local e = unit_entity(colony, ev.unit_number)
       local bin = e and e.valid and colony_mod.nearest_bin(colony, target.entity.position)
       local spoil = bin and target.entity.remove_item{name = compost.SOURCE, count = M.CARRY_CAP}
       if spoil and spoil > 0 then
@@ -1445,7 +1654,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     else M.release(st) end
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_bin" then
-    local e = colony.colonists[ev.unit_number]
+    local e = unit_entity(colony, ev.unit_number)
     local bin, carry = st.bin, st.carry
     st.bin, st.carry = nil, nil
     local leftover, dropped = {}, 0
@@ -1463,7 +1672,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_site" then
     st.state = "working"
-    local e = colony.colonists[ev.unit_number]
+    local e = unit_entity(colony, ev.unit_number)
     if e and e.valid and st.site.valid then work_ring(e, st.site.position) end
     if st.hut and st.hut.job == "research" and st.hut.entity.valid then
       local def = labour.HUTS[st.hut.entity.name]
@@ -1471,7 +1680,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     end
     scheduler.after(M.WORK_TICKS + (ev.unit_number * 23) % 240, "work.finish", {un = ev.unit_number})
   elseif st.state == "to_hut" then
-    local e = colony.colonists[ev.unit_number]
+    local e = unit_entity(colony, ev.unit_number)
     local hut_entity = st.hut and st.hut.entity
     local refused = {}
     if hut_entity and hut_entity.valid then
@@ -1533,6 +1742,17 @@ events.on(defines.events.on_object_destroyed, function(ev)
     if st.hut and st.hut.workers then st.hut.workers[un] = nil end
     M.release(st)
     storage.unit_state[un] = nil
+  end
+  -- A truck destroyed on the road (a parked one is already gone from storage.trucks): the car is lost, the
+  -- driver climbs out at the pool.
+  local t = un and storage.trucks and storage.trucks[un]
+  if t then
+    storage.trucks[un] = nil
+    local colony = storage.colonies[t.colony_id]
+    if colony and colony.hall.valid then
+      colony.hall.force.print({"colony-message.truck-lost"})
+      release_driver(colony, t, (t.pool.entity.valid and t.pool.entity.position) or colony.hall.position)
+    end
   end
   if un and storage.unit_labels and storage.unit_labels[un] then
     local lbl = storage.unit_labels[un]

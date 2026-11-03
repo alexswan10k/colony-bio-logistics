@@ -363,6 +363,24 @@ def warehouse():
 
 
 @asset
+def motor_pool():
+    a = Art(192, 192)
+    a.ao(8, 130, 186, 188, .5, 5)
+    yf, yr, yt = house(a, 12, 180, 178, 40, 130, (128, 112, 96), (84, 88, 96), wall_tex=planks_h(10), roof_tex=tin(6), ov=6, rk=.8)
+    a.rect(54, 124, 138, 178, (40, 36, 32), shade=.3)                                   # open garage bay
+    for y in range(130, 176, 8):
+        a.line([(56, y), (136, y)], 1.6, IRON_D, shade=.2)                              # rolled-up door slats
+    a.rect(50, 174, 142, 180, YELLOW, shade=.2)                                          # bay threshold stripe
+    window(a, 22, 146, 40, 162)
+    a.rect(148, 146, 174, 178, (176, 62, 44), shade=.3)                                  # fuel barrel
+    a.ell(148, 140, 174, 152, (200, 80, 60), shade=.2)
+    a.rect(148, 154, 174, 157, IRON_D, edge=0, hi=0, shade=.1)
+    a.rect(148, 168, 174, 171, IRON_D, edge=0, hi=0, shade=.1)
+    a.save(path("motor-pool"), shadow=SHADOW)
+    icon_of("motor-pool")
+
+
+@asset
 def watchtower():
     a = Art(128, 128)
     a.ao(12, 98, 122, 126, .55, 5)

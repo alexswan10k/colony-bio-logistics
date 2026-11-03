@@ -85,4 +85,8 @@ data:extend({
       unlock("colony-housing-apartment"),
       unlock("colony-kitchen"),
     }),
+  tech("colony-motor-pool", "icon-motor-pool.png", 30, {"colony-frontier-pack"}, 15,
+    {"colony-frontier-charter", "automobilism"}, {
+      unlock("colony-motor-pool"),
+    }),
 })

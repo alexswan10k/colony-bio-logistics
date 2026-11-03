@@ -33,6 +33,7 @@ M.HALL = "colony-town-hall"
 M.WATCHTOWER = "colony-watchtower"
 M.PLOT = "colony-farm-plot"
 M.WELL = "colony-well"
+M.MOTOR_POOL = "colony-motor-pool"
 M.HUT_RADIUS = 48              -- working radius around a labour hut (other colonies' land excluded)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
 M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not regrow in lockstep
@@ -105,6 +106,18 @@ function M.salt_pan_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.salt_pans[un] end
+  return out
+end
+
+-- Motor Pools (#60), in a stable order: [unit_number] = {entity, colony_id, inflight, out}.
+function M.pool_list(colony)
+  local ids = {}
+  for un, p in pairs(colony.pools or {}) do
+    if p.entity.valid then ids[#ids + 1] = un else colony.pools[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.pools[un] end
   return out
 end
 
@@ -833,7 +846,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or M.HOUSES[name] or labour.HUTS[name] then
+    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.MOTOR_POOL or M.HOUSES[name] or labour.HUTS[name] then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -862,7 +875,7 @@ local function on_built(ev)
     if owner then refund(ev, e, name, {"colony-message.hall-too-close"}); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, locks = {}, quotas = {}, job_targets = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, locks = {}, quotas = {}, job_targets = {},
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}}
     storage.colonies[id] = colony
     M.seed_forage(colony)   -- the claimed land already has berries on it
@@ -958,6 +971,13 @@ local function on_built(ev)
     colony.wells[e.unit_number] = {entity = e, colony_id = colony.id,
       next_at = game.tick + well.TICKS_PER_WATER}
     script.register_on_object_destroyed(e)
+  elseif name == M.MOTOR_POOL then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.pools = colony.pools or {}
+    colony.pools[e.unit_number] = {entity = e, colony_id = colony.id, inflight = {}, out = 0}
+    script.register_on_object_destroyed(e)
   elseif (M.HOUSES[name] or labour.HUTS[name]) then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -1028,7 +1048,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or item_name == M.HALL or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.MOTOR_POOL or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -1129,6 +1149,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.wells and colony.wells[un] then
       colony.wells[un] = nil
+      return
+    end
+    if colony.pools and colony.pools[un] then
+      colony.pools[un] = nil   -- trucks still out park at the hall instead (work.lua)
       return
     end
     if colony.towers and colony.towers[un] then

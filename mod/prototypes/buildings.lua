@@ -74,6 +74,8 @@ local saltpan = chest_clone("wooden-chest", "colony-salt-pan", "salt-pan", 6, 1)
 -- equipment, so `labour.HUTS` leaves `tool` out and `hut_info` reports capacity as the gate instead.
 local smokehouse = chest_clone("iron-chest", "colony-smokehouse", "smokehouse", 8, 1)
 local kitchen = chest_clone("iron-chest", "colony-kitchen", "kitchen", 8, 1)
+-- Motor Pool (#60): holds vanilla cars and fuel; haulers check a car out as a colony truck for big loads.
+local motorpool = chest_clone("steel-chest", "colony-motor-pool", "motor-pool", 8, 1.5)
 
 -- Colony science (#42, design §8): Town Archive (early 3x3) and University (advanced 4x4).
 -- Custom lab entities that only consume colony science packs.
@@ -205,7 +207,7 @@ end
 
 data:extend({
   hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
-  smokehouse, kitchen, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
+  smokehouse, kitchen, motorpool, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
   plot, bush, sink, marker,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -225,6 +227,7 @@ data:extend({
   item_of(saltpan, "salt-pan", "z[colony]-k[salt-pan]"),
   item_of(smokehouse, "smokehouse", "z[colony]-l[smokehouse]"),
   item_of(kitchen, "kitchen", "z[colony]-l1[kitchen]"),
+  item_of(motorpool, "motor-pool", "z[colony]-l2[motor-pool]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(warehouse, "warehouse", "z[colony]-l[warehouse]"),
@@ -304,6 +307,7 @@ data:extend({
   recipe("colony-salt-pan", {wood = 10, ["stone-brick"] = 10}, 2, 1, false),
   recipe("colony-smokehouse", {wood = 25, ["stone-brick"] = 10, ["iron-plate"] = 5}, 3, 1, false),
   recipe("colony-kitchen", {wood = 30, ["stone-brick"] = 15, ["iron-plate"] = 10}, 3, 1, false),
+  recipe("colony-motor-pool", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 20, ["iron-gear-wheel"] = 10}, 3, 1, false),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4, false),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1, 1, false),
   recipe("colony-demand-crate", {wood = 10, ["iron-plate"] = 10}, 1, 1, false),

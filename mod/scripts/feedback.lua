@@ -8,6 +8,7 @@ local advice = require("scripts.model.advice")
 local housing = require("scripts.model.housing")
 local workshop = require("scripts.model.workshop")
 local jobs = require("scripts.model.jobs")
+local motor = require("scripts.model.motor")
 local work = require("scripts.work")
 local M = {}
 
@@ -145,6 +146,16 @@ function M.update(colony)
       local r, label, icon = hut_status(colony, h, stock, haul_rank)
       report(h.entity, r, label, icon)
     end
+  end
+  for _, p in ipairs(colony_mod.pool_list(colony)) do
+    local contents = {}
+    for _, c in ipairs(p.entity.get_inventory(defines.inventory.chest).get_contents()) do
+      contents[c.name] = (contents[c.name] or 0) + c.count
+    end
+    local out = 0
+    for _, t in pairs(storage.trucks or {}) do if t.pool == p then out = out + 1 end end
+    local r = advice.pool{cars = contents[motor.CAR] or 0, fuel = motor.fuel_count(contents), tank = p.tank, out = out}
+    report(p.entity, r, {"colony-status." .. r.key, r.args[1], r.args[2], r.args[3]})
   end
   local r, label, icon = hall_status(colony)
   report(colony.hall, r, label, icon)

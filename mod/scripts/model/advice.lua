@@ -82,6 +82,15 @@ function M.weakest(parts, p)
   return worst
 end
 
+-- A Motor Pool's tooltip (#60). facts: cars (parked), fuel (items), tank (trips already burnt), out (trucks
+-- on the road). Never red: a pool with nothing in it costs the colony nothing, haulers just walk.
+function M.pool(f)
+  if (f.out or 0) > 0 then return {level = "green", key = "pool-out", args = {f.out, f.cars or 0, f.fuel or 0}} end
+  if (f.cars or 0) == 0 then return {level = "amber", key = "pool-no-cars", args = {}} end
+  if (f.fuel or 0) == 0 and (f.tank or 0) == 0 then return {level = "amber", key = "pool-no-fuel", args = {}} end
+  return {level = "green", key = "pool-ready", args = {f.cars, f.fuel or 0}}
+end
+
 -- State of one machine request row. have = in the machine, inflight = on a hauler, stock = colony stock.
 function M.request(f)
   if f.have >= f.count then return "stocked" end

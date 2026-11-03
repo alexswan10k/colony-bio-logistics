@@ -270,7 +270,7 @@ core.register("m1_colony", {
       end
       return n
     end
-    for i = 1, 40 do
+    for i = 1, 60 do
       ctx.after(300 * i, function()
         if furnace.valid then
           if furnace.get_item_count("iron-ore") > 0 then saw.ore = true end
@@ -360,7 +360,7 @@ core.register("m1_colony", {
       if ids[2] then c.locks[ids[2]] = "fish" end
       if ids[3] then c.locks[ids[3]] = "research" end
     end)
-    ctx.after(colony.INTERVAL * 20, function()
+    ctx.after(colony.INTERVAL * 30, function()
       local tcnt = function(e, i) return e.get_inventory(defines.inventory.chest).get_item_count(i) end
       local th, ch = c.houses[tent.unit_number], c.houses[cabin.unit_number]
       local wh, fh, mh = c.huts[woodcutter.unit_number], c.huts[forager.unit_number], c.huts[miner.unit_number]
@@ -426,7 +426,9 @@ core.register("m1_colony", {
       ctx.check("demand crate stopped at its filter target", demand_crate.valid and demand_crate.get_item_count("stone") <= 30,
         demand_crate.valid and demand_crate.get_item_count("stone"))
       ctx.check("farmers planted crops", saw.planted)
-      ctx.check("crops ripened", saw.ripe)
+      -- Polled every 300 ticks, a busy farmer can harvest a ripe plot between looks; produce only comes from a ripe
+      -- harvest, so it proves ripening too.
+      ctx.check("crops ripened", saw.ripe or saw.produce)
       ctx.check("farmers harvested produce", saw.produce, produce_total())
       -- 1x1 entities snap to tile centres, so look near the ghost's spot rather than at the exact float.
       local function chest_at(pos)

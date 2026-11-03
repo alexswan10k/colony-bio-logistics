@@ -239,6 +239,13 @@ end)
 
 describe("work_plan", function()
   local wp = require("scripts.model.work_plan")
+  it("raises the hauler target with the delivery backlog, up to half the town", function()
+    eq(wp.haul_target(20), 7)                -- 0.35 * 20, rounded
+    eq(wp.haul_target(20, 3), 7)             -- a small backlog changes nothing
+    eq(wp.haul_target(20, 9), 9)             -- one hauler per waiting destination
+    eq(wp.haul_target(20, 40), 10)           -- capped at HAUL_MAX_SHARE
+    eq(wp.haul_target(0, 40), 0)
+  end)
   local function s(o)
     local t = {food_ratio = 2, counts = {}, slots = {forage = 3, chop = 3, mine = 3},
       capacity = {forage = 3, chop = 3, mine = 3}, pop = 3, haul = false}
@@ -600,11 +607,12 @@ describe("compost (#78)", function()
     eq(compost.batches(nil), 0); eq(compost.batches(-5), 0); eq(compost.batches("x"), 0)
     eq(compost.batches(9.9), 0)
   end)
-  it("is the lowest haul priority, but above nothing", function()
+  it("comes after every real request, but before topping up houses that are already fed", function()
     local hp = require("scripts.model.haul_plan")
-    for _, band in pairs(hp.PRIORITY) do
-      if band ~= hp.PRIORITY.compost then truthy(band < hp.PRIORITY.compost) end
+    for name, band in pairs(hp.PRIORITY) do
+      if name ~= "compost" and name ~= "buffer" then truthy(band < hp.PRIORITY.compost) end
     end
+    truthy(hp.PRIORITY.compost < hp.PRIORITY.buffer)
   end)
 end)
 

@@ -6,9 +6,10 @@ local M = {}
 -- Lower number = served first. An unmet critical need (food/heat) always comes first or colonists die
 -- while the furnace gets stocked. Tools next: a hut without a tool stops working entirely, while output
 -- only waits for space. Then the hut's finished goods (they block its slots), explicit requests, machine
--- output, passive buffering, and finally carrying spoilage away to a compost bin (#78) - nothing is waiting
--- on that, but leaving it in a house blocks the food that is.
-M.PRIORITY = {critical = 1, tools = 2, hut_output = 3, request = 4, collect = 5, buffer = 6, compost = 7}
+-- output, carrying spoilage away to a compost bin (#78), and last of all topping up houses that are already fed.
+-- Compost used to be last, but once haulers had to walk to every pickup there was always a top-up waiting, so
+-- spoilage sat in the hall for good; it blocks storage slots, and a fed house loses nothing by waiting.
+M.PRIORITY = {critical = 1, tools = 2, hut_output = 3, request = 4, collect = 5, compost = 6, buffer = 7}
 
 M.DEFAULT_CAP = 20
 

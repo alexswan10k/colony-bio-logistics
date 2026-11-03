@@ -513,7 +513,7 @@ end
 local function show_carry(e)
   local un = e.unit_number
   local st = storage.unit_state[un]
-  local item = st and st.carry and st.carry[1] and st.carry[1].item
+  local item = st and st.state ~= "to_pickup" and st.state ~= "to_pool" and st.carry and st.carry[1] and st.carry[1].item
   local sprites = storage.carry_sprites
   local cur = sprites[un]
   if cur and cur.item == item and cur.obj.valid then return end
@@ -827,7 +827,10 @@ local function find_haul_task(colony, cap)
     local spoil = colony_mod.stock_count(colony, compost.SOURCE)
     if spoil > 0 then
       local bin = bins[1]
-      offers[#offers + 1] = {kind = "compost", bin = bin, priority = haul_plan.PRIORITY.compost,
+      -- A full batch is worth a trip like any collection: in a town whose haulers are always busy with hut output,
+      -- the compost band alone never comes up and the hall's spoilage would sit there for good.
+      local band = spoil >= compost.SPOILAGE_PER_FERTILIZER and haul_plan.PRIORITY.collect or haul_plan.PRIORITY.compost
+      offers[#offers + 1] = {kind = "compost", bin = bin, priority = band,
         key = bin.entity.unit_number, demands = {{item = compost.SOURCE, count = spoil}},
         available = {[compost.SOURCE] = spoil}}
     end
@@ -858,13 +861,17 @@ local function find_haul_task(colony, cap)
     end
     colony.collect_offer_cursor = (ocursor - 1 + take) % no + 1
   end
-  if #offers == 0 then return nil end
+  if #offers == 0 then return nil, 0 end
+  local backlog = 0
+  for _, o in ipairs(offers) do
+    if o.priority < haul_plan.PRIORITY.buffer then backlog = backlog + 1 end
+  end
   haul_plan.order(offers)
   local hall = colony_mod.stock_table(colony)
   local offer, load = haul_plan.choose(offers, hall, cap or M.CARRY_CAP)
-  if not offer then return nil end
+  if not offer then return nil, backlog end
   offer.load = load
-  return offer
+  return offer, backlog
 end
 
 -- Take the load out of its source. The returned stacks hold the amounts that really left, so a
@@ -1026,6 +1033,12 @@ end
 local function haul_trip(colony, task)
   local taken, inflight_target = take_load(colony, task)
   if not taken then return nil end
+  -- Where the load physically is: a collect is picked up at its source, anything from colony stock at the hall.
+  local pickup = colony.hall.position
+  if task.kind == "collect" then
+    local src = task.machine or task.hut or task.crate or task.pan or task.well or task.bin
+    pickup = src.entity.position
+  end
   local dest, state = nil, "to_house"
   if task.kind == "collect" then dest, state = colony.hall.position, "to_hall"
   elseif task.kind == "compost" then dest, state = task.bin.entity.position, "to_bin"
@@ -1036,16 +1049,33 @@ local function haul_trip(colony, task)
   else dest = task.hut.entity.position end
   return {colony_id = colony.id, job = "haul", state = state, bin = task.bin,
     target = inflight_target or (task.kind == "collect" and task.machine or nil), inflight_target = inflight_target,
-    carry = taken}, dest
+    carry = taken, pickup = {x = pickup.x, y = pickup.y}, dest = dest}, dest
+end
+
+M.PICKUP_SKIP = 4   -- tiles: a hauler already this close to the load does not make a separate pickup walk
+
+-- Send a hauler (or truck) on its trip: to the pickup first, then the destination. The load is claimed when the
+-- trip starts (so two haulers never count the same items), but it only shows on the carrier once it is
+-- collected, and the carrier really walks there: distance to the source costs time, which is what trucks and
+-- forward stockpiles are for.
+local function set_off(e, st)
+  local p = st.pickup
+  if p and dist2(e.position, p) > M.PICKUP_SKIP * M.PICKUP_SKIP then
+    st.next_state, st.state = st.state, "to_pickup"
+    go(e, p, 2.5)
+  else
+    st.pickup = nil
+    go(e, st.dest, 3)
+  end
 end
 
 local function start_haul(colony, un, e, task, label)
   if not task then return false end
-  local st, dest = haul_trip(colony, task)
+  local st = haul_trip(colony, task)
   if not st then return false end
   storage.unit_state[un] = st
   set_label(e, label or "hauler")
-  go(e, dest, 3)
+  set_off(e, st)
   return true
 end
 
@@ -1138,7 +1168,7 @@ local function board(colony, un, e, st)
   show_carry(e)
   popup(e.surface, pos, "🚚")
   set_label(truck, "truck 🚚")
-  go(truck, st.dest, 3)
+  set_off(truck, st.trip)
   return true
 end
 
@@ -1262,7 +1292,7 @@ function M.assign(colony, un)
   local counts = job_counts(colony)
   if st and st.job then counts[st.job] = math.max((counts[st.job] or 1) - 1, 0) end
   local slots, capacity, slot_list, hut_count = job_slots(colony)
-  local task = find_haul_task(colony)
+  local task, backlog = find_haul_task(colony)
   -- Player lock (#38): this colonist works only the chosen role, even when the matrix would send it elsewhere.
   local job
   if lock then
@@ -1271,7 +1301,7 @@ function M.assign(colony, un)
     local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
     job = work_plan.choose{food_ratio = colony_mod.total_food(colony) / target, counts = counts,
       slots = slots, capacity = capacity, hut_count = hut_count, pop = math.max(colony_mod.live_colonists(colony) - 1, 0),
-      haul = task ~= nil, priority = colony.priority, targets = colony.job_targets}
+      haul = task ~= nil, backlog = backlog, priority = colony.priority, targets = colony.job_targets}
   end
 
   if not job then idle(colony, un, e); return end
@@ -1566,6 +1596,12 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   if ev.result ~= defines.behavior_result.success and st.job ~= "hunt" and st.state ~= "to_bed" then
     M.release(st)
     M.assign(colony, ev.unit_number)
+    return
+  end
+  if st.state == "to_pickup" then
+    local e = unit_entity(colony, ev.unit_number)
+    st.state, st.next_state, st.pickup = st.next_state, nil, nil
+    if e and e.valid then go(e, st.dest, 3) end
     return
   end
   if st.state == "to_pool" then

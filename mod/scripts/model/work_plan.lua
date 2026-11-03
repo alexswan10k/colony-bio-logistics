@@ -9,7 +9,8 @@ local construct = require("scripts.model.construct")
 local headcount = require("scripts.model.headcount")
 
 M.JOBS = jobs.JOBS          -- haul first: wins ties (keeps houses supplied)
-M.HAUL_SHARE = 0.3
+M.HAUL_SHARE = 0.35
+M.HAUL_MAX_SHARE = 0.5   -- a backlog of deliveries can pull up to this share of the town onto hauling
 M.PRESERVE_SHARE = 0.15     -- of the town, at most: a smokehouse is fed, it does not need an army
 M.RESEARCH_SHARE = 0.15     -- scholars investigating history and science
 M.HARVEST = {"forage", "farm", "chop", "mine", "hunt", "fish"}
@@ -24,13 +25,18 @@ function M.desired_shares(food_ratio)
   else return {forage = 0.1, hunt = 0.1, fish = 0.1, farm = 0.15, chop = 0.3, mine = 0.25} end
 end
 
--- How many colonists should be hauling at this population (at least one, or nothing gets delivered).
-function M.haul_target(pop)
+-- How many colonists should be hauling at this population (at least one, or nothing gets delivered). `backlog`
+-- (destinations waiting on a real request, not a top-up) raises it: one hauler per waiting destination, up to
+-- HAUL_MAX_SHARE of the town. Haulers walk to every pickup, so a fixed share either starves the low bands of a
+-- busy town or wastes workers in a quiet one.
+function M.haul_target(pop, backlog)
   if pop <= 0 then return 0 end
-  return math.max(1, math.floor(M.HAUL_SHARE * pop + 0.5))
+  local base = math.max(1, math.floor(M.HAUL_SHARE * pop + 0.5))
+  if not backlog or backlog <= base then return base end
+  return math.max(base, math.min(backlog, math.floor(M.HAUL_MAX_SHARE * pop + 0.5)))
 end
 
--- s = {food_ratio=, counts={job->n}, slots={job->free tooled slots}, capacity={job->tooled slots},
+-- s = {food_ratio=, backlog= (haul destinations waiting), counts={job->n}, slots={job->free tooled slots}, capacity={job->tooled slots},
 --      hut_count={job->staffable huts}, pop=, haul=bool, priority={job->rank}, targets={job->headcount|nil}}.
 -- `pop` excludes the colonist being assigned.
 -- Returns a job name or nil.
@@ -43,7 +49,7 @@ function M.choose(s)
   local haul_on = jobs.enabled(priority, "haul")
 
   local haul_capped = headcount.is_capped(targets, "haul", counts.haul)
-  local haul_wanted = headcount.target(targets, "haul") or M.haul_target(pop)
+  local haul_wanted = headcount.target(targets, "haul") or M.haul_target(pop, s.backlog)
   if haul_on and s.haul and pop > 0 and not haul_capped and (counts.haul or 0) < haul_wanted then
     return "haul"
   end

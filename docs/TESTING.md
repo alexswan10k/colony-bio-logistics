@@ -19,7 +19,9 @@
 ## Regression gates (#39)
 Three headless gates cover the things the unit tests and the playable spike cannot:
 
-- `scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (108 checks). It includes the onboarding
+- `TICKS=19500 scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (108 checks, final checks at
+  tick 18000: haulers walk to every pickup now, so the multi-hop chains - meat to smokehouse, spoilage to compost to
+  fertilized plots - need the longer window). It includes the onboarding
   path: building a Town Hall completes the Settlement milestone, every house and hut gets a status line, the hall
   workshop makes a missing tool from stock, and an untooled hut says so on its tooltip. The milestone techs are
   granted before the research queue check, so that check tests research, not onboarding.

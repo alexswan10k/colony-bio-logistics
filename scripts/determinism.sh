@@ -2,11 +2,11 @@
 # Determinism gate (#39): the same spike on the same map, run twice in separate processes, must produce an
 # identical report and an identical final simulation checksum. This is the multiplayer stand-in we can run
 # headlessly: a desync is a divergence between two peers running the same inputs.
-#   scripts/determinism.sh                       # m1_colony, 14000 ticks
+#   scripts/determinism.sh                       # m1_colony, 19500 ticks
 #   SPIKE=m1_food TICKS=3600 scripts/determinism.sh
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"; need_bin
-SPIKE="${SPIKE:-m1_colony}"; TICKS="${TICKS:-14000}"
+SPIKE="${SPIKE:-m1_colony}"; TICKS="${TICKS:-19500}"
 MAP_SEED="${MAP_SEED:-1234567}"   # fixed so the two runs (and later re-runs) share one map
 WORK="$REPO_ROOT/build/determinism"; rm -rf "$WORK"; mkdir -p "$WORK/mods"
 DEST="$WORK/mods/${MOD_NAME}_${MOD_VERSION}"

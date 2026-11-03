@@ -38,6 +38,10 @@ Three headless gates cover the things the unit tests and the playable spike cann
   Also covers copy-paste in both directions (an opted-in source copies its settings, a plain source clears
   the destination) and that a foreign tag on the same blueprint entity is not clobbered. `TICKS=400` is
   plenty: the spike is event-driven, not a simulation.
+- `scripts/headless-spike.sh m1_motor` - the #60 Motor Pool spike (26 checks, `TICKS=6000`): a pool checks a car
+  out for a full hand-load with more wanted, the `colony-truck` carries 100 in one trip at 2.5x colonist speed,
+  the driver waits under its stop order, the truck parks when its fuel is spent, the car goes back to the pool,
+  coal is burnt by the trip count, and the driver is released off the pool afterwards.
 - `scripts/save-load.sh` - builds a live colony on a headless server, saves it with `game.server_save`, then
   reloads that save in a **new process** (`--test-save ... --test-arg m1_persist_load`) and asserts every
   registry, scheduler entry, rendering and job lock came back (25 checks). Anything stored in
@@ -128,6 +132,12 @@ Each of these cost a debugging round in a spike; check them before assuming the 
 - **`create_blueprint` / `build_blueprint` are script paths**: they do not raise the player events, so a
   spike has to call the same helper the event handler calls (that is why `colony.tag_blueprint` takes a plain
   index -> entity table as well as a `LuaLazyLoadedValue`).
+- **`LuaEntity.active` is read-only in 2.0** (the first `m1_motor` version crashed with "LuaEntity::active is
+  read only"). To park a unit so it stays put, give it a long `defines.command.stop` with `ticks_to_wait` set to
+  4294967295 and `distraction = none`, and clear it by issuing the next command.
+- **A walker and a truck race for the same load.** A hauler on foot claims its load when it sets off, so a truck
+  that claims nothing until it reaches the pool finds the source already emptied 20 at a time by the walkers,
+  and comes out with nothing to carry. The truck claims its load and its car at checkout, the same moment.
 
 ## Early findings from `scripts/sim.sh` (proposal params, not final)
 - A 16-pop tier-1 colony needs ~1 food/colonist/interval of foraging output to hold; below that it stalls at the supply level.

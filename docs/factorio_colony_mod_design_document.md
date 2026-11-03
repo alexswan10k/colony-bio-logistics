@@ -244,7 +244,7 @@ As colonies advance to Tier 2 and Tier 3 Housing, colonists desire **Recreation 
 * **Command Whistle (`selection-tool`):** Optional RTS drag-select tool to issue temporary AoE-style **Move / Attack-Move** orders when clearing nests.
 
 ### 7.3 Colonist-Driven Vehicles (Cars & Trucks)
-* **Motor Pool / Garage:** Stocked with vanilla **Cars** and fuel. Colonists drive Cars to haul $20\text{--}40$ stacks of supplies between territories before trains are built, or form 2-person **Mechanized Patrols** (Driver + Gunner).
+* **Motor Pool (built, #60):** A pool holds vanilla **Cars** and fuel and requests both by haul. A car cannot be driven by a unit and has no autopilot, so the truck is a `colony-truck` unit that wears the car sprite and is pathed by the engine like a colonist (2.5x speed, 100-item load). A hauler whose load is a full hand-load with more still wanted checks out the nearest pool within 48 tiles that has a car and fuel, claims the car and the big load at checkout, and waits on the pool under a stop order while the truck delivers. Fuel buys trips (solid fuel 6, coal 2, wood 1). The truck takes further big loads while it has trips, a driver and daylight, then parks: the car returns to the pool, unspent trips stay in the pool, and a truck destroyed on the road loses its car. **Mechanized Patrols** (Driver + Gunner) are still planned under M3 (#57, #60).
 
 ---
 
@@ -265,8 +265,9 @@ The tree as built (`prototypes/technology.lua`). It opens only after the **Food 
 2. **Water Infrastructure** (30 packs): Homestead, Colony Well, Water Bottling, Furniture. Prerequisite for Civic Governance.
 3. **Advanced Agriculture** (25 packs): Farm Hut, Farm Plot, Hoe. Prerequisite for Civic Governance.
 4. **Civic Governance** (50 packs; needs Water Infrastructure and Advanced Agriculture): University, Apartment, Kitchen, and the Civic Treatise pack recipe. The Civic Treatise pack is defined but no tech consumes it yet.
+5. **Motor Pool** (30 packs; needs Frontier Charter and vanilla Automobilism): the Motor Pool and the colony trucks that drive out for big loads (#60).
 
-Later tiers are planned, not built: **Bio-Ecological Data** (Resorts, Habitat Domes, Enviro-Suits, Cryo-Colonist Pods, Nurseries) and **Interplanetary Sovereignty Codex** (Arcologies, Orbital Hydroponics, Space Platform EVA Crew) are tracked in #69, and the Clinic, Passenger Train and Motor Pool unlocks in #47, #49 and #60.
+Later tiers are planned, not built: **Bio-Ecological Data** (Resorts, Habitat Domes, Enviro-Suits, Cryo-Colonist Pods, Nurseries) and **Interplanetary Sovereignty Codex** (Arcologies, Orbital Hydroponics, Space Platform EVA Crew) are tracked in #69, and the Clinic and Passenger Train unlocks in #47 and #49.
 
 * **Implementation details (#42, #19):**
   * **Lab Whitelist Isolation:** Vanilla labs reject custom colony packs (`can_insert == false`, `insert() == 0`), and colony labs reject vanilla packs. Isolation is enforced at the C++ engine level.

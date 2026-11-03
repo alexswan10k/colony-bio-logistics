@@ -440,6 +440,28 @@ describe("housing", function()
     local c, sat, score = h.step(h.TIERS.tent, 4, stock, false, acc)
     eq(c["colony-forage"], 4); eq(c.wood, 2); eq(sat.food, true); eq(sat.heat, true); eq(score, 1)
   end)
+  it("satisfies food from mixed options without debt spiral", function()
+    -- 2 forage + 2 fish for 4 occupants satisfies food completely
+    local stock, acc = {["colony-forage"] = 2, ["colony-fish"] = 2, wood = 2}, {}
+    local c, sat, score, crit = h.step(h.TIERS.tent, 4, stock, false, acc)
+    eq(c["colony-forage"], 2); eq(c["colony-fish"], 2); eq(sat.food, true); eq(crit, false); eq(score, 1)
+    eq(stock["colony-forage"], 0); eq(stock["colony-fish"], 0)
+
+    -- Eats fresh food before preserved food
+    local stock2 = {["colony-forage"] = 2, ["colony-preserved-meat"] = 10, wood = 2}
+    local c2, sat2 = h.step(h.TIERS.tent, 4, stock2, false, {})
+    eq(c2["colony-forage"], 2); eq(c2["colony-preserved-meat"], 2); eq(sat2.food, true)
+    eq(stock2["colony-forage"], 0); eq(stock2["colony-preserved-meat"], 8)
+
+    -- Shortfall in interval 1 does not inflate food debt in interval 2
+    local stock3 = {["colony-forage"] = 1, wood = 2}
+    local _, sat3, _, crit3 = h.step(h.TIERS.tent, 4, stock3, false, acc)
+    eq(sat3.food, false); eq(crit3, true)
+    -- Next interval: 4 food arrives for 4 occupants and must satisfy them immediately
+    local stock4 = {["colony-forage"] = 4, wood = 2}
+    local c4, sat4, _, crit4 = h.step(h.TIERS.tent, 4, stock4, false, acc)
+    eq(c4["colony-forage"], 4); eq(sat4.food, true); eq(crit4, false)
+  end)
   it("flags critical unmet when out of food", function()
     local _, sat, score, crit = h.step(h.TIERS.tent, 4, {wood = 5}, false, {})
     eq(sat.food, false); eq(crit, true); eq(score, 0.5)
@@ -643,6 +665,14 @@ describe("mine_plan", function()
   end)
   it("ignores unknown ores", function()
     eq(mp.valid("uranium-ore"), false); eq(mp.valid("iron-ore"), true)
+  end)
+  it("groups enabled ores by rank in order", function()
+    local p = {["copper-ore"] = 1, ["iron-ore"] = 2, stone = 0, coal = 2}
+    local groups = mp.by_rank(p)
+    eq(#groups, 2)
+    eq(groups[1].rank, 1); eq(#groups[1].ores, 1); eq(groups[1].ores[1], "copper-ore")
+    eq(groups[2].rank, 2); eq(#groups[2].ores, 2)
+    eq(groups[2].ores[1], "iron-ore"); eq(groups[2].ores[2], "coal")
   end)
 end)
 

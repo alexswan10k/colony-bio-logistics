@@ -381,11 +381,37 @@ local function harvestable(colony, t)
   return owner == nil or owner == colony.id
 end
 
+-- Downstream demand for ore from marked machines (e.g. smelters) and demand crates, less colony stock.
+local function colony_ore_demand(colony, ore)
+  local want = 0
+  for _, m in pairs(colony.machines or {}) do
+    if m.entity and m.entity.valid and m.enabled and m.need then
+      for _, d in ipairs(m.need) do
+        if d.item == ore then want = want + d.count end
+      end
+    end
+  end
+  for _, c in ipairs(colony_mod.crate_list(colony, crates.DEMAND)) do
+    if c.filters then
+      for i = 1, crates.FILTER_ROWS do
+        local f = c.filters[i]
+        if f and f.item == ore then
+          local needed = (f.count or crates.DEFAULT_COUNT) - c.entity.get_item_count(ore) - (c.inflight[ore] or 0)
+          if needed > 0 then want = want + needed end
+        end
+      end
+    end
+  end
+  local stock = colony_mod.stock_count(colony, ore)
+  return math.max(0, want - stock)
+end
+
 -- Harvest only in range and never on another colony's land (design §2.1), preferring the nearest site so
 -- colonists visibly work the forest / berry patch / ore next to their hut instead of walking to a random
 -- tree on the far edge of the radius.
 local function find_site(colony, e, hut)
-  local s, base, radius = e.surface, hut.entity.position, colony_mod.HUT_RADIUS
+  local s, base = e.surface, hut.entity.position
+  local radius = hut.job == "forage" and colony_mod.FORAGE_RADIUS or colony_mod.HUT_RADIUS
   local in_territory = function(t) return harvestable(colony, t) end
   local free = function(t) return in_territory(t) and not colony.claimed[key(t)] end
   if hut.job == "forage" then
@@ -395,23 +421,43 @@ local function find_site(colony, e, hut)
     if colony_mod.quota_met(colony, "wood") then return nil, "wood" end
     return nearest(s.find_entities_filtered{position = base, radius = radius, type = "tree"}, base, free)
   elseif hut.job == "mine" then
-    -- Ore priority: work the best-ranked ore that is actually in range, so a hut does not walk past iron
-    -- to grab the nearest stone. Ores sharing a rank fall back to distance (the old behaviour).
+    -- Ore priority: work the best-ranked ore that is actually in range.
+    -- Ores sharing a rank round robin or follow downstream demand.
     -- Quota check (#84): skip any ore that has reached its quota; switch to the next open ore.
     local any_met, last_met = false, nil
-    for _, ore in ipairs(mine_plan.order(hut.ores)) do
-      if colony_mod.quota_met(colony, ore) then
-        any_met = true
-        last_met = ore
-      else
-        local site = nearest(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = ore}, base, in_territory)
-        local rock = nearest(find_rocks(s, base, radius, ore), base, in_territory)
-        if site and rock then
-          if dist2(rock.position, base) < dist2(site.position, base) then site = rock end
+    for _, group in ipairs(mine_plan.by_rank(hut.ores)) do
+      local available = {}
+      for _, ore in ipairs(group.ores) do
+        if colony_mod.quota_met(colony, ore) then
+          any_met = true
+          last_met = ore
         else
-          site = site or rock
+          local site = nearest(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = ore}, base, in_territory)
+          local rock = nearest(find_rocks(s, base, radius, ore), base, in_territory)
+          if site and rock then
+            if dist2(rock.position, base) < dist2(site.position, base) then site = rock end
+          else
+            site = site or rock
+          end
+          if site then
+            available[#available + 1] = {ore = ore, site = site, demand = colony_ore_demand(colony, ore)}
+          end
         end
-        if site then return site end
+      end
+
+      if #available > 0 then
+        -- Prefer ores that have active downstream demand in the colony
+        local demanded = {}
+        for _, entry in ipairs(available) do
+          if entry.demand > 0 then demanded[#demanded + 1] = entry end
+        end
+        local candidates = #demanded > 0 and demanded or available
+
+        -- Round robin among candidates sharing this rank
+        local cursor = ((hut.ore_cursor or 0) % #candidates) + 1
+        hut.ore_cursor = cursor
+        local chosen = candidates[cursor]
+        return chosen.site, nil, chosen.ore
       end
     end
     if any_met and hut_quota_met(colony, hut) then
@@ -485,7 +531,8 @@ function M.site_count(h)
   local colony = storage.colonies[h.colony_id]
   if not (colony and h.entity.valid) then return 0 end
   if h.job == "research" or h.job == "preserve" or h.job == "fish" or h.job == "heal" then return 1 end
-  local s, base, radius = h.entity.surface, h.entity.position, colony_mod.HUT_RADIUS
+  local s, base = h.entity.surface, h.entity.position
+  local radius = h.job == "forage" and colony_mod.FORAGE_RADIUS or colony_mod.HUT_RADIUS
   local in_territory = function(t) return harvestable(colony, t) end
   local free = function(t) return in_territory(t) and not colony.claimed[key(t)] end
   if h.job == "farm" then
@@ -1017,7 +1064,7 @@ end
 
 local function start_trip(colony, un, hut)
   local e = colony.colonists[un]
-  local site, quota_item = find_site(colony, e, hut)
+  local site, quota_item, target_ore = find_site(colony, e, hut)
   if not site then
     hut.workers[un] = nil
     if quota_item then
@@ -1043,7 +1090,7 @@ local function start_trip(colony, un, hut)
     return true
   end
   storage.unit_state[un] = {colony_id = colony.id, job = hut.job, hut = hut, state = "to_site", site = site,
-    site_key = key(site)}
+    site_key = key(site), ore = target_ore}
   set_label(e, M.LABELS[hut.job] .. (colony_mod.is_inspired(colony, un) and " ★" or "")
     .. (colony_mod.is_sick(un) and " 🤒" or ""))
   go(e, site, 1.5)
@@ -1367,7 +1414,7 @@ function M.assign(colony, un)
     if house and house.valid then
       storage.unit_state[un] = {colony_id = colony.id, job = (st and st.job) or lock or "idle", state = "to_bed", house = house}
       set_label(e, "sleeping 💤")
-      go(e, house.position, 1.5)
+      go(e, house.position, 3.5)
       return
     end
   end
@@ -1533,10 +1580,14 @@ scheduler.register("work.finish", function(d)
   elseif st.job == "fish" then
     item, n = "colony-fish", fishing.FISH_PER_TRIP
   elseif st.job == "mine" and site.type == "simple-entity" then
-    -- A rock: take its whole yield of the best-ranked ore it holds that the colony still wants, and it is gone.
-    for _, ore in ipairs(mine_plan.order(hut.ores)) do
-      local y = rock_yield(site, ore)
-      if y > 0 and not colony_mod.quota_met(colony, ore) then item, n = ore, y; break end
+    -- A rock: take its whole yield of the targeted ore (or best-ranked ore) that the colony still wants, and it is gone.
+    if st.ore and rock_yield(site, st.ore) > 0 and not colony_mod.quota_met(colony, st.ore) then
+      item, n = st.ore, rock_yield(site, st.ore)
+    else
+      for _, ore in ipairs(mine_plan.order(hut.ores)) do
+        local y = rock_yield(site, ore)
+        if y > 0 and not colony_mod.quota_met(colony, ore) then item, n = ore, y; break end
+      end
     end
     if n > 0 then
       site.destroy()
@@ -1552,7 +1603,7 @@ scheduler.register("work.finish", function(d)
     -- Doctors (#47) stay on duty while there is medicine and someone to treat; the cures themselves happen in
     -- the colony evaluation (scripts/illness.lua), which counts the doctors working here.
     local lock = colony.locks and colony.locks[d.un]
-    if (colony.sick_count or 0) > 0 and hut.entity.get_item_count(illness.MEDICINE) > 0 and (not lock or lock == "heal") then
+    if not M.is_sleep_time(e.surface) and (colony.sick_count or 0) > 0 and hut.entity.get_item_count(illness.MEDICINE) > 0 and (not lock or lock == "heal") then
       scheduler.after(M.WORK_TICKS + (d.un * 23) % 240, "work.finish", {un = d.un})
       return
     end
@@ -1572,7 +1623,7 @@ scheduler.register("work.finish", function(d)
       end
     end
     local lock = colony.locks and colony.locks[d.un]
-    if have and (not lock or lock == "research") then
+    if not M.is_sleep_time(e.surface) and have and (not lock or lock == "research") then
       local e = colony.colonists[d.un]
       if e and e.valid and hut.entity.valid then
         work_ring(e, hut.entity.position)
@@ -1686,6 +1737,7 @@ scheduler.register("work.sleep_check", function(d)
   local e = colony and colony.colonists and colony.colonists[d.un]
   if not (colony and e and e.valid) then return end
   if M.is_sleep_time(e.surface) then
+    e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
     popup(e.surface, e.position, "💤")
     scheduler.after(180 + (d.un * 13) % 120, "work.sleep_check", d)
   else
@@ -1751,6 +1803,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     st.state = "sleeping"
     local e = unit_entity(colony, ev.unit_number)
     if e and e.valid then
+      e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
       set_label(e, "sleeping 💤")
       popup(e.surface, e.position, "💤")
       scheduler.after(180 + (ev.unit_number * 13) % 120, "work.sleep_check", {un = ev.unit_number})

@@ -249,7 +249,8 @@ local function ring(entity, distance, colour)
 end
 ring(hall, 64, "green")             -- territory.HALL_RADIUS
 ring(watchtower, 48, "green")       -- territory.TOWER_RADIUS
-for _, hut in ipairs{forager, woodcutter, miner, farmhut, huntinglodge, fishingdock, smokehouse, kitchen} do
+ring(forager, 96, "yellow")           -- colony.FORAGE_RADIUS
+for _, hut in ipairs{woodcutter, miner, farmhut, huntinglodge, fishingdock, smokehouse, kitchen} do
   ring(hut, 48, "yellow")           -- colony.HUT_RADIUS
 end
 

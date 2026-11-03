@@ -50,6 +50,7 @@ local MEAL_SET = {}
 for _, item in ipairs(M.MEAL_ITEMS) do MEAL_SET[item] = true end
 M.is_sick = illness.is_sick
 M.HUT_RADIUS = 48              -- working radius around a labour hut (other colonies' land excluded)
+M.FORAGE_RADIUS = 96           -- working radius for Forager Huts (bushes are sparse, ~3/chunk)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
 M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not regrow in lockstep
 M.FORAGE_PER_CHUNK = 3          -- natural forage patches seeded per already-generated territory chunk
@@ -1147,7 +1148,8 @@ local function on_built(ev)
         }
       end
       colony.huts[e.unit_number] = hut
-      rendering.draw_circle{color = {0.45, 0.45, 0.15, 0.5}, width = 2, filled = false, radius = M.HUT_RADIUS,
+      local r = (hut.job == "forage" and M.FORAGE_RADIUS or M.HUT_RADIUS)
+      rendering.draw_circle{color = {0.45, 0.45, 0.15, 0.5}, width = 2, filled = false, radius = r,
         target = e, surface = e.surface, only_in_alt_mode = true}
       return
     end

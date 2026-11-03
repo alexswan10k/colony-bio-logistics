@@ -11,6 +11,7 @@ local crates = require("scripts.model.crates")
 local haul_plan = require("scripts.model.haul_plan")
 local farm = require("scripts.model.farm")
 local advice = require("scripts.model.advice")
+local milestones = require("scripts.model.milestones")
 local work = require("scripts.work")
 local M = {}
 local colony_mod   -- injected via M.bind (runtime require is illegal)
@@ -37,22 +38,7 @@ end
 
 function M.colony_advice(colony, st, counts)
   local stock = colony_mod.stock_table(colony)
-  local gaps = {}
-  for _, h in pairs(colony.huts) do
-    if h.entity.valid then
-      local def, tools, _, _ = work.hut_info(h)
-      if def.tool then
-        local short = math.min(def.capacity, h.limit or def.capacity) - tools - (h.inflight[def.tool] or 0)
-        if short > 0 then gaps[#gaps + 1] = {tool = def.tool, short = short} end
-      end
-    end
-  end
-  table.sort(gaps, function(a, b) return a.tool < b.tool end)
-  local merged = {}
-  for _, g in ipairs(gaps) do
-    local last = merged[#merged]
-    if last and last.tool == g.tool then last.short = last.short + g.short else merged[#merged + 1] = g end
-  end
+  local merged = colony_mod.tool_gaps(colony)
   return advice.colony{pop = st.pop, capacity = st.capacity, food = st.food,
     haul_rank = jobs.effective(colony.priority).haul, haulers = counts.haul or 0,
     houses = st.tents + st.cabins + (st.homesteads or 0) + (st.apartments or 0),
@@ -357,6 +343,17 @@ local function fill_info(frame, colony)
       add_advice_line(frame, a.level, a.key, args[1], args[2])
     end
     frame.add{type = "line"}
+  end
+  -- Growth first: the one question every glance at the hall is asking (model/advice.growth).
+  local g = advice.growth{pop = st.pop, capacity = st.capacity, d = st.d, parts = st.parts, accept = colony.accept_migrants}
+  local gcol = g.level == "green" and "green" or (g.level == "red" and "red" or "orange")
+  frame.add{type = "label", caption = {"", "[color=" .. gcol .. "]",
+    {"colony-status." .. g.key, g.args[1] and {"colony-advice.factor-" .. g.args[1]} or ""}, "[/color]"}}
+  local facts, researched = colony_mod.milestone_facts(colony.hall.force)
+  local nxt = milestones.next(facts, researched)
+  if nxt then
+    frame.add{type = "label", caption = {"colony-gui-info.next-milestone", {"technology-name." .. nxt.tech},
+      nxt.have, nxt.need}, tooltip = {"technology-description." .. nxt.tech}}
   end
   frame.add{type = "label", caption = {"colony-gui-info.population", st.pop, st.capacity}}
   frame.add{type = "label", caption = {"colony-gui-info.housing", st.tents, st.cabins, st.homesteads or 0, st.apartments or 0, math.max(st.capacity - st.pop, 0)}}

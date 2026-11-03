@@ -90,6 +90,20 @@ function M.step(tier, occupants, stock, powered, acc)
   return consumed, sat, total > 0 and met / total or 1, crit_unmet
 end
 
+-- Which needs the house could meet right now from what is on its shelves: {need_id -> bool}. Unlike step()
+-- this neither consumes nor waits for an evaluation, so a status line clears the moment a hauler delivers.
+function M.available(tier, stock, powered)
+  local out = {}
+  for _, need in ipairs(tier.needs) do
+    local ok = false
+    for _, opt in ipairs(need.options) do
+      if (opt.power and powered) or (opt.item and (stock[opt.item] or 0) > 0) then ok = true; break end
+    end
+    out[need.id] = ok
+  end
+  return out
+end
+
 -- What to haul to this house: {{need=, count=, items={...}}} - `items` are interchangeable options
 -- (food = forage OR fish), so the hauler brings whatever the hall actually has.
 -- `occupants` (default: full capacity) sizes the buffer, so an empty house does not hoard supplies

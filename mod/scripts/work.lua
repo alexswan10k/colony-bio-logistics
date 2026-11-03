@@ -498,10 +498,30 @@ function M.site_count(h)
   return n
 end
 
+-- What a colonist is carrying, drawn over its head (always, not only in alt-mode), so goods visibly travel
+-- instead of vanishing from one chest and appearing in another. Refreshed whenever the colonist is sent
+-- somewhere or goes idle, which is exactly when its load can have changed.
+local function show_carry(e)
+  local un = e.unit_number
+  local st = storage.unit_state[un]
+  local item = st and st.carry and st.carry[1] and st.carry[1].item
+  local sprites = storage.carry_sprites
+  local cur = sprites[un]
+  if cur and cur.item == item and cur.obj.valid then return end
+  if cur and cur.obj.valid then cur.obj.destroy() end
+  sprites[un] = nil
+  if item and prototypes.item[item] then
+    sprites[un] = {item = item, obj = rendering.draw_sprite{sprite = "item/" .. item, surface = e.surface,
+      target = {entity = e, offset = {0, -1.1}}, x_scale = 0.4, y_scale = 0.4}}
+  end
+end
+M.show_carry = show_carry
+
 local function go(e, dest, radius)
   local cmd = {type = defines.command.go_to_location, radius = radius, distraction = defines.distraction.none}
   if type(dest) == "table" and dest.x then cmd.destination = dest else cmd.destination_entity = dest end
   e.commandable.set_command(cmd)
+  show_carry(e)
 end
 
 -- Hunting (#79): the engine does the chasing and the shooting. The colonist prototype carries a ranged
@@ -967,6 +987,7 @@ local function idle(colony, un, e)
   local misses = math.min((prev and prev.state == "idle" and prev.misses or 0) + 1, cap)
   storage.unit_state[un] = {colony_id = colony.id, state = "idle", misses = misses}
   set_label(e, "idle")
+  show_carry(e)
   -- Deterministic jitter by unit number: a town spawned in one tick would otherwise retry in lockstep.
   scheduler.after(M.RETRY_TICKS * misses + (un * 37) % 240, "work.retry", {un = un})
 end
@@ -1517,6 +1538,11 @@ events.on(defines.events.on_object_destroyed, function(ev)
     local lbl = storage.unit_labels[un]
     if lbl and lbl.valid then lbl.destroy() end
     storage.unit_labels[un] = nil
+  end
+  local carried = un and storage.carry_sprites and storage.carry_sprites[un]
+  if carried then
+    if carried.obj.valid then carried.obj.destroy() end
+    storage.carry_sprites[un] = nil
   end
 end)
 

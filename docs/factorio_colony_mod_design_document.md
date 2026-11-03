@@ -253,6 +253,15 @@ As colonies advance to Tier 2 and Tier 3 Housing, colonists desire **Recreation 
 
 ## 8. Dedicated Colony Tech Subtree & Custom Science
 
+**Milestones before science (onboarding):** a new game shows only the Town Hall. Five scripted-trigger technologies (`model/milestones.lua`) unlock the early buildings as the force's biggest colony grows, and the native tech tree states each trigger ("Reach 8 colonists"), so the first hour needs no research and the tree itself is the tutorial:
+* **Settlement** (build a Town Hall): Housing Tent, Forager's Hut, Woodcutter's Hut, basket, axe.
+* **Mining Camp** (4 colonists): Miner's Hut, pickaxe, Housing Cabin, Compost Bin, Supply Crate, Warehouse.
+* **Hunting & Fishing** (8): Hunting Lodge, rifle, Fishing Dock, rod.
+* **Colony Logistics** (12): Watchtower, Demand Crate, logistics marker.
+* **Food Preservation** (16): Salt Pan, Smokehouse, Town Archive, Frontier Charter recipe. Pack-based research (below) starts here.
+
+The **Town Hall workshop** (`model/workshop.lua`) makes a missing tool from colony stock when a hut is waiting on it (one per 10 s, unlocked recipes only), so woodcutters keep foragers in baskets without the player crafting them. Problems are reported where the player looks (`scripts/feedback.lua`, every 5 s): a status line on every house, hut and hall tooltip, and native custom alerts for red problems (a house about to starve, a hut that cannot get its tool, no sites in range, no food at all), toggled by the per-player `colony-alerts` setting. Carried goods are drawn over the colonist carrying them.
+
 Colonies have their own **Tech Subtree** researched in a **Town Archive** (Early) or **University** (Late) staffed by educated colonists:
 1. **Frontier Charter (Tier 1):** *Lumber + Salted/Smoked Food + Stone Bricks* $\rightarrow$ Unlocks Homesteads, Farms, Fishing Docks, Salt Pans, Watchtowers, Steel Tools.
 2. **Civic Treatise (Tier 2):** *Paper + Textiles/Clothing + Herbal Medicine + Iron Gear* $\rightarrow$ Unlocks Apartment Blocks, Clinics, Passenger Trains & Commuting, Motor Pools, Taverns.

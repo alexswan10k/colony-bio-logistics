@@ -30,12 +30,41 @@ local function unlock(recipe_name)
   return {type = "unlock-recipe", recipe = recipe_name}
 end
 
+-- Milestones (model/milestones.lua): scripted triggers the colony completes by growing, so a new game starts
+-- with only the Town Hall and the tree itself says what to do next ("Reach 8 colonists").
+local function milestone(name, icon, prereqs, recipes)
+  local effects = {}
+  for _, r in ipairs(recipes) do effects[#effects + 1] = unlock(r) end
+  return {
+    type = "technology",
+    name = name,
+    icon = G .. icon,
+    icon_size = 64,
+    prerequisites = prereqs,
+    effects = effects,
+    research_trigger = {type = "scripted", trigger_description = {"colony-milestone." .. name}},
+    order = "z[colony]-a-" .. name,
+    localised_name = {"technology-name." .. name},
+    localised_description = {"technology-description." .. name},
+  }
+end
+
 data:extend({
-  tech("colony-frontier-charter", "icon-frontier-pack.png", 15, {"colony-frontier-pack"}, 10, {}, {
+  milestone("colony-settlement", "icon-town-hall.png", {}, {
+    "colony-housing-tent", "colony-forager-hut", "colony-woodcutter-hut", "colony-basket", "colony-axe"}),
+  milestone("colony-mining", "icon-miner-hut.png", {"colony-settlement"}, {
+    "colony-miner-hut", "colony-pickaxe", "colony-housing-cabin", "colony-compost-bin",
+    "colony-supply-crate", "colony-warehouse"}),
+  milestone("colony-hunting-fishing", "icon-hunting-lodge.png", {"colony-mining"}, {
+    "colony-hunting-lodge", "colony-rifle", "colony-fishing-dock", "colony-rod"}),
+  milestone("colony-logistics", "icon-watchtower.png", {"colony-hunting-fishing"}, {
+    "colony-watchtower", "colony-demand-crate", "colony-logistics-marker"}),
+  milestone("colony-food-preservation", "icon-smokehouse.png", {"colony-logistics"}, {
+    "colony-salt-pan", "colony-smokehouse", "colony-town-archive", "colony-frontier-pack"}),
+  tech("colony-frontier-charter", "icon-frontier-pack.png", 15, {"colony-frontier-pack"}, 10,
+    {"colony-food-preservation"}, {
     unlock("colony-frontier-pack-fish"),
   }),
-  tech("colony-food-preservation", "icon-salt-pan.png", 25, {"colony-frontier-pack"}, 15,
-    {"colony-frontier-charter"}),
   tech("colony-water-infrastructure", "icon-well.png", 30, {"colony-frontier-pack"}, 15,
     {"colony-frontier-charter"}, {
       unlock("colony-well"),
@@ -50,7 +79,7 @@ data:extend({
       unlock("colony-hoe"),
     }),
   tech("colony-civic-governance", "icon-civic-pack.png", 50, {"colony-frontier-pack"}, 20,
-    {"colony-water-infrastructure", "colony-food-preservation"}, {
+    {"colony-water-infrastructure", "colony-advanced-agriculture"}, {
       unlock("colony-university"),
       unlock("colony-civic-pack"),
       unlock("colony-housing-apartment"),

@@ -22,8 +22,11 @@ local tags = require("scripts.model.tags")
 local ledger = require("scripts.model.ledger")
 local quota = require("scripts.model.quota")
 local headcount = require("scripts.model.headcount")
+local milestones = require("scripts.model.milestones")
+local workshop = require("scripts.model.workshop")
 local work = require("scripts.work")
 local gui = require("scripts.gui")
+local feedback = require("scripts.feedback")
 local M = {}
 
 M.HALL = "colony-town-hall"
@@ -498,19 +501,35 @@ function M.total_food(colony)
   return n
 end
 
-local function kill_one(colony)
-  for id, c in pairs(colony.colonists) do
-    if c.valid then
+local function gps(e_or_pos, surface)
+  local p = e_or_pos.position or e_or_pos
+  return string.format("[gps=%d,%d,%s]", math.floor(p.x), math.floor(p.y), (surface or e_or_pos.surface).name)
+end
+M.gps = gps
+
+-- Starvation takes someone who lives in the house that went without, not a stranger across town, and says
+-- so: which house, and which need it lacked.
+local function kill_one(colony, h, need_id)
+  local members = M.households(colony)[h.entity.unit_number] or {}
+  for i = #members, 1, -1 do
+    local id = members[i]
+    local c = colony.colonists[id]
+    if c and c.valid then
       c.die()
       colony.colonists[id] = nil
-      colony.pop_cache, colony.pop_tick = nil, nil
+      colony.pop_cache, colony.pop_tick, colony.house_index = nil, nil, nil
       table.insert(colony.deaths, 0)
+      colony.hall.force.print({"colony-message.starved", {"colony-gui.need-" .. need_id},
+        {"entity-name." .. h.entity.name}, gps(h.entity)})
       return true
     end
   end
   return false
 end
 
+-- A migrant arrives at the Town Hall: right in town, so it can always path to its job (spawning out at the
+-- edge stranded colonists behind lakes and cliffs). The arrival is shown over the hall and announced with a
+-- map link, so a new face is never a silent surprise.
 local function spawn_colonist(colony)
   local hall = colony.hall
   local pos = hall.surface.find_non_colliding_position("colony-colonist", hall.position, 10, 0.5)
@@ -521,7 +540,10 @@ local function spawn_colonist(colony)
   colony.pop_cache, colony.pop_tick = nil, nil
   script.register_on_object_destroyed(c)
   work.assign(colony, c.unit_number)
-  return true
+  rendering.draw_text{text = {"colony-message.arrival-popup"}, surface = hall.surface,
+    target = {entity = c, offset = {0, -2}}, color = {0.8, 1, 0.8}, scale = 0.9, alignment = "center",
+    time_to_live = 180}
+  return c
 end
 
 M.spawn_colonist = spawn_colonist
@@ -624,13 +646,21 @@ function M.evaluate(data)
     local before = {}
     for k, v in pairs(stock) do before[k] = v end
     local consumed, sat, score, crit = housing.step(tier, occ[i], stock, M.is_powered(h), h.acc)
+    h.stock_tick = nil   -- the shelves just changed: status lines must not read the old snapshot
     for item, n in pairs(consumed) do if n > 0 then inv.remove{name = item, count = n} end end
     h.score, h.sat, h.occupants = score, sat, occ[i]
     if occ[i] > 0 then
       score_sum = score_sum + score; rated = rated + 1
       if crit then
         h.hungry = (h.hungry or 0) + 1
-        if h.hungry >= M.STARVE_AFTER then kill_one(colony); h.hungry = 0 end
+        if h.hungry >= M.STARVE_AFTER then
+          local lacking = "food"
+          for _, need in ipairs(tier.needs) do
+            if need.critical and not sat[need.id] then lacking = need.id; break end
+          end
+          kill_one(colony, h, lacking)
+          h.hungry = 0
+        end
       else h.hungry = 0 end
     end
   end
@@ -655,8 +685,9 @@ function M.evaluate(data)
   })
   colony.d, colony.d_parts = d, parts
   if colony.accept_migrants ~= false and d > desirability.defaults.migrate_in and pop < capacity then
-    if spawn_colonist(colony) then
-      colony.hall.force.print({"colony-message.migrant-arrived"})
+    local c = spawn_colonist(colony)
+    if c then
+      colony.hall.force.print({"colony-message.migrant-arrived", gps(c)})
       if settings.global["colony-debug-log"].value then
         game.print("[colony " .. colony.id .. "] migrant arrived, D=" .. string.format("%.2f", d))
       end
@@ -671,6 +702,8 @@ function M.evaluate(data)
       end
     end
   end
+  M.check_milestones(colony.hall.force)
+  feedback.ensure(colony)
   -- Sleepers whose individual check was lost (save/load mid-walk) are woken here. Idle colonists already
   -- re-assign themselves on their `work.retry` timer, so walking the whole town here would double the
   -- assignment rate - and this loop runs for every colonist every evaluation (#22 caught the cost).
@@ -835,6 +868,9 @@ local function on_built(ev)
     M.seed_forage(colony)   -- the claimed land already has berries on it
     local founder = ev.player_index and game.get_player(ev.player_index)
     if founder then founder.create_local_flying_text{text = {"colony-message.colony-founded"}, position = e.position} end
+    e.force.print({"colony-message.colony-founded-hint", gps(e)})
+    M.check_milestones(e.force)
+    feedback.ensure(colony)
     rendering.draw_circle{color = {0.1, 0.4, 0.15, 0.5}, width = 2, filled = false, radius = territory.HALL_RADIUS,
       target = e, surface = e.surface, only_in_alt_mode = true}
     script.register_on_object_destroyed(e)
@@ -1124,7 +1160,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
   end
 end)
 
-work.bind(M); gui.bind(M)   -- avoids a require cycle (runtime require is illegal)
+work.bind(M); gui.bind(M); feedback.bind(M)   -- avoids a require cycle (runtime require is illegal)
 
 -- ---------- opt-in machine registry (#34) ----------
 -- The badge is alt-mode only: a small Town Hall icon over every machine the colony serves, so the player
@@ -1331,6 +1367,79 @@ events.on(defines.events.on_blueprint_settings_pasted, function(ev)
 end)
 
 -- Colony overview for the Town Hall panel (#38). Plain data, computed on demand (GUI refresh only).
+-- Milestones (model/milestones.lua) are force-wide: the best colony's population counts.
+function M.milestone_facts(force)
+  local best, halls = 0, 0
+  for _, c in pairs(storage.colonies) do
+    if c.hall and c.hall.valid and c.hall.force == force then
+      halls = halls + 1
+      best = math.max(best, M.live_colonists(c))
+    end
+  end
+  local researched = {}
+  for _, m in ipairs(milestones.LIST) do
+    local t = force.technologies[m.tech]
+    if t and t.researched then researched[m.tech] = true end
+  end
+  return {halls = halls, pop = best}, researched
+end
+
+function M.check_milestones(force)
+  local facts, researched = M.milestone_facts(force)
+  for _, name in ipairs(milestones.due(facts, researched)) do
+    local t = force.technologies[name]
+    if t then
+      t.researched = true
+      force.print({"colony-message.milestone", {"technology-name." .. name}, {"technology-description." .. name}})
+    end
+  end
+end
+
+-- Huts short of a tool, merged per tool and sorted: {{tool=, short=}}. A tool already on its way counts.
+function M.tool_gaps(colony)
+  local gaps = {}
+  for _, h in pairs(colony.huts) do
+    if h.entity.valid then
+      local def, tools = work.hut_info(h)
+      if def.tool then
+        local short = math.min(def.capacity, h.limit or def.capacity) - tools - (h.inflight[def.tool] or 0)
+        if short > 0 then gaps[#gaps + 1] = {tool = def.tool, short = short} end
+      end
+    end
+  end
+  table.sort(gaps, function(a, b) return a.tool < b.tool end)
+  local merged = {}
+  for _, g in ipairs(gaps) do
+    local last = merged[#merged]
+    if last and last.tool == g.tool then last.short = last.short + g.short else merged[#merged + 1] = g end
+  end
+  return merged
+end
+
+-- Town Hall workshop (model/workshop.lua): at most one tool per WORKSHOP_TICKS, made from colony stock for a
+-- hut that is waiting on it, and only from recipes the force has unlocked. Shown over the hall as it happens.
+M.WORKSHOP_TICKS = 600
+function M.workshop(colony)
+  if game.tick < (colony.workshop_at or 0) then return end
+  local gaps = M.tool_gaps(colony)
+  if #gaps == 0 then return end
+  local recipes, unlocked = colony.hall.force.recipes, {}
+  for _, g in ipairs(gaps) do
+    if recipes[g.tool] and recipes[g.tool].enabled then unlocked[g.tool] = true end
+  end
+  local tool, recipe = workshop.pick(gaps, M.stock_table(colony), unlocked)
+  if not tool then return end
+  local items = {}
+  for item in pairs(recipe) do items[#items + 1] = item end
+  table.sort(items)
+  for _, item in ipairs(items) do M.take_stock(colony, item, recipe[item]) end
+  M.put_stock(colony, tool, 1)
+  colony.workshop_at = game.tick + M.WORKSHOP_TICKS
+  rendering.draw_text{text = {"colony-message.workshop-made", "[item=" .. tool .. "]"}, surface = colony.hall.surface,
+    target = {entity = colony.hall, offset = {0, -2.5}}, color = {0.8, 1, 0.8}, scale = 1, alignment = "center",
+    time_to_live = 120}
+end
+
 function M.stats(colony)
   local pop = M.live_colonists(colony)
   local capacity = M.capacity(colony)

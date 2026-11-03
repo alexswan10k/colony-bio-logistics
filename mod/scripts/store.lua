@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 19
+local SCHEMA = 20
 
 local migrations = {
   [1] = function()
@@ -95,6 +95,11 @@ local migrations = {
     -- target gave way to plain housing capacity when the info panel lost its +/- buttons
     storage.colony_chunks = nil
     for _, c in pairs(storage.colonies) do c.pop_target = nil; c.house_index, c.reassign_tick = nil, nil end
+  end,
+  [20] = function()
+    -- carried-goods sprites over colonists: [unit_number] = {item, obj}. Colonies gain alerted/feedback_at/
+    -- workshop_at lazily (all nil-safe), and milestones catch up on the next evaluation.
+    storage.carry_sprites = storage.carry_sprites or {}
   end,
 }
 

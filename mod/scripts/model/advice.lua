@@ -1,6 +1,7 @@
 -- PURE: turns plain facts about the colony into "what is holding it back" lines for the panels.
 -- Each result is {level = "red"|"amber", key = locale key under colony-advice, args = {...}}; the GUI
 -- adapter gathers the facts and renders the lines, so the rules here stay testable offline.
+local desirability = require("scripts.model.desirability")
 local M = {}
 
 local function add(out, level, key, ...) out[#out + 1] = {level = level, key = key, args = {...}} end
@@ -36,6 +37,49 @@ function M.hut(f)
   if f.sites ~= nil and f.sites == 0 then return "no-sites" end
   if f.workers == 0 and f.tools > 0 then return "no-workers" end
   return nil
+end
+
+-- One house's status for its tooltip and the alert bar, or nil before its first evaluation. facts:
+--   occupants, capacity, sat {need_id -> bool}, needs {{id=, critical=}}, hungry (evaluations a critical
+--   need has gone unmet), starve_after. Returns {level = "green"|"amber"|"red", key = ..., args = {...}}.
+function M.house(f)
+  if not f.sat then return nil end
+  if (f.occupants or 0) == 0 then return {level = "amber", key = "house-empty", args = {}} end
+  for _, need in ipairs(f.needs) do
+    if need.critical and not f.sat[need.id] then
+      return {level = "red", key = "house-starving", args = {need.id, math.max((f.starve_after or 1) - (f.hungry or 0), 1)}}
+    end
+  end
+  for _, need in ipairs(f.needs) do
+    if not f.sat[need.id] then return {level = "amber", key = "house-lacking", args = {need.id}} end
+  end
+  return {level = "green", key = "house-ok", args = {f.occupants, f.capacity}}
+end
+
+-- Why the population is or is not growing, as {level, key, args}. facts: pop, capacity, d, parts (from
+-- desirability.compute), accept (false = migrants switched off). The weakest factor is the one furthest
+-- below its best, so the player is pointed at the single thing that would help most.
+function M.growth(f, p)
+  p = p or desirability.defaults
+  if f.d < p.leave_below and (f.pop or 0) > 0 then return {level = "red", key = "growth-leaving", args = {M.weakest(f.parts, p)}} end
+  if f.accept == false then return {level = "amber", key = "growth-closed", args = {}} end
+  if (f.capacity or 0) <= 0 then return {level = "red", key = "growth-no-houses", args = {}} end
+  if f.pop >= f.capacity then return {level = "amber", key = "growth-no-beds", args = {}} end
+  if f.d <= p.migrate_in then return {level = "amber", key = "growth-low", args = {M.weakest(f.parts, p)}} end
+  return {level = "green", key = "growth-ok", args = {}}
+end
+
+local BEST = {food = "w_food", housing = "w_housing", scenic = "w_scenic", leisure = "w_leisure"}
+local ORDER = {"food", "housing", "leisure", "scenic", "pollution", "deaths"}
+function M.weakest(parts, p)
+  p = p or desirability.defaults
+  local worst, gap = "food", -1
+  for _, k in ipairs(ORDER) do
+    local v = (parts or {})[k] or 0
+    local g = BEST[k] and (p[BEST[k]] - v) or -v
+    if g > gap + 1e-9 then worst, gap = k, g end
+  end
+  return worst
 end
 
 -- State of one machine request row. have = in the machine, inflight = on a hauler, stock = colony stock.

@@ -2,10 +2,12 @@
 -- Run: TICKS=14000 scripts/headless-spike.sh m1_colony
 local core = require("scripts.spike.core")
 local colony = require("scripts.colony")
+local feedback = require("scripts.feedback")
 local territory = require("scripts.territory")
 local work = require("scripts.work")
 local gui = require("scripts.gui")
 local farm = require("scripts.model.farm")
+local milestones = require("scripts.model.milestones")
 local events = require("scripts.events")
 local wildlife = require("scripts.wildlife")
 
@@ -62,6 +64,13 @@ core.register("m1_colony", {
     local archive = build("colony-town-archive", archive_pos)
     if archive and archive.valid then
       archive.insert{name = "colony-frontier-pack", count = 5}
+    end
+    -- The charter sits behind the population milestones (#milestones); a 14-colonist test town never reaches
+    -- 16, so grant the chain and check the milestone itself separately below.
+    ctx.check("building a Town Hall completes the Settlement milestone",
+      game.forces["player"].technologies["colony-settlement"].researched)
+    for _, m in ipairs(milestones.LIST) do
+      game.forces["player"].technologies[m.tech].researched = true
     end
     game.forces["player"].research_queue = {"colony-frontier-charter"}
 
@@ -475,6 +484,28 @@ core.register("m1_colony", {
         and am.requests[1].count == 10, am.requests[1] and (am.requests[1].item .. " x" .. am.requests[1].count) or "none")
       colony.set_machine(c, asm, false); asm.destroy()
       ctx.check("colony advice computes", type(problems) == "table", #problems)
+
+      -- Feedback: every house and working hut carries a status line on its tooltip.
+      feedback.update(c)
+      local unlabelled = 0
+      for _, h in pairs(c.houses) do if h.entity.valid and not h.entity.custom_status then unlabelled = unlabelled + 1 end end
+      for _, h in pairs(c.huts) do if h.entity.valid and not h.entity.custom_status then unlabelled = unlabelled + 1 end end
+      ctx.check("every house and hut has a status line", unlabelled == 0, unlabelled .. " without")
+      -- Hall workshop: a hut short of its tool, none in stock, wood + iron in stock -> the hall makes one.
+      local lumber = build("colony-woodcutter-hut", {p.x - 20, p.y + 20})
+      if lumber and lumber.valid then
+        local axes = colony.stock_count(c, "colony-axe")
+        if axes > 0 then colony.take_stock(c, "colony-axe", axes) end
+        hall.insert{name = "wood", count = 10}; hall.insert{name = "iron-plate", count = 10}
+        c.workshop_at = 0
+        colony.workshop(c)
+        ctx.check("the hall workshop makes a missing tool from stock", colony.stock_count(c, "colony-axe") == 1,
+          colony.stock_count(c, "colony-axe"))
+        feedback.update(c)
+        local cs = lumber.custom_status
+        ctx.check("an untooled hut says so on its tooltip", cs and cs.diode ~= defines.entity_status_diode.green,
+          cs and serpent.line(cs.label) or "none")
+      end
       ctx.finish()
     end)
   end,

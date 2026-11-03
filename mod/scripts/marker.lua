@@ -12,14 +12,15 @@ local function apply(ev, enable)
   if ev.item ~= M.TOOL then return end
   local player = game.get_player(ev.player_index)
   if not player then return end
-  local n = 0
+  local n, unset = 0, 0
   for _, e in ipairs(ev.entities or {}) do
     if e.valid and gui.MACHINE_GUIS[e.type] then
       local id = territory.owner_at(e.surface.index, e.position)
       local col = id and storage.colonies[id]
       if col then
-        colony.set_machine(col, e, enable)
+        local m = colony.set_machine(col, e, enable)
         n = n + 1
+        if enable and m and next(m.requests) == nil then unset = unset + 1 end
       end
     end
   end
@@ -29,6 +30,10 @@ local function apply(ev, enable)
   else
     player.create_local_flying_text{
       text = {enable and "colony-message.marker-on" or "colony-message.marker-off", n}, position = pos}
+    if unset > 0 then
+      player.create_local_flying_text{text = {"colony-message.marker-unset", unset},
+        position = {x = pos.x, y = pos.y + 1}}
+    end
   end
 end
 

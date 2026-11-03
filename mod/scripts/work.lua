@@ -681,6 +681,19 @@ scheduler.register("work.machine_sweep", function(d)
         -- which was a 13 ms tick at 2000 machines (#75).
         local hurt = m.entity.health < m.entity.max_health
         if hurt ~= (m.damaged or false) then m.damaged, changed = hurt, true end
+        -- Badge tint (world view of the supply network): green stocked, orange waiting on a hauler, red
+        -- starved because the colony has none. Only recoloured when the state flips.
+        local state = "ok"
+        if need then
+          state = "wait"
+          for _, d in ipairs(need) do
+            if colony_mod.stock_count(colony, d.item) <= 0 and (m.inflight[d.item] or 0) <= 0 then state = "starved"; break end
+          end
+        end
+        if state ~= m.badge_state and m.badge and m.badge.valid then
+          m.badge_state = state
+          m.badge.color = state == "ok" and {0.4, 1, 0.4} or (state == "wait" and {1, 0.75, 0.3} or {1, 0.3, 0.3})
+        end
         if need and not m.need then m.need, changed = need, true
         elseif not need and m.need then m.need, changed = nil, true
         else m.need = need end

@@ -459,6 +459,12 @@ core.register("m1_colony", {
       ctx.check("an unequipped hut explains itself", reason == "hut-no-tool-in-hall" or reason == "hut-tool-coming"
         or reason == "hut-tool-waiting", tostring(reason) .. " tools=" .. tostring(tools))
       local problems = gui.colony_advice(c, colony.stats(c), work.job_counts(c))
+      local asm = s.create_entity{name = "assembling-machine-1", position = {p.x - 12, p.y + 12}, force = "player"}
+      asm.set_recipe("iron-gear-wheel")
+      local am = colony.set_machine(c, asm, true)
+      ctx.check("opting an assembler in reads its recipe", am.requests[1] and am.requests[1].item == "iron-plate"
+        and am.requests[1].count == 10, am.requests[1] and (am.requests[1].item .. " x" .. am.requests[1].count) or "none")
+      colony.set_machine(c, asm, false); asm.destroy()
       ctx.check("colony advice computes", type(problems) == "table", #problems)
       ctx.finish()
     end)

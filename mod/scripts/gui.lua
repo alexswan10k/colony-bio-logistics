@@ -707,17 +707,6 @@ function crate_ctx(ev)
 end
 
 -- ---------- machine supply panel ----------
-local function recipe_requests(e)
-  local out = {}
-  local recipe = e.type == "assembling-machine" and e.get_recipe()
-  if recipe then
-    for _, ing in ipairs(recipe.ingredients) do
-      if ing.type == "item" and #out < M.REQUEST_ROWS then out[#out + 1] = {item = ing.name, count = math.max(ing.amount * 5, 5)} end
-    end
-  end
-  return out
-end
-
 local function req_status(e, m, req)
   local colony = colony_at(e)
   local state = advice.request{have = e.get_item_count(req.item), count = req.count, inflight = m.inflight and m.inflight[req.item] or 0,
@@ -817,7 +806,6 @@ events.on(defines.events.on_gui_checked_state_changed, function(ev)
   local m = colony.machines[e.unit_number]
   if name == "colony_supply_enabled" then
     m = colony_mod.set_machine(colony, e, ev.element.state)
-    if m and m.enabled and next(m.requests) == nil then m.requests = recipe_requests(e) end
     fill_machine(body, m, e)
   elseif m then m.collect = ev.element.state end
 end)

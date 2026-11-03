@@ -1130,6 +1130,22 @@ work.bind(M); gui.bind(M)   -- avoids a require cycle (runtime require is illega
 -- destroyed by the engine, so no cleanup is needed when a machine is mined.
 M.BADGE_SPRITE = "entity/colony-town-hall"   -- SpritePath: the Town Hall's icon
 
+-- Sensible request rows for a machine, so one marker drag leaves it working: five crafts' worth of each
+-- ingredient (assemblers and furnaces). Anything without a readable recipe starts empty and is set by hand.
+M.REQUEST_ROWS = 3
+function M.default_requests(e)
+  local out = {}
+  local recipe = (e.type == "assembling-machine" or e.type == "furnace")
+    and (e.get_recipe() or (e.type == "furnace" and e.previous_recipe and e.previous_recipe.name
+      and prototypes.recipe[e.previous_recipe.name]))
+  if recipe then
+    for _, ing in ipairs(recipe.ingredients) do
+      if ing.type == "item" and #out < M.REQUEST_ROWS then out[#out + 1] = {item = ing.name, count = math.max(ing.amount * 5, 5)} end
+    end
+  end
+  return out
+end
+
 function M.set_machine(colony, e, enabled)
   local m = colony.machines[e.unit_number]
   if enabled then
@@ -1138,6 +1154,7 @@ function M.set_machine(colony, e, enabled)
     m.enabled = true
     m.need, m.has_output = nil, nil      -- the sweep rediscovers both within a pass
     colony.machines[e.unit_number] = m
+    if next(m.requests) == nil then m.requests = M.default_requests(e) end
     colony.machine_dirty = true
     script.register_on_object_destroyed(e)   -- so the registry (and the cached list) is pruned
     if not (m.badge and m.badge.valid) then

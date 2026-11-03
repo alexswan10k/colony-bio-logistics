@@ -29,6 +29,8 @@ function M.bind(c) colony_mod = c end
 
 M.WORK_TICKS = yields.WORK_TICKS
 M.RETRY_TICKS = 300
+M.RETRY_BACKOFF_MAX = 4     -- an idle colonist that keeps finding nothing waits up to this many retry periods (#22)
+M.RETRY_BACKOFF_POP = 100   -- ...but only in big towns: one extra retry period per this many colonists
 M.YIELD = {forage = yields.FORAGE, chop = yields.CHOP}
 M.MINE_PER_TRIP = yields.MINE_PER_TRIP   -- each unit becomes exactly one item (design §4.2)
 M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still feeds the biters
@@ -915,10 +917,18 @@ local function start_trip(colony, un, hut)
 end
 
 local function idle(colony, un, e)
-  storage.unit_state[un] = {colony_id = colony.id, state = "idle"}
+  -- A surplus colonist re-runs the whole job matrix on every retry and almost always finds nothing, which
+  -- was most of the colony's Lua time in the #22 benchmark. Each fruitless retry waits a little longer; any
+  -- real assignment replaces this state and starts over, and a hut, priority or target change wakes the town
+  -- through reassign_workforce regardless of the timer.
+  local prev = storage.unit_state[un]
+  -- A young colony stays snappy (its few idle colonists must notice new work quickly); only a big town backs off.
+  local cap = math.min(1 + math.floor(colony_mod.live_colonists(colony) / M.RETRY_BACKOFF_POP), M.RETRY_BACKOFF_MAX)
+  local misses = math.min((prev and prev.state == "idle" and prev.misses or 0) + 1, cap)
+  storage.unit_state[un] = {colony_id = colony.id, state = "idle", misses = misses}
   set_label(e, "idle")
   -- Deterministic jitter by unit number: a town spawned in one tick would otherwise retry in lockstep.
-  scheduler.after(M.RETRY_TICKS + (un * 37) % 240, "work.retry", {un = un})
+  scheduler.after(M.RETRY_TICKS * misses + (un * 37) % 240, "work.retry", {un = un})
 end
 
 -- Start a haul trip if there is one; returns true when the colonist is on its way.

@@ -27,6 +27,10 @@ end
 --   inputs_missing (supply-gated hut lacks inputs), sites (nil = not applicable), haul_rank
 function M.hut(f)
   if (f.limit or f.capacity) == 0 then return "paused" end
+  -- Stock limit reached: the hut stands down and its workers haul or work elsewhere (not a fault).
+  if f.quota_item then return "quota-met", f.quota_item end
+  -- A supply-gated hut with nothing to make (a Toolsmith when every hut is tooled and a spare is in stock).
+  if f.nothing_to_do then return "nothing-to-do" end
   if f.needs_tool and f.tools == 0 then
     if (f.inflight or 0) > 0 then return "tool-coming" end
     if (f.hall_stock or 0) <= 0 then return "no-tool-in-hall", f.tool end

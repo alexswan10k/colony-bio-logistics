@@ -349,6 +349,8 @@ local function toolsmith_wanted(colony)
   return toolsmith.wanted(gap_tools, built, stock)
 end
 
+M.toolsmith_wanted = toolsmith_wanted
+
 -- Which tool this Toolsmith makes next, and its recipe, or nil. Only recipes the force has researched count.
 local function toolsmith_pick(colony, hut)
   local wanted = toolsmith_wanted(colony)

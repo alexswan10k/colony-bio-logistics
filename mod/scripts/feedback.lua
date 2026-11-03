@@ -61,12 +61,19 @@ local function hut_status(colony, h, stock, haul_rank)
     end
   end
   local stuck = (colony.no_site[h.entity.unit_number] or 0) > game.tick
-  local reason, arg = advice.hut{needs_tool = def.tool ~= nil, tool = def.tool, tools = tools, capacity = def.capacity,
+  local met, quota_item = work.hut_quota_met(colony, h)
+  local nothing = h.entity.name == "colony-toolsmith" and #work.toolsmith_wanted(colony) == 0
+  local reason, arg = advice.hut{quota_item = met and quota_item or nil, nothing_to_do = nothing,needs_tool = def.tool ~= nil, tool = def.tool, tools = tools, capacity = def.capacity,
     limit = h.limit, workers = workers, inflight = def.tool and (h.inflight[def.tool] or 0) or 0,
     hall_stock = def.tool and (stock[def.tool] or 0) or 0, sites = stuck and 0 or nil,
     inputs_missing = inputs_missing, haul_rank = haul_rank}
   if not reason then
     return {level = "green"}, {"colony-status.hut-working", workers, allowed}
+  end
+  if reason == "quota-met" then
+    return {level = "green"}, {"colony-advice.hut-quota-met", item(arg)}
+  elseif reason == "nothing-to-do" then
+    return {level = "green"}, {"colony-advice.hut-nothing-to-do"}
   end
   if reason == "no-tool-in-hall" then
     local kind, ingredient, n = work.tool_gap(colony, arg)

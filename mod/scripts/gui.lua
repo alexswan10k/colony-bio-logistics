@@ -31,7 +31,7 @@ local fill_crate, crate_ctx   -- defined with the crate panel below; the click h
 
 
 -- ---------- "what is holding it back" (model/advice.lua) ----------
-local COLOURS = {red = "red", amber = "orange"}
+local COLOURS = {red = "red", amber = "orange", green = "green"}
 local function add_advice_line(frame, level, key, ...)
   frame.add{type = "label", caption = {"", "[color=" .. COLOURS[level] .. "]", {"colony-advice." .. key, ...}, "[/color]"}}
 end
@@ -187,11 +187,17 @@ function M.hut_reason(h, def, tools, workers)
       if inv and inv.get_item_count(item) > 0 then inputs_missing = false end
     end
   end
-  local reason, arg = advice.hut{needs_tool = def.tool ~= nil, tool = def.tool, tools = tools, capacity = def.capacity,
+  local met, quota_item
+  if colony then met, quota_item = work.hut_quota_met(colony, h) end
+  local nothing = colony ~= nil and h.entity.name == "colony-toolsmith" and #work.toolsmith_wanted(colony) == 0
+  local reason, arg = advice.hut{quota_item = met and quota_item or nil, nothing_to_do = nothing,
+    needs_tool = def.tool ~= nil, tool = def.tool, tools = tools, capacity = def.capacity,
     limit = h.limit, workers = workers, inflight = def.tool and (h.inflight[def.tool] or 0) or 0,
     hall_stock = def.tool and colony and colony_mod.stock_count(colony, def.tool) or 0, sites = sites,
     inputs_missing = inputs_missing, haul_rank = colony and jobs.effective(colony.priority).haul or 1}
   if not reason then return nil end
+  if reason == "quota-met" then return "hut-quota-met", {item(arg)}, "green" end
+  if reason == "nothing-to-do" then return "hut-nothing-to-do", {}, "green" end
   if reason == "no-tool-in-hall" then
     local kind, ingredient, n
     if colony then kind, ingredient, n = work.tool_gap(colony, arg) end

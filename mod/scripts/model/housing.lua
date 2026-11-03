@@ -61,7 +61,7 @@ function M.needs_power(tier)
   return false
 end
 
--- stock {item->count} is MUTATED (consumption). acc {item->fraction debt} is MUTATED.
+-- stock {item->count} is MUTATED (consumption). acc {item/need->fraction debt} is MUTATED.
 -- Returns consumed {item->n}, sat {need_id->bool}, score (0..1 fraction of needs met), critical_unmet (bool).
 function M.step(tier, occupants, stock, powered, acc)
   local consumed, sat, met, total, crit_unmet = {}, {}, 0, 0, false
@@ -69,19 +69,38 @@ function M.step(tier, occupants, stock, powered, acc)
     total = total + 1
     local ok = occupants == 0
     if not ok then
+      local first_item, per, power_opt = nil, nil, false
       for _, opt in ipairs(need.options) do
         if opt.power then
-          if powered then ok = true; break end
-        else
-          local owed = (acc[opt.item] or 0) + occupants * opt.per
-          local take = math.floor(owed)
-          local have = stock[opt.item] or 0
-          local use = math.min(take, have)
-          stock[opt.item] = have - use
-          consumed[opt.item] = (consumed[opt.item] or 0) + use
-          acc[opt.item] = math.min(owed - use, occupants * opt.per * 2)
-          if use >= take and (take > 0 or have > 0 or owed < 1) then ok = true; break end
+          power_opt = true
+        elseif opt.item then
+          first_item = first_item or opt.item
+          per = per or opt.per
         end
+      end
+
+      if power_opt and powered then
+        ok = true
+      elseif per then
+        local cur_acc = acc[need.id] or (first_item and acc[first_item]) or 0
+        local owed = cur_acc + occupants * per
+        local take = math.floor(owed)
+        local remaining = take
+        for _, opt in ipairs(need.options) do
+          if opt.item and remaining > 0 then
+            local have = stock[opt.item] or 0
+            local use = math.min(remaining, have)
+            if use > 0 then
+              stock[opt.item] = have - use
+              consumed[opt.item] = (consumed[opt.item] or 0) + use
+              remaining = remaining - use
+            end
+          end
+        end
+        local fraction = owed - take
+        acc[need.id] = fraction
+        if first_item then acc[first_item] = fraction end
+        if remaining == 0 then ok = true end
       end
     end
     sat[need.id] = ok

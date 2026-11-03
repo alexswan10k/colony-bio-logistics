@@ -165,8 +165,9 @@ end)
 -- While the panel is open, the hut's working radius is drawn in the world (the same idea as the Town
 -- Hall's territory rectangle) so "why is nothing being harvested?" is answerable at a glance.
 local function draw_hut_range(h)
+  local r = (h.job == "forage" and colony_mod.FORAGE_RADIUS or colony_mod.HUT_RADIUS)
   rendering.draw_circle{color = {0.9, 0.9, 0.3, 0.7}, width = 2, filled = false,
-    radius = colony_mod.HUT_RADIUS, target = h.entity, surface = h.entity.surface, time_to_live = 60}
+    radius = r, target = h.entity, surface = h.entity.surface, time_to_live = 60}
 end
 
 local function item(name) return {"item-name." .. name} end
@@ -222,7 +223,8 @@ local function fill_hut(frame, h)
   local more = row.add{type = "button", name = "colony_hut_limit_more", caption = "+",
     tooltip = {"colony-gui-hut.limit-tt"}}
   more.style.width = 24
-  frame.add{type = "label", caption = {"colony-gui-hut.range", colony_mod.HUT_RADIUS}}
+  local r = (h.job == "forage" and colony_mod.FORAGE_RADIUS or colony_mod.HUT_RADIUS)
+  frame.add{type = "label", caption = {"colony-gui-hut.range", r}}
   if def.tool then
     frame.add{type = "label", caption = {"colony-gui-hut.tools", tools}}
     if tools > 0 then
@@ -284,13 +286,13 @@ local function fill_hut(frame, h)
       row.style.vertical_align = "center"
       local name = row.add{type = "label", caption = "[item=" .. ore .. "]"}
       name.style.width = 96
-      row.add{type = "button", name = "colony_ore_" .. ore .. "_more", caption = "+",
-        tooltip = {"colony-gui-hut.ore-more-tt"}}
+      row.add{type = "button", name = "colony_ore_" .. ore .. "_less", caption = "-",
+        tooltip = {"colony-gui-hut.ore-less-tt"}}
       local rank = row.add{type = "label", caption = ranks[ore] > 0 and tostring(ranks[ore]) or {"colony-gui-info.off"}}
       rank.style.width = 24
       rank.style.horizontal_align = "center"
-      row.add{type = "button", name = "colony_ore_" .. ore .. "_less", caption = "-",
-        tooltip = {"colony-gui-hut.ore-less-tt"}}
+      row.add{type = "button", name = "colony_ore_" .. ore .. "_more", caption = "+",
+        tooltip = {"colony-gui-hut.ore-more-tt"}}
     end
     frame.add{type = "label", caption = {"colony-gui-hut.ore-hint"}}
   end
@@ -564,11 +566,11 @@ events.on(defines.events.on_gui_click, function(ev)
     h.ores = h.ores or {}
     local rank = mine_plan.rank(h.ores, ore)
     if ore_dir == "more" then
-      if rank == 0 then mine_plan.set(h.ores, ore, mine_plan.MAX_RANK)
-      elseif rank > 1 then mine_plan.set(h.ores, ore, rank - 1) end
+      if rank == 0 then mine_plan.set(h.ores, ore, 1)
+      elseif rank < mine_plan.MAX_RANK then mine_plan.set(h.ores, ore, rank + 1) end
     else
-      if rank > 0 and rank < mine_plan.MAX_RANK then mine_plan.set(h.ores, ore, rank + 1)
-      elseif rank == mine_plan.MAX_RANK then mine_plan.set(h.ores, ore, 0) end
+      if rank > 1 then mine_plan.set(h.ores, ore, rank - 1)
+      elseif rank == 1 then mine_plan.set(h.ores, ore, 0) end
     end
     colony_mod.reassign_workforce(colony)
     local frame = player.gui.relative[HUT_FRAME]

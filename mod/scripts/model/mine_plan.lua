@@ -61,4 +61,17 @@ function M.order(priority)
   return names
 end
 
+-- Group enabled ores by rank: returns array of {rank = r, ores = {ore, ...}} sorted best rank (1) to worst.
+function M.by_rank(priority)
+  local groups = {}
+  for rank = 1, M.MAX_RANK do
+    local list = {}
+    for _, ore in ipairs(M.ORES) do
+      if M.rank(priority, ore) == rank then list[#list + 1] = ore end
+    end
+    if #list > 0 then groups[#groups + 1] = {rank = rank, ores = list} end
+  end
+  return groups
+end
+
 return M

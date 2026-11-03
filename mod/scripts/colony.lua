@@ -524,6 +524,8 @@ local function spawn_colonist(colony)
   return true
 end
 
+M.spawn_colonist = spawn_colonist
+
 -- Scenic (#29): count trees in a fixed box around the hall and sample the tiles under them, once every
 -- M.SCENIC_EVERY evaluations. Trees are entities, so one filtered find per sample beats per-tile probing;
 -- the box is fixed rather than the whole territory so the cost stays flat as watchtowers expand.

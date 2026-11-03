@@ -4,6 +4,7 @@ local core = require("scripts.spike.core")
 local colony = require("scripts.colony")
 local territory = require("scripts.territory")
 local work = require("scripts.work")
+local gui = require("scripts.gui")
 local farm = require("scripts.model.farm")
 local events = require("scripts.events")
 local wildlife = require("scripts.wildlife")
@@ -447,6 +448,18 @@ core.register("m1_colony", {
       ctx.check("the compost bin turned spoilage into fertilizer",
         saw.fertilizer or hall.get_item_count("colony-fertilizer") + (bin.valid and bin.get_item_count("colony-fertilizer") or 0) >= 1,
         hall.get_item_count("colony-fertilizer") .. " in the hall")
+      -- Panel advice (model/advice.lua) reads live state; an unequipped hut with an empty hall must say why.
+      local probe = s.create_entity{name = "colony-woodcutter-hut", position = {p.x - 30, p.y - 30}, force = "player", raise_built = true}
+      local ph = probe and c.huts[probe.unit_number]
+      local def, tools, workers, reason
+      if ph then
+        def, tools, _, workers = work.hut_info(ph)
+        reason = gui.hut_reason(ph, def, tools, workers)
+      end
+      ctx.check("an unequipped hut explains itself", reason == "hut-no-tool-in-hall" or reason == "hut-tool-coming"
+        or reason == "hut-tool-waiting", tostring(reason) .. " tools=" .. tostring(tools))
+      local problems = gui.colony_advice(c, colony.stats(c), work.job_counts(c))
+      ctx.check("colony advice computes", type(problems) == "table", #problems)
       ctx.finish()
     end)
   end,

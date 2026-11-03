@@ -10,6 +10,7 @@ local mine_plan = require("scripts.model.mine_plan")
 local crates = require("scripts.model.crates")
 local haul_plan = require("scripts.model.haul_plan")
 local farm = require("scripts.model.farm")
+local advice = require("scripts.model.advice")
 local work = require("scripts.work")
 local M = {}
 local colony_mod   -- injected via M.bind (runtime require is illegal)
@@ -26,6 +27,37 @@ M.MACHINE_GUIS = MACHINE_GUIS   -- selection tool (#35) opts in exactly the mach
 
 local function colony_at(e) return colony_mod.colony_of(e) end
 local fill_crate, crate_ctx   -- defined with the crate panel below; the click handler above needs them
+
+
+-- ---------- "what is holding it back" (model/advice.lua) ----------
+local COLOURS = {red = "red", amber = "orange"}
+local function add_advice_line(frame, level, key, ...)
+  frame.add{type = "label", caption = {"", "[color=" .. COLOURS[level] .. "]", {"colony-advice." .. key, ...}, "[/color]"}}
+end
+
+function M.colony_advice(colony, st, counts)
+  local stock = colony_mod.stock_table(colony)
+  local gaps = {}
+  for _, h in pairs(colony.huts) do
+    if h.entity.valid then
+      local def, tools, _, _ = work.hut_info(h)
+      if def.tool then
+        local short = math.min(def.capacity, h.limit or def.capacity) - tools - (h.inflight[def.tool] or 0)
+        if short > 0 then gaps[#gaps + 1] = {tool = def.tool, short = short} end
+      end
+    end
+  end
+  table.sort(gaps, function(a, b) return a.tool < b.tool end)
+  local merged = {}
+  for _, g in ipairs(gaps) do
+    local last = merged[#merged]
+    if last and last.tool == g.tool then last.short = last.short + g.short else merged[#merged + 1] = g end
+  end
+  return advice.colony{pop = st.pop, capacity = st.capacity, food = st.food,
+    haul_rank = jobs.effective(colony.priority).haul, haulers = counts.haul or 0,
+    houses = st.tents + st.cabins + (st.homesteads or 0) + (st.apartments or 0),
+    hall_stock = stock, tool_gaps = merged}
+end
 
 -- ---------- household panel ----------
 -- Per-colonist job locks live on the house, not the Town Hall: a house lists only its own handful of
@@ -133,10 +165,36 @@ local function draw_hut_range(h)
     radius = colony_mod.HUT_RADIUS, target = h.entity, surface = h.entity.surface, time_to_live = 60}
 end
 
+-- Why this hut is short of workers (model/advice.lua), as a locale key under colony-advice.
+function M.hut_reason(h, def, tools, workers)
+  local colony = storage.colonies[h.colony_id]
+  local sites
+  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" then sites = work.site_count(h) end
+  local inputs_missing = false
+  if not def.tool and workers == 0 then
+    local inv = h.entity.type == "lab" and h.entity.get_inventory(defines.inventory.lab_input)
+      or h.entity.get_inventory(defines.inventory.chest)
+    inputs_missing = true
+    for _, item in ipairs(def.keep or {}) do
+      if inv and inv.get_item_count(item) > 0 then inputs_missing = false end
+    end
+  end
+  local reason, arg = advice.hut{needs_tool = def.tool ~= nil, tool = def.tool, tools = tools, capacity = def.capacity,
+    limit = h.limit, workers = workers, inflight = def.tool and (h.inflight[def.tool] or 0) or 0,
+    hall_stock = def.tool and colony and colony_mod.stock_count(colony, def.tool) or 0, sites = sites,
+    inputs_missing = inputs_missing, haul_rank = colony and jobs.effective(colony.priority).haul or 1}
+  return reason and ("hut-" .. reason), arg
+end
+
 local function fill_hut(frame, h)
   frame.clear()
   local def, tools, allowed, workers = work.hut_info(h)
   frame.add{type = "label", caption = {"colony-gui-hut.workers", workers, allowed}}
+  local reason, arg = M.hut_reason(h, def, tools, workers)
+  if reason then
+    local level = (reason == "hut-no-tool-in-hall" or reason == "hut-haul-off") and "red" or "amber"
+    add_advice_line(frame, level, reason, arg and {"item-name." .. arg} or nil)
+  end
   local limit = h.limit or def.capacity
   local row = frame.add{type = "flow", direction = "horizontal"}
   row.style.vertical_align = "center"
@@ -224,11 +282,7 @@ local function fill_hut(frame, h)
   end
   if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" then
     local sites = work.site_count(h)
-    if sites == 0 then
-      frame.add{type = "label", caption = {"colony-gui-hut.no-sites"}}
-    else
-      frame.add{type = "label", caption = {"colony-gui-hut.sites", sites}}
-    end
+    if sites > 0 then frame.add{type = "label", caption = {"colony-gui-hut.sites", sites}} end
   end
 end
 
@@ -271,6 +325,16 @@ local function fill_info(frame, colony)
   local busy = 0
   for _, job in ipairs(jobs.JOBS) do busy = busy + (counts[job] or 0) end
 
+  local problems = M.colony_advice(colony, st, counts)
+  if #problems > 0 then
+    frame.add{type = "label", caption = {"colony-advice.title"}, style = "bold_label"}
+    for _, a in ipairs(problems) do
+      local args = a.args
+      if a.key == "no-tool" then args = {{"item-name." .. a.args[1]}, a.args[2]} end
+      add_advice_line(frame, a.level, a.key, args[1], args[2])
+    end
+    frame.add{type = "line"}
+  end
   frame.add{type = "label", caption = {"colony-gui-info.population", st.pop, st.capacity}}
   frame.add{type = "label", caption = {"colony-gui-info.housing", st.tents, st.cabins, st.homesteads or 0, st.apartments or 0, math.max(st.capacity - st.pop, 0)}}
   local colour = st.food_ratio < 0.5 and "red" or (st.food_ratio < 1 and "orange" or "green")
@@ -642,6 +706,14 @@ local function fill_machine(frame, m, e)
       numeric = true, allow_decimal = false, allow_negative = false}
     tf.style.width = 60
     row.add{type = "label", caption = {"colony-gui.supply-keep"}}
+    if req then
+      local colony = colony_at(e)
+      local state = advice.request{have = e.get_item_count(req.item), count = req.count, inflight = m.inflight and m.inflight[req.item] or 0,
+        stock = colony and colony_mod.stock_count(colony, req.item) or 0,
+        haul_rank = colony and jobs.effective(colony.priority).haul or 1}
+      local lvl = (state == "no-stock" or state == "haul-off") and "red" or (state == "queued" and "amber" or "green")
+      row.add{type = "label", caption = {"", "[color=" .. (lvl == "amber" and "orange" or lvl) .. "]", {"colony-advice.req-" .. state}, "[/color]"}}
+    end
   end
   frame.add{type = "checkbox", name = "colony_supply_collect", state = m.collect, caption = {"colony-gui.supply-collect"},
     tooltip = {"colony-gui.supply-collect-tt"}}

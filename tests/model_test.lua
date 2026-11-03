@@ -5,6 +5,7 @@ local cm = require("scripts.model.colony_model")
 local scenic = require("scripts.model.scenic")
 local tags = require("scripts.model.tags")
 local compost = require("scripts.model.compost")
+local advice = require("scripts.model.advice")
 
 describe("desirability", function()
   local good = {food_ratio = 1, free_housing_ratio = 0.5, scenic = 0.5, leisure = 0.5, pollution = 0, deaths = {}}
@@ -946,5 +947,34 @@ describe("colony science (#42)", function()
       preserve = 3, construct = 3, research = 1}
     s.priority = prio_high
     eq(work_plan.choose(s), "research")
+  end)
+end)
+
+describe("advice", function()
+  local base = {pop = 4, capacity = 8, food = 20, haul_rank = 1, haulers = 1, houses = 2, hall_stock = {}, tool_gaps = {}}
+  local function keys(f) local k = {} for _, a in ipairs(advice.colony(f)) do k[#k + 1] = a.key end return table.concat(k, ",") end
+  it("a healthy colony has no blockers", function() eq(keys(base), "") end)
+  it("flags starvation, hauling off and missing beds", function()
+    eq(keys({pop = 4, capacity = 4, food = 0, haul_rank = 0, haulers = 0, houses = 1, hall_stock = {}}), "haul-off,no-food,no-beds")
+  end)
+  it("flags a tool the hall cannot supply", function()
+    eq(keys({pop = 4, capacity = 8, food = 5, houses = 1, hall_stock = {}, haulers = 1, tool_gaps = {{tool = "colony-axe", short = 2}}}), "no-tool")
+    eq(keys({pop = 4, capacity = 8, food = 5, houses = 1, hall_stock = {["colony-axe"] = 3}, haulers = 1, tool_gaps = {{tool = "colony-axe", short = 2}}}), "")
+  end)
+  it("explains an empty hut", function()
+    local hut = {needs_tool = true, tool = "colony-axe", tools = 0, capacity = 3, workers = 0, hall_stock = 0, inflight = 0}
+    eq((advice.hut(hut)), "no-tool-in-hall")
+    hut.hall_stock = 2; eq((advice.hut(hut)), "tool-waiting")
+    hut.inflight = 1; eq((advice.hut(hut)), "tool-coming")
+    hut.limit = 0; eq((advice.hut(hut)), "paused")
+    eq((advice.hut({needs_tool = true, tools = 2, capacity = 3, workers = 2, sites = 0})), "no-sites")
+    eq(advice.hut({needs_tool = true, tools = 2, capacity = 3, workers = 2, sites = 5}), nil)
+  end)
+  it("classifies a machine request", function()
+    eq(advice.request({have = 10, count = 10}), "stocked")
+    eq(advice.request({have = 0, count = 10, inflight = 5}), "delivering")
+    eq(advice.request({have = 0, count = 10, stock = 0}), "no-stock")
+    eq(advice.request({have = 0, count = 10, stock = 9, haul_rank = 0}), "haul-off")
+    eq(advice.request({have = 0, count = 10, stock = 9}), "queued")
   end)
 end)

@@ -2,3 +2,4 @@
 build/
 mod/autorun.lua
 spike-results/
+__pycache__/

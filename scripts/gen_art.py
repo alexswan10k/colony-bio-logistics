@@ -405,6 +405,45 @@ def tavern():
 
 
 @asset
+def passenger_platform():
+    """covered wooden platform (#49): a plank deck, a bench, a clock-and-lamp post and a little shingled roof"""
+    a = Art(128, 128)
+    a.ao(10, 92, 124, 124, .5, 4)
+    a.rect(8, 60, 120, 116, PLANK, tex=planks_h(6), shade=.25)                           # deck
+    a.rect(8, 112, 120, 118, WOOD_D, shade=.2)                                           # deck edge
+    a.line([(14, 62), (14, 116)], 5, WOOD_D)                                             # roof posts
+    a.line([(114, 62), (114, 116)], 5, WOOD_D)
+    a.rect(30, 84, 98, 89, WOOD_D, shade=.2)                                             # bench back
+    a.rect(30, 90, 98, 100, WOOD_L, tex=planks_h(3), shade=.25)                          # bench seat
+    a.rect(34, 100, 38, 110, WOOD_D)                                                     # bench legs
+    a.rect(90, 100, 94, 110, WOOD_D)
+    a.line([(24, 112), (24, 58)], 3, IRON_D)                                             # clock and lamp post
+    a.rect(20, 50, 28, 60, GLASS_LIT, r=1, shade=.2)                                     # lantern
+    a.rect(18, 46, 30, 51, IRON_D, shade=.2)
+    a.ell(18, 66, 30, 78, (240, 236, 226), shade=.25, edge=.4)                           # clock face
+    a.line([(24, 72), (24, 67)], 1, IRON_D, hi=0)
+    a.line([(24, 72), (28, 74)], 1, IRON_D, hi=0)
+    a.poly([(2, 42), (64, 12), (126, 42), (118, 48), (64, 24), (10, 48)], (120, 78, 58), tex=shingle(8, 5), shade=.2)
+    a.line([(4, 44), (124, 44)], 2, DARKWOOD, hi=0)                                      # roof trim
+    a.save(path("passenger-platform"), shadow=SHADOW)
+    icon_of("passenger-platform")
+
+
+@asset
+def passenger_coach():
+    """icon only (#49): a small green passenger carriage in side view"""
+    a = Art(64, 64)
+    a.rect(6, 22, 58, 46, (92, 164, 92), r=3, tex=speckle(.5, 30), shade=.3)              # body
+    a.rect(4, 14, 60, 23, (56, 108, 58), r=2, shade=.25)                                  # roof
+    a.rect(6, 38, 58, 41, (230, 212, 130), shade=.2)                                      # stripe
+    for x in (12, 26, 40):
+        window(a, x, 26, x + 9, 35, lit=True)
+    a.ell(10, 42, 22, 54, IRON_D, shade=.3)                                                # wheels
+    a.ell(42, 42, 54, 54, IRON_D, shade=.3)
+    done(a, "icon-passenger-coach")
+
+
+@asset
 def watchtower():
     a = Art(128, 128)
     a.ao(12, 98, 122, 126, .55, 5)

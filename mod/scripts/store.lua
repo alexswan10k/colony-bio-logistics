@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 22
+local SCHEMA = 23
 
 local migrations = {
   [1] = function()
@@ -111,6 +111,12 @@ local migrations = {
     -- Taverns (#48): colony.taverns [unit_number] = {entity, colony_id, inflight, owed, houses, inspired}; houses
     -- gain `inspired` and colonies `recreation` on their next evaluation.
     for _, c in pairs(storage.colonies) do c.taverns = c.taverns or {} end
+  end,
+  [23] = function()
+    -- Passenger rail (#49): colony.platforms [unit_number] = {entity, colony_id, stop}; storage.coaches
+    -- [wagon unit_number] = {groups = {{from, n, stops}}, text}.
+    storage.coaches = storage.coaches or {}
+    for _, c in pairs(storage.colonies) do c.platforms = c.platforms or {} end
   end,
 }
 

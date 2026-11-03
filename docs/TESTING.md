@@ -40,6 +40,10 @@ Three headless gates cover the things the unit tests and the playable spike cann
   Also covers copy-paste in both directions (an opted-in source copies its settings, a plain source clears
   the destination) and that a foreign tag on the same blueprint entity is not clobbered. `TICKS=400` is
   plenty: the spike is event-driven, not a simulation.
+- `scripts/headless-spike.sh m1_rail` - the #49 passenger rail spike (17 checks, `TICKS=8000`): two colonies ~200 tiles
+  apart on one rail line, a platform by each stop; colony A loses its only tent, its four colonists walk to the platform
+  and wait, board the coach (riders drawn on it), and step off at B as B's colonists; nobody is lost. Migrants are
+  switched off in both colonies so head counts only move by train.
 - `scripts/headless-spike.sh m1_tavern` - the #48 Tavern spike (19 checks, `TICKS=5000`): haulers fill an empty
   Tavern with ale from the hall, a tent within 24 tiles is Inspired and one 30+ tiles away is not, recreation sits
   between 0 and 1 and shows in desirability, ale is consumed, the tooltip says `tavern-serving`, and once all ale is
@@ -139,6 +143,13 @@ Each of these cost a debugging round in a spike; check them before assuming the 
 - **`create_blueprint` / `build_blueprint` are script paths**: they do not raise the player events, so a
   spike has to call the same helper the event handler calls (that is why `colony.tag_blueprint` takes a plain
   index -> entity table as well as a `LuaLazyLoadedValue`).
+- **A train stop only connects where its rail end is**: a stop placed beside the middle of a straight run, or two
+  rows off with the wrong facing, never gets `connected_rail` and the train reports no path. In `m1_rail` what worked
+  was a stop touching each end of the run (west end facing west on the north side, east end facing east on the
+  south side). Schedules in 2.1 still take `train.schedule = {current = 1, records = {{station = ..., wait_conditions =
+  {{type = "time", ticks = 300, compare_type = "and"}}}}}` followed by `train.manual_mode = false`.
+- **Trains run colonists over.** A colonist that walks across a live track dies to the train; the colony currently
+  records no death or message for it (tracked for #53). Keep spike layouts off the line.
 - **Factorio 2.1 merged a recipe's `category` / `additional_categories` into `categories`**, and a recipe that still
   sets `category` stops the game at the data stage. Leave the field out for plain crafting (the default), or use
   `categories = {...}`.

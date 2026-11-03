@@ -21,20 +21,6 @@ data:extend({
   refresh("colony-pod-plain"), refresh("colony-pod-tagged"),
 })
 
--- Spike #2: a "passenger coach" is a cargo wagon clone.
-do
-  local item = table.deepcopy(data.raw["item-with-entity-data"]["cargo-wagon"] or data.raw["item"]["cargo-wagon"])
-  item.name = "colony-passenger-coach"
-  item.place_result = "colony-passenger-coach"
-  local wagon = table.deepcopy(data.raw["cargo-wagon"]["cargo-wagon"])
-  wagon.name = "colony-passenger-coach"
-  wagon.minable.result = "colony-passenger-coach"
-  wagon.inventory_size = 20
-  wagon.fast_replaceable_group = nil
-  wagon.next_upgrade = nil
-  data:extend({item, wagon})
-end
-
 -- Spike #13 (Issue #19 / #42): Colony Science feasibility
 do
   local pack = {

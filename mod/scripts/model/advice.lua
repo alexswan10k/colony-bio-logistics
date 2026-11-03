@@ -99,6 +99,13 @@ function M.tavern(f)
   return {level = "green", key = "tavern-serving", args = {f.houses, f.inspired or 0, f.ale}}
 end
 
+-- A Passenger Platform's tooltip (#49). facts: stop (a train stop is in reach), waiting (colonists queued).
+function M.platform(f)
+  if not f.stop then return {level = "amber", key = "platform-no-stop", args = {}} end
+  if (f.waiting or 0) > 0 then return {level = "green", key = "platform-waiting", args = {f.waiting}} end
+  return {level = "green", key = "platform-idle", args = {}}
+end
+
 -- State of one machine request row. have = in the machine, inflight = on a hauler, stock = colony stock.
 function M.request(f)
   if f.have >= f.count then return "stocked" end

@@ -1249,6 +1249,22 @@ local function truck_home(colony, tun)
   park(colony, tun)
 end
 
+-- Passenger rail (#49): send a colonist to a platform to wait for a train out. Its current trip is abandoned
+-- (carried goods go home, its hut seat frees up); the train itself is handled in scripts/transit.lua.
+function M.send_to_platform(colony, un, platform)
+  local e = colony.colonists[un]
+  if not (e and e.valid and platform.entity.valid) then return false end
+  local st = storage.unit_state[un]
+  if st then
+    if st.hut and st.hut.workers then st.hut.workers[un] = nil end
+    M.release(st)
+  end
+  storage.unit_state[un] = {colony_id = colony.id, job = "travel", state = "to_platform", platform = platform}
+  set_label(e, "leaving by train 🚉")
+  go(e, platform.entity.position, 2.5)
+  return true
+end
+
 function M.is_sleep_time(surface)
   if not surface or surface.freeze_daytime then return false end
   local d = surface.daytime
@@ -1271,6 +1287,10 @@ function M.assign(colony, un)
   local st = storage.unit_state[un]
   -- Waiting inside a Motor Pool while its truck works: the truck decides when the shift ends.
   if st and st.state == "driving" and storage.trucks and storage.trucks[st.truck] then return end
+  -- Bound for (or waiting at) a Passenger Platform: the next train decides (scripts/transit.lua).
+  if st and (st.state == "to_platform" or st.state == "waiting_train") and st.platform and st.platform.entity.valid then
+    return
+  end
   local lock = colony.locks and colony.locks[un]
 
   -- Night time: colonists return to their house to sleep
@@ -1604,6 +1624,17 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   if not st then return end
   local colony = storage.colonies[st.colony_id]
   if not colony then return end
+  if st.state == "to_platform" then
+    local e = unit_entity(colony, ev.unit_number)
+    if ev.result == defines.behavior_result.success and e and e.valid then
+      st.state = "waiting_train"
+      set_label(e, "waiting for a train 🚉")
+    else
+      storage.unit_state[ev.unit_number] = {colony_id = colony.id, state = "idle"}   -- cannot reach it: stay
+      M.assign(colony, ev.unit_number)
+    end
+    return
+  end
   -- A truck heading home parks wherever it gave up, rather than looping on an unreachable pool.
   if st.state == "to_park" then truck_home(colony, ev.unit_number); return end
   if ev.result ~= defines.behavior_result.success and st.job ~= "hunt" and st.state ~= "to_bed" then

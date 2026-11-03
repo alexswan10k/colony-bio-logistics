@@ -78,6 +78,30 @@ local kitchen = chest_clone("iron-chest", "colony-kitchen", "kitchen", 8, 1)
 local tavern = chest_clone("iron-chest", "colony-tavern", "tavern", 8, 1)
 -- Motor Pool (#60): holds vanilla cars and fuel; haulers check a car out as a colony truck for big loads.
 local motorpool = chest_clone("steel-chest", "colony-motor-pool", "motor-pool", 8, 1.5)
+-- Passenger Platform (#49): colonists wait here for a train. Build it within 10 tiles of a train stop.
+local platform = chest_clone("iron-chest", "colony-passenger-platform", "passenger-platform", 4, 1)
+
+-- Passenger Coach (#49): a vanilla cargo wagon, recoloured and renamed. Colonists ride it abstractly (no seats),
+-- so `inventory_size` stays at 1 and the wagon's own inventory is not used for passengers.
+do
+  local coach = table.deepcopy(data.raw["cargo-wagon"]["cargo-wagon"])
+  coach.name = "colony-passenger-coach"
+  coach.localised_name = {"entity-name.colony-passenger-coach"}
+  coach.localised_description = {"entity-description.colony-passenger-coach"}
+  coach.color = {0.35, 0.65, 0.35}
+  coach.inventory_size = 1
+  coach.minable = {mining_time = 0.5, result = "colony-passenger-coach"}
+  coach.fast_replaceable_group = nil
+  coach.next_upgrade = nil
+  coach.icon, coach.icon_size, coach.icons = G .. "icon-passenger-coach.png", 64, nil
+  local item = table.deepcopy(data.raw["item-with-entity-data"]["cargo-wagon"])
+  item.name = "colony-passenger-coach"
+  item.localised_name = {"item-name.colony-passenger-coach"}
+  item.icon, item.icon_size, item.icons = G .. "icon-passenger-coach.png", 64, nil
+  item.place_result = "colony-passenger-coach"
+  item.order = "z[colony]-m[passenger-coach]"
+  data:extend({coach, item})
+end
 
 -- Colony science (#42, design §8): Town Archive (early 3x3) and University (advanced 4x4).
 -- Custom lab entities that only consume colony science packs.
@@ -209,7 +233,7 @@ end
 
 data:extend({
   hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
-  smokehouse, kitchen, tavern, motorpool, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
+  smokehouse, kitchen, tavern, motorpool, platform, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
   plot, bush, sink, marker,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -231,6 +255,7 @@ data:extend({
   item_of(kitchen, "kitchen", "z[colony]-l1[kitchen]"),
   item_of(tavern, "tavern", "z[colony]-l1[tavern]"),
   item_of(motorpool, "motor-pool", "z[colony]-l2[motor-pool]"),
+  item_of(platform, "passenger-platform", "z[colony]-l3[passenger-platform]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(warehouse, "warehouse", "z[colony]-l[warehouse]"),
@@ -312,6 +337,8 @@ data:extend({
   recipe("colony-kitchen", {wood = 30, ["stone-brick"] = 15, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-tavern", {wood = 40, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-motor-pool", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 20, ["iron-gear-wheel"] = 10}, 3, 1, false),
+  recipe("colony-passenger-platform", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
+  recipe("colony-passenger-coach", {["cargo-wagon"] = 1, wood = 20}, 5, 1, false),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4, false),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1, 1, false),
   recipe("colony-demand-crate", {wood = 10, ["iron-plate"] = 10}, 1, 1, false),

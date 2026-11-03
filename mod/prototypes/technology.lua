@@ -94,4 +94,9 @@ data:extend({
     {"colony-frontier-charter", "automobilism"}, {
       unlock("colony-motor-pool"),
     }),
+  tech("colony-rail-transit", "icon-passenger-platform.png", 40, {"colony-frontier-pack"}, 15,
+    {"colony-civic-governance", "railway"}, {
+      unlock("colony-passenger-platform"),
+      unlock("colony-passenger-coach"),
+    }),
 })

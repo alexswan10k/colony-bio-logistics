@@ -10,6 +10,7 @@ local workshop = require("scripts.model.workshop")
 local jobs = require("scripts.model.jobs")
 local motor = require("scripts.model.motor")
 local recreation = require("scripts.model.recreation")
+local transit = require("scripts.transit")
 local work = require("scripts.work")
 local M = {}
 
@@ -163,6 +164,10 @@ function M.update(colony)
     local ale = t.entity.get_item_count(recreation.ITEM)
     local r = advice.tavern{ale = ale, houses = t.houses or 0, inspired = t.inspired or 0}
     report(t.entity, r, {"colony-status." .. r.key, r.args[1], r.args[2], r.args[3]})
+  end
+  for _, p in ipairs(colony_mod.platform_list(colony)) do
+    local r = advice.platform{stop = transit.stop_of(p) ~= nil, waiting = transit.waiting_count(colony, p)}
+    report(p.entity, r, {"colony-status." .. r.key, r.args[1]})
   end
   local r, label, icon = hall_status(colony)
   report(colony.hall, r, label, icon)

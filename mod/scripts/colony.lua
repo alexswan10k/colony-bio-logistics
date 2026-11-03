@@ -28,6 +28,7 @@ local workshop = require("scripts.model.workshop")
 local work = require("scripts.work")
 local gui = require("scripts.gui")
 local feedback = require("scripts.feedback")
+local transit = require("scripts.transit")
 local M = {}
 
 M.HALL = "colony-town-hall"
@@ -36,6 +37,7 @@ M.PLOT = "colony-farm-plot"
 M.WELL = "colony-well"
 M.MOTOR_POOL = "colony-motor-pool"
 M.TAVERN = "colony-tavern"
+M.PLATFORM = "colony-passenger-platform"
 M.HUT_RADIUS = 48              -- working radius around a labour hut (other colonies' land excluded)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
 M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not regrow in lockstep
@@ -108,6 +110,18 @@ function M.salt_pan_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.salt_pans[un] end
+  return out
+end
+
+-- Passenger Platforms (#49), in a stable order: [unit_number] = {entity, colony_id, stop (cached train stop)}.
+function M.platform_list(colony)
+  local ids = {}
+  for un, p in pairs(colony.platforms or {}) do
+    if p.entity.valid then ids[#ids + 1] = un else colony.platforms[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.platforms[un] end
   return out
 end
 
@@ -593,9 +607,10 @@ end
 -- A migrant arrives at the Town Hall: right in town, so it can always path to its job (spawning out at the
 -- edge stranded colonists behind lakes and cliffs). The arrival is shown over the hall and announced with a
 -- map link, so a new face is never a silent surprise.
-local function spawn_colonist(colony)
+-- A new colonist at the hall, or at `at` (a Passenger Platform, #49) when it arrived by train.
+local function spawn_colonist(colony, at)
   local hall = colony.hall
-  local pos = hall.surface.find_non_colliding_position("colony-colonist", hall.position, 10, 0.5)
+  local pos = hall.surface.find_non_colliding_position("colony-colonist", at or hall.position, 10, 0.5)
   if not pos then return false end
   local c = hall.surface.create_entity{name = "colony-colonist", position = pos, force = hall.force}
   if not c then return false end
@@ -758,6 +773,8 @@ function M.evaluate(data)
     end
   elseif d < desirability.defaults.leave_below then
     local n = colony_model.leave_count(pop, d)
+    -- With a Passenger Platform and room in another colony, leavers take the train instead (#49).
+    n = n - transit.depart(colony, n, 0)
     for _ = 1, n do if not leave_one(colony) then break end end
     if n > 0 then
       colony.hall.force.print({"colony-message.colonists-left", n})
@@ -766,6 +783,9 @@ function M.evaluate(data)
       end
     end
   end
+  -- Colonists with no bed (a house was removed) move by train when another colony has room (#49).
+  local homeless = M.live_colonists(colony) - M.capacity(colony) - transit.waiting_count(colony)
+  if homeless > 0 then transit.depart(colony, 0, homeless) end
   M.check_milestones(colony.hall.force)
   feedback.ensure(colony)
   -- Sleepers whose individual check was lost (save/load mid-walk) are woken here. Idle colonists already
@@ -897,7 +917,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.MOTOR_POOL or name == M.TAVERN or M.HOUSES[name] or labour.HUTS[name] then
+    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.MOTOR_POOL or name == M.TAVERN or name == M.PLATFORM or M.HOUSES[name] or labour.HUTS[name] then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -926,7 +946,7 @@ local function on_built(ev)
     if owner then refund(ev, e, name, {"colony-message.hall-too-close"}); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, locks = {}, quotas = {}, job_targets = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {}, locks = {}, quotas = {}, job_targets = {},
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}}
     storage.colonies[id] = colony
     M.seed_forage(colony)   -- the claimed land already has berries on it
@@ -1029,6 +1049,15 @@ local function on_built(ev)
     colony.pools = colony.pools or {}
     colony.pools[e.unit_number] = {entity = e, colony_id = colony.id, inflight = {}, out = 0}
     script.register_on_object_destroyed(e)
+  elseif name == M.PLATFORM then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.platforms = colony.platforms or {}
+    colony.platforms[e.unit_number] = {entity = e, colony_id = colony.id}
+    rendering.draw_circle{color = {0.4, 0.7, 1, 0.5}, width = 2, filled = false, radius = 10,
+      target = e, surface = e.surface, only_in_alt_mode = true}
+    script.register_on_object_destroyed(e)
   elseif name == M.TAVERN then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -1108,7 +1137,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or item_name == M.HALL or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLATFORM or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -1211,6 +1240,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
       colony.wells[un] = nil
       return
     end
+    if colony.platforms and colony.platforms[un] then
+      colony.platforms[un] = nil   -- colonists waiting there notice on their next assignment and go back to work
+      return
+    end
     if colony.taverns and colony.taverns[un] then
       colony.taverns[un] = nil
       return
@@ -1248,7 +1281,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
   end
 end)
 
-work.bind(M); gui.bind(M); feedback.bind(M)   -- avoids a require cycle (runtime require is illegal)
+work.bind(M); gui.bind(M); feedback.bind(M); transit.bind(M)   -- avoids a require cycle (runtime require is illegal)
 
 -- ---------- opt-in machine registry (#34) ----------
 -- The badge is alt-mode only: a small Town Hall icon over every machine the colony serves, so the player

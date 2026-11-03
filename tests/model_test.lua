@@ -254,6 +254,17 @@ describe("work_plan", function()
     eq(wp.choose(s{pop = 3, counts = {forage = 1}}), "chop")
     eq(wp.choose(s{pop = 3, counts = {forage = 1, chop = 1}}), "mine")
   end)
+  it("staffs every built hut, not just the oldest one, when the food share is small", function()
+    local base = {pop = 4, food_ratio = 2, counts = {mine = 1, chop = 0},
+      slots = {mine = 8, chop = 3}, capacity = {mine = 9, chop = 3},
+      priority = {haul = 0, forage = 2, chop = 2, mine = 2, farm = 2, hunt = 2, fish = 2,
+        preserve = 2, construct = 2, research = 2}}
+    -- The share alone is already met by the one miner, so the next colonist chops instead of staffing the
+    -- second and third miner huts.
+    eq(wp.choose(base), "chop")
+    base.hut_count = {mine = 3, chop = 1}
+    eq(wp.choose(base), "mine")
+  end)
   it("never assigns a job with no free tooled slot", function()
     eq(wp.choose(s{pop = 2, slots = {forage = 0, chop = 1, mine = 0}, capacity = {forage = 0, chop = 1, mine = 0}}), "chop")
   end)
@@ -647,6 +658,22 @@ describe("labour", function()
   it("sums tooled capacity by job", function()
     local c = l.capacity_by_job({{job = "mine", allowed = 3}, {job = "mine", allowed = 1}, {job = "chop", allowed = 0}})
     eq(c.mine, 4); eq(c.chop, 0)
+  end)
+  it("spreads a role's workers across its huts, least staffed first", function()
+    -- Oldest hut is lowest id, but it must not get a second worker while another hut has none.
+    local slots = l.spread({
+      {id = 10, job = "mine", allowed = 3, workers = 2},
+      {id = 11, job = "mine", allowed = 3, workers = 1},
+      {id = 12, job = "mine", allowed = 3, workers = 0},
+      {id = 13, job = "mine", allowed = 0, workers = 0},   -- no tools: not a candidate
+    })
+    eq(#slots, 3)
+    eq(slots[1].id, 12); eq(slots[2].id, 11); eq(slots[3].id, 10)
+  end)
+  it("ignores full huts and breaks ties deterministically by id", function()
+    local slots = l.spread({{id = 9, job = "chop", allowed = 2, workers = 0},
+      {id = 4, job = "chop", allowed = 2, workers = 0}, {id = 7, job = "chop", allowed = 2, workers = 2}})
+    eq(#slots, 2); eq(slots[1].id, 4); eq(slots[2].id, 9)
   end)
 end)
 

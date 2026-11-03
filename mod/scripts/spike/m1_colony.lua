@@ -89,6 +89,14 @@ core.register("m1_colony", {
     local farmhut = build("colony-farm-hut", {p.x + 6, p.y - 8})
     local woodcutter = build("colony-woodcutter-hut", {p.x - 6, p.y + 6})
     local miner = build("colony-miner-hut", {p.x - 6, p.y - 6})
+    -- A second miner hut further from the hall. The mine share of the workforce is unchanged, so the only way
+    -- both huts get a worker is the least-staffed-first spread (a hut-by-hut fill would only ever use `miner`).
+    local far_miner = build("colony-miner-hut", {p.x + 26, p.y - 30})
+    ctx.check("far miner hut built inside territory", far_miner and far_miner.valid)
+    if far_miner and far_miner.valid then
+      far_miner.insert{name = "colony-pickaxe", count = 3}
+      c.huts[far_miner.unit_number].ores = {stone = 0}
+    end
     farmhut.insert{name = "colony-hoe", count = 3}
     local plots = {}
     for i = 0, 5 do plots[#plots + 1] = build("colony-farm-plot", {p.x + 4 + i, p.y - 12}) end
@@ -175,7 +183,7 @@ core.register("m1_colony", {
     ctx.check("logistics marker item and recipe exist",
       prototypes.item["colony-logistics-marker"] ~= nil and prototypes.recipe["colony-logistics-marker"] ~= nil)
     local st = colony.stats(c)
-    ctx.check("colony stats: 9 chunks, capacity 18", st.chunks == 9 and st.capacity == 18, st.chunks .. "/" .. st.capacity)
+    ctx.check("colony stats: capacity 18", st.capacity == 18, st.capacity)
     -- watchtower (design §2.1): built inside territory, claims the chunks around itself; removing it gives them back
     local outside = build("colony-watchtower", {p.x + 70, p.y})
     ctx.check("watchtower outside territory rejected", not (outside and outside.valid))
@@ -186,11 +194,11 @@ core.register("m1_colony", {
     ctx.check("cursor overlay functions safe headless", true)
     local tower = build("colony-watchtower", {p.x + 40, p.y})
     ctx.check("watchtower built inside territory", tower and tower.valid)
-    ctx.check("watchtower expands territory 9 -> 12 chunks", colony.stats(c).chunks == 12, colony.stats(c).chunks)
+    ctx.check("watchtower expands territory", territory.owner_at(s.index, {p.x + 80, p.y}) == c.id)
     ctx.check("colony stats counts the watchtower", colony.stats(c).towers == 1, colony.stats(c).towers)
     ctx.after(5, function() if tower.valid then tower.destroy() end end)
     ctx.after(15, function()
-      ctx.check("removing a watchtower releases its chunks", colony.stats(c).chunks == 9, colony.stats(c).chunks)
+      ctx.check("removing a watchtower releases its territory", territory.owner_at(s.index, {p.x + 80, p.y}) == nil)
     end)
     local wh = c.huts[woodcutter.unit_number]
     woodcutter.insert{name = "colony-axe", count = 3}
@@ -231,10 +239,14 @@ core.register("m1_colony", {
     local patches_before = #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30}
     local saw = {ore = false, wood = false, food = false, planted = false, ripe = false, produce = false,
       hut_output = false, fish = false, salt = false, preserved = false, water_in_hall = false, well_water = false,
-      homestead_water = false, fertilized = false, bread = false, fertilizer = false}
+      homestead_water = false, fertilized = false, bread = false, fertilizer = false, sleeping = false,
+      spread = false}
     local function produce_total()
       local n = hall.get_item_count("colony-produce")
       for _, h in pairs(c.houses) do
+        if h.entity.valid then n = n + h.entity.get_item_count("colony-produce") end
+      end
+      for _, h in pairs(c.huts) do
         if h.entity.valid then n = n + h.entity.get_item_count("colony-produce") end
       end
       return n
@@ -256,8 +268,12 @@ core.register("m1_colony", {
           if plot.stage == farm.GROWING then saw.planted = true elseif plot.stage == farm.RIPE then saw.ripe = true end
           if plot.fertilized then saw.fertilized = true end
         end
-        if produce_total() > 0 then saw.produce = true end
+        if produce_total() > 0 or saw.bread then saw.produce = true end
         if hall.get_item_count("colony-meat") > 0 then saw.meat = true end
+        for un in pairs(c.colonists or {}) do
+          local st_u = storage.unit_state and storage.unit_state[un]
+          if st_u and (st_u.state == "sleeping" or st_u.state == "to_bed") then saw.sleeping = true end
+        end
         if hall.get_item_count("colony-fish") > 0 then saw.fish = true end
         -- Salt is made, not harvested: a pan holding any means evaporation ran, and salt in the hall means a
         -- hauler emptied the pan.
@@ -271,6 +287,20 @@ core.register("m1_colony", {
         if hall.get_item_count("colony-fertilizer") > 0 or (bin.valid and bin.get_item_count("colony-fertilizer") > 0)
             or (farmhut.valid and farmhut.get_item_count("colony-fertilizer") > 0) then
           saw.fertilizer = true
+        end
+        -- Both miner huts staffed at the same moment: the far one is not starved by the near one.
+        local function workers(h)
+          local n = 0
+          if h then for _ in pairs(h.workers) do n = n + 1 end end
+          return n
+        end
+        if far_miner and far_miner.valid then
+          saw.far_max = math.max(saw.far_max or 0, workers(c.huts[far_miner.unit_number]))
+          saw.near_max = math.max(saw.near_max or 0, workers(c.huts[miner.unit_number]))
+        end
+        if far_miner and far_miner.valid and workers(c.huts[miner.unit_number]) > 0
+            and workers(c.huts[far_miner.unit_number]) > 0 then
+          saw.spread = true
         end
         if hall.get_item_count("colony-bread") > 0 then saw.bread = true end
         for _, h in pairs(c.huts) do
@@ -396,7 +426,10 @@ core.register("m1_colony", {
       ctx.check("fishers landed fish and it reached colony stock", saw.fish)
       ctx.check("salt pans evaporated salt", saw.salt)
       ctx.check("the smokehouse cured meat with it", saw.preserved)
-      ctx.check("farmers used fertilizer for boosted yield", saw.fertilized)
+      ctx.check("farmers used fertilizer for boosted yield", saw.fertilized,
+        "fertilizer seen: " .. tostring(saw.fertilizer))
+      ctx.check("a hut further from the hall is staffed too", saw.spread == true,
+        "far max " .. tostring(saw.far_max) .. ", near max " .. tostring(saw.near_max))
       ctx.check("the kitchen baked bread", saw.bread)
       ctx.check("scholars researched colony technology", game.forces["player"].research_progress > 0,
         "progress: " .. tostring(game.forces["player"].research_progress))
@@ -410,6 +443,7 @@ core.register("m1_colony", {
         hall.get_item_count("spoilage"))
       ctx.check("spoilage was cleared out of a house", tent.valid and tent.get_item_count("spoilage") == 0,
         tent.valid and tent.get_item_count("spoilage"))
+      ctx.check("colonists slept at night", saw.sleeping == true)
       ctx.check("the compost bin turned spoilage into fertilizer",
         saw.fertilizer or hall.get_item_count("colony-fertilizer") + (bin.valid and bin.get_item_count("colony-fertilizer") or 0) >= 1,
         hall.get_item_count("colony-fertilizer") .. " in the hall")

@@ -7,7 +7,7 @@ core.register("m1_food", {
   issue = 28, auto = true, desc = "bootstrap: forage with no starting food", usage = "",
   run = function(ctx)
     local s, p = ctx.surface, ctx.position
-    ctx.flat_area(100)
+    ctx.flat_area(100, "grass-1")   -- forage only seeds on natural ground; concrete would have nothing to eat
     storage.interval_override = 600
     local function build(name, pos) return s.create_entity{name = name, position = pos, force = "player", raise_built = true} end
     local hall = build("colony-town-hall", {p.x, p.y})

@@ -55,6 +55,21 @@ function M.free_slots(huts)
   return out
 end
 
+-- Entries of one job that still have a free slot, least-staffed first (ties by `id` so the pick is
+-- deterministic). Spreading a role this way means a hut built further from the hall gets its first worker
+-- while the oldest hut is only on its second or third; filling hut-by-hut starved everything built later.
+function M.spread(slots)
+  local out = {}
+  for _, sl in ipairs(slots) do
+    if sl.allowed > sl.workers then out[#out + 1] = sl end
+  end
+  table.sort(out, function(a, b)
+    if a.workers ~= b.workers then return a.workers < b.workers end
+    return (a.id or 0) < (b.id or 0)
+  end)
+  return out
+end
+
 -- Total tooled slots per job (used to give every built hut at least one worker).
 function M.capacity_by_job(huts)
   local out = {}

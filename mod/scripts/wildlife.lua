@@ -7,6 +7,7 @@
 --
 -- This module owns the force, the herd and the wander commands. The hunters themselves are a labour hut in
 -- scripts/work.lua, and what a kill is worth is `model/hunting.lua`.
+local territory = require("scripts.territory")
 local M = {}
 
 M.FORCE = "colony-wildlife"
@@ -56,14 +57,7 @@ end
 
 -- Owned chunks in a stable order, so a spawn point never depends on `pairs` order.
 function M.chunks(colony)
-  local out = {}
-  for cx, col in pairs(storage.colony_chunks[colony.surface_index] or {}) do
-    for cy, owner in pairs(col) do
-      if owner == colony.id then out[#out + 1] = {cx, cy} end
-    end
-  end
-  table.sort(out, function(a, b) return a[1] < b[1] or (a[1] == b[1] and a[2] < b[2]) end)
-  return out
+  return territory.chunks(colony)
 end
 
 function M.target_count(chunks) return math.min(M.CAP, math.floor(chunks * M.PER_CHUNK)) end

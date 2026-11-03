@@ -38,11 +38,10 @@ core.register("s07_territory", {
     local s, p = ctx.surface, ctx.position
     ctx.flat_area(100)
     S = {ctx = ctx, armed = true, rejected = 0}
-    storage.colonies[1] = storage.colonies[1] or {name = "spike"}
-    local n = territory.claim_around(s.index, 1, p, 1)
-    ctx.check("claimed 3x3 chunks", n == 9 or n == 0, n)
+    storage.colonies[1] = storage.colonies[1] or {id = 1, surface_index = s.index, name = "spike", hall = {valid = true, position = p}, towers = {}}
+    storage.next_colony_id = math.max(storage.next_colony_id or 1, 2)
     local inside = {p.x, p.y}
-    local outside = {p.x + 32 * 3 + 5, p.y}
+    local outside = {p.x + territory.HALL_RADIUS + 20, p.y}
     local function try(_, pos, ghost)
       local e = ghost and s.create_entity{name = "entity-ghost", inner_name = "stone-furnace", position = pos, force = "player", raise_built = true}
         or s.create_entity{name = "stone-furnace", position = pos, force = "player", raise_built = true}

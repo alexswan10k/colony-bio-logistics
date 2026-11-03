@@ -201,18 +201,19 @@ local function construct_open(colony)
 end
 
 local function colony_area(colony)
-  local cols = storage.colony_chunks[colony.surface_index] or {}
-  local minx, miny, maxx, maxy
-  for cx, col in pairs(cols) do
-    for cy, owner in pairs(col) do
-      if owner == colony.id then
-        minx = math.min(minx or cx, cx); maxx = math.max(maxx or cx, cx)
-        miny = math.min(miny or cy, cy); maxy = math.max(maxy or cy, cy)
-      end
+  local hall = colony.hall
+  if not (hall and hall.valid) then return nil end
+  local minx, miny = hall.position.x - territory.HALL_RADIUS, hall.position.y - territory.HALL_RADIUS
+  local maxx, maxy = hall.position.x + territory.HALL_RADIUS, hall.position.y + territory.HALL_RADIUS
+  for _, t in pairs(colony.towers or {}) do
+    if t.valid then
+      minx = math.min(minx, t.position.x - territory.TOWER_RADIUS)
+      miny = math.min(miny, t.position.y - territory.TOWER_RADIUS)
+      maxx = math.max(maxx, t.position.x + territory.TOWER_RADIUS)
+      maxy = math.max(maxy, t.position.y + territory.TOWER_RADIUS)
     end
   end
-  if not minx then return nil end
-  return {{minx * 32, miny * 32}, {(maxx + 1) * 32, (maxy + 1) * 32}}
+  return {{minx, miny}, {maxx, maxy}}
 end
 
 -- Damaged things the colony owns. Bounded: it reads its own registries, never the whole surface.
@@ -295,18 +296,20 @@ M.hut_quota_met = hut_quota_met
 
 local function job_slots(colony)
   local list = {}
+  local active = {}
   for _, h in ipairs(hut_list(colony)) do
     local _, _, allowed, workers = M.hut_info(h)
     if hut_quota_met(colony, h) then allowed = 0 end
     if (colony.no_site[h.entity.unit_number] or 0) > game.tick or (colony.no_site[h.job] or 0) > game.tick then allowed = 0 end
-    list[#list + 1] = {job = h.job, allowed = allowed, workers = workers, hut = h}
+    if allowed > 0 then active[h.job] = (active[h.job] or 0) + 1 end
+    list[#list + 1] = {id = h.entity.unit_number, job = h.job, allowed = allowed, workers = workers, hut = h}
   end
   local slots = labour.free_slots(list)
   local capacity = labour.capacity_by_job(list)
   -- Construction has no hut: its slots are the open ghosts/repairs in the registry, minus current builders.
   capacity.construct = construct_open(colony)
   slots.construct = math.max(capacity.construct - (job_counts(colony).construct or 0), 0)
-  return slots, capacity, list
+  return slots, capacity, list, active
 end
 
 -- Sites ------------------------------------------------------------------------------------------
@@ -324,11 +327,20 @@ local function nearest(list, pos, accept)
   return best
 end
 
--- Harvest only inside colony territory (design §2.1) and prefer the nearest site, so colonists visibly
--- work the forest / berry patch / ore next to their hut instead of teleporting to a random tree 30 tiles away.
+-- A hut may work anything in its own radius that is not another colony's land. The radius is centred on a
+-- hut that was itself built inside the colony, so a resource a few tiles past the drawn border is still
+-- fair game: the old strict "owner == this colony" test made border huts look permanently empty.
+local function harvestable(colony, t)
+  local owner = territory.owner_at(colony.surface_index, t.position)
+  return owner == nil or owner == colony.id
+end
+
+-- Harvest only in range and never on another colony's land (design §2.1), preferring the nearest site so
+-- colonists visibly work the forest / berry patch / ore next to their hut instead of walking to a random
+-- tree on the far edge of the radius.
 local function find_site(colony, e, hut)
   local s, base, radius = e.surface, hut.entity.position, colony_mod.HUT_RADIUS
-  local in_territory = function(t) return territory.owner_at(colony.surface_index, t.position) == colony.id end
+  local in_territory = function(t) return harvestable(colony, t) end
   local free = function(t) return in_territory(t) and not colony.claimed[key(t)] end
   if hut.job == "forage" then
     if colony_mod.quota_met(colony, "colony-forage") then return nil, "colony-forage" end
@@ -418,7 +430,7 @@ function M.site_count(h)
   if not (colony and h.entity.valid) then return 0 end
   if h.job == "research" or h.job == "preserve" or h.job == "fish" then return 1 end
   local s, base, radius = h.entity.surface, h.entity.position, colony_mod.HUT_RADIUS
-  local in_territory = function(t) return territory.owner_at(colony.surface_index, t.position) == colony.id end
+  local in_territory = function(t) return harvestable(colony, t) end
   local free = function(t) return in_territory(t) and not colony.claimed[key(t)] end
   if h.job == "farm" then
     local n = 0
@@ -464,7 +476,7 @@ end
 local function house_offer(colony, h)
   local tier = housing.TIERS[h.kind]
   local occupants = h.occupants or 0
-  local stock = colony_mod.house_stock(h)
+  local stock = colony_mod.house_stock_cached(h)
   local demands = housing.demand(tier, stock, h.inflight, colony_mod.is_powered(h), occupants)
   if #demands == 0 then return nil end
   local critical = false
@@ -481,7 +493,16 @@ end
 local function hut_offer(h)
   local def, tools = M.hut_info(h)
   if def.tool then
-    local want = math.min(def.capacity, h.limit or def.capacity) - tools - (h.inflight[def.tool] or 0)
+    local inflight = h.inflight[def.tool] or 0
+    if tools == 0 then
+      -- A hut with no tool cannot work at all, so it asks for exactly one before any hut tops up. Without
+      -- this an older hut's full-capacity request ate a scarce supply and a newer hut (often the one built
+      -- further out) never got its first tool. Once one is on the way, wait for it rather than pile up.
+      if inflight > 0 then return nil end
+      return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
+        deficit = def.capacity * 10 + 1, demands = {{item = def.tool, count = 1}}}
+    end
+    local want = math.min(def.capacity, h.limit or def.capacity) - tools - inflight
     if want >= 1 then
       return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
         demands = {{item = def.tool, count = want}}}
@@ -907,24 +928,59 @@ local function start_haul(colony, un, e, task)
   return true
 end
 
+function M.is_sleep_time(surface)
+  if not surface or surface.freeze_daytime then return false end
+  local d = surface.daytime
+  return d >= 0.40 and d <= 0.60
+end
+
+-- Huts of one role that still have a free slot, least-staffed first (see labour.spread).
+local function candidates_for(slot_list, job)
+  local out = {}
+  for _, sl in ipairs(slot_list) do
+    if sl.job == job then out[#out + 1] = sl end
+  end
+  return labour.spread(out)
+end
+
 function M.assign(colony, un)
   local e = colony.colonists[un]
   if not (e and e.valid and colony.hall.valid) then return end
   local st = storage.unit_state[un]
   local lock = colony.locks and colony.locks[un]
-  -- keep an existing labour post while the hut stands, still has tools for us and matches the player's lock
-  if st and st.hut then
-    local h = st.hut
-    local capped = not lock and colony_mod.headcount_capped(colony, h.job)
-    if not capped and h.entity.valid and h.workers[un] and (not lock or lock == h.job) then
-      local _, _, allowed, workers = M.hut_info(h)
-      if workers <= allowed and start_trip(colony, un, h) then return end
+
+  -- Night time: colonists return to their house to sleep
+  if M.is_sleep_time(e.surface) then
+    if st and st.hut then
+      if st.hut.workers then st.hut.workers[un] = nil end
+      st.hut = nil
     end
-    h.workers[un] = nil
+    local house = colony_mod.house_of_colonist(colony, un)
+    if house and house.valid then
+      storage.unit_state[un] = {colony_id = colony.id, job = (st and st.job) or lock or "idle", state = "to_bed", house = house}
+      set_label(e, "sleeping 💤")
+      go(e, house.position, 1.5)
+      return
+    end
   end
+
+  -- Keep the current post while its hut stands, still holds a slot for us and matches the player's lock.
+  -- This is the common case by far, and it is the difference between an O(1) assignment and rebuilding the
+  -- whole job matrix for every colonist that finishes a trip (#22 re-measured it).
+  local prev_hut = st and st.hut
+  if prev_hut then
+    local capped = not lock and colony_mod.headcount_capped(colony, prev_hut.job)
+    if not capped and prev_hut.entity and prev_hut.entity.valid and prev_hut.workers and prev_hut.workers[un]
+        and (not lock or lock == prev_hut.job) then
+      local _, _, allowed, workers = M.hut_info(prev_hut)
+      if workers <= allowed and start_trip(colony, un, prev_hut) then return end
+    end
+    if prev_hut.workers then prev_hut.workers[un] = nil end
+  end
+
   local counts = job_counts(colony)
   if st and st.job then counts[st.job] = math.max((counts[st.job] or 1) - 1, 0) end
-  local slots, capacity, slot_list = job_slots(colony)
+  local slots, capacity, slot_list, hut_count = job_slots(colony)
   local task = find_haul_task(colony)
   -- Player lock (#38): this colonist works only the chosen role, even when the matrix would send it elsewhere.
   local job
@@ -933,9 +989,10 @@ function M.assign(colony, un)
   else
     local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
     job = work_plan.choose{food_ratio = colony_mod.total_food(colony) / target, counts = counts,
-      slots = slots, capacity = capacity, pop = math.max(colony_mod.live_colonists(colony) - 1, 0), haul = task ~= nil,
-      priority = colony.priority, targets = colony.job_targets}
+      slots = slots, capacity = capacity, hut_count = hut_count, pop = math.max(colony_mod.live_colonists(colony) - 1, 0),
+      haul = task ~= nil, priority = colony.priority, targets = colony.job_targets}
   end
+
   if not job then idle(colony, un, e); return end
   if job == "haul" then
     if start_haul(colony, un, e, task) then return end
@@ -945,11 +1002,9 @@ function M.assign(colony, un)
     if start_construct(colony, un, e) then return end
     idle(colony, un, e); return
   end
-  for _, sl in ipairs(slot_list) do
-    if sl.job == job and sl.allowed > sl.workers then
-      sl.hut.workers[un] = true
-      if start_trip(colony, un, sl.hut) then return end
-    end
+  for _, sl in ipairs(candidates_for(slot_list, job)) do
+    sl.hut.workers[un] = true
+    if start_trip(colony, un, sl.hut) then return end
   end
   idle(colony, un, e)
 end
@@ -996,6 +1051,12 @@ scheduler.register("farm.ripen", function(d)
     if h.job == "farm" and h.entity.valid then
       colony.no_site[h.entity.unit_number] = nil
     end
+  end
+  -- A whole field ripens in one tick, and each reassignment walks the town; once per tick is plenty, since
+  -- idle colonists also re-check on their own `work.retry` timer.
+  if colony.reassign_tick ~= game.tick then
+    colony.reassign_tick = game.tick
+    colony_mod.reassign_workforce(colony)
   end
 end)
 
@@ -1186,14 +1247,40 @@ scheduler.register("construct.finish", function(d)
   M.assign(colony, d.un)
 end)
 
+scheduler.register("work.sleep_check", function(d)
+  local st = storage.unit_state and storage.unit_state[d.un]
+  if not (st and (st.state == "sleeping" or st.state == "to_bed")) then return end
+  local colony = storage.colonies[st.colony_id]
+  local e = colony and colony.colonists and colony.colonists[d.un]
+  if not (colony and e and e.valid) then return end
+  if M.is_sleep_time(e.surface) then
+    popup(e.surface, e.position, "💤")
+    scheduler.after(180 + (d.un * 13) % 120, "work.sleep_check", d)
+  else
+    popup(e.surface, e.position, "☀️")
+    st.state = "idle"
+    M.assign(colony, d.un)
+  end
+end)
+
 events.on(defines.events.on_ai_command_completed, function(ev)
   local st = storage.unit_state[ev.unit_number]
   if not st then return end
   local colony = storage.colonies[st.colony_id]
   if not colony then return end
-  if ev.result ~= defines.behavior_result.success and st.job ~= "hunt" then
+  if ev.result ~= defines.behavior_result.success and st.job ~= "hunt" and st.state ~= "to_bed" then
     M.release(st)
     M.assign(colony, ev.unit_number)
+    return
+  end
+  if st.state == "to_bed" then
+    st.state = "sleeping"
+    local e = colony.colonists[ev.unit_number]
+    if e and e.valid then
+      set_label(e, "sleeping 💤")
+      popup(e.surface, e.position, "💤")
+      scheduler.after(180 + (ev.unit_number * 13) % 120, "work.sleep_check", {un = ev.unit_number})
+    end
     return
   end
   if st.state == "hunting" then
@@ -1235,6 +1322,9 @@ events.on(defines.events.on_ai_command_completed, function(ev)
         inserted = inserted + n
         if n < s.count then refused[#refused + 1] = {item = s.item, count = s.count - n} end
       end
+      -- The house's cached stock (colony.house_stock_cached) predates this drop. Expire it so the next haul
+      -- plan sees the delivery instead of sending another hauler to top up a house that is already full.
+      target.stock_tick = nil
       if st.inflight_target and st.inflight_target.inflight then
         for _, s in ipairs(st.carry) do
           st.inflight_target.inflight[s.item] = math.max((st.inflight_target.inflight[s.item] or 0) - s.count, 0)

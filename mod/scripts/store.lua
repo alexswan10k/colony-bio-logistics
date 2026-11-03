@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 18
+local SCHEMA = 19
 
 local migrations = {
   [1] = function()
@@ -89,6 +89,12 @@ local migrations = {
   [18] = function()
     -- colony wells (#43): [unit_number] = {entity, colony_id, next_at}
     for _, c in pairs(storage.colonies) do c.wells = c.wells or {} end
+  end,
+  [19] = function()
+    -- territory is derived from the live hall/towers now, so the chunk index is dead weight; the population
+    -- target gave way to plain housing capacity when the info panel lost its +/- buttons
+    storage.colony_chunks = nil
+    for _, c in pairs(storage.colonies) do c.pop_target = nil; c.house_index, c.reassign_tick = nil, nil end
   end,
 }
 

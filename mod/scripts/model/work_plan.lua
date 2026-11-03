@@ -31,10 +31,12 @@ function M.haul_target(pop)
 end
 
 -- s = {food_ratio=, counts={job->n}, slots={job->free tooled slots}, capacity={job->tooled slots},
---      pop=, haul=bool, priority={job->rank}, targets={job->headcount|nil}}. `pop` excludes the colonist being assigned.
+--      hut_count={job->staffable huts}, pop=, haul=bool, priority={job->rank}, targets={job->headcount|nil}}.
+-- `pop` excludes the colonist being assigned.
 -- Returns a job name or nil.
 function M.choose(s)
   local counts, slots, capacity = s.counts or {}, s.slots or {}, s.capacity or {}
+  local hut_count = s.hut_count or {}
   local pop = s.pop or 0
   local priority = s.priority
   local targets = s.targets
@@ -93,7 +95,10 @@ function M.choose(s)
     for _, job in ipairs(M.HARVEST) do
       if (eligible_harvest_slots[job] or 0) > 0 and jobs.rank(priority, job) == harvest_rank then
         local tgt = headcount.target(targets, job)
-        local wanted = tgt or math.max(shares[job] * (1 - M.HAUL_SHARE) * pop, math.min(1, capacity[job] or 0))
+        -- Every staffable hut gets one worker before the food share can double up on another hut. Without
+        -- this, a role's whole share fills the oldest hut and a hut built further out never gets anyone.
+        local floor = math.min(math.max(1, hut_count[job] or 0), capacity[job] or 0)
+        local wanted = tgt or math.max(shares[job] * (1 - M.HAUL_SHARE) * pop, floor)
         local gap = wanted - (counts[job] or 0)
         if not best_gap or gap > best_gap then best, best_gap = job, gap end
       end

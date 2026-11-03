@@ -16,11 +16,7 @@ local function count(t)
 end
 
 local function chunks_of(c)
-  local n = 0
-  for _, col in pairs(storage.colony_chunks[c.surface_index] or {}) do
-    for _, owner in pairs(col) do if owner == c.id then n = n + 1 end end
-  end
-  return n
+  return #territory.chunks(c)
 end
 
 -- Runs after load, proving the mod's own scheduler queue came back and still fires.

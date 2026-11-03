@@ -24,7 +24,7 @@ local MACHINE_GUIS = {
 }
 M.MACHINE_GUIS = MACHINE_GUIS   -- selection tool (#35) opts in exactly the machines that have a panel
 
-local function colony_at(e) local id = territory.owner_at(e.surface.index, e.position); return id and storage.colonies[id] end
+local function colony_at(e) return colony_mod.colony_of(e) end
 
 -- ---------- household panel ----------
 -- Per-colonist job locks live on the house, not the Town Hall: a house lists only its own handful of
@@ -342,18 +342,6 @@ local function fill_info(frame, colony)
   frame.add{type = "line"}
   frame.add{type = "checkbox", name = "colony_accept_migrants", state = colony.accept_migrants ~= false,
     caption = {"colony-gui-info.accept-migrants"}, tooltip = {"colony-gui-info.accept-migrants-tt"}}
-  local cap_row = frame.add{type = "flow", direction = "horizontal"}
-  cap_row.style.vertical_align = "center"
-  cap_row.add{type = "label", caption = {"colony-gui-info.pop-target"}, style = "bold_label"}
-  local less = cap_row.add{type = "button", name = "colony_pop_less", caption = "-",
-    tooltip = {"colony-gui-info.pop-target-tt"}}
-  less.style.width = 24
-  local cap = cap_row.add{type = "label", caption = tostring(colony.pop_target or st.capacity)}
-  cap.style.width = 32
-  cap.style.horizontal_align = "center"
-  local more = cap_row.add{type = "button", name = "colony_pop_more", caption = "+",
-    tooltip = {"colony-gui-info.pop-target-tt"}}
-  more.style.width = 24
 
   frame.add{type = "line"}
   frame.add{type = "label", caption = {"colony-gui-info.workforce-title"}, style = "bold_label"}
@@ -379,14 +367,14 @@ local function fill_info(frame, colony)
 
     local p_flow = table_gui.add{type = "flow", direction = "horizontal"}
     p_flow.style.vertical_align = "center"
-    local b_more = p_flow.add{type = "button", name = "colony_prio_" .. job .. "_more", caption = "+",
-      tooltip = {"colony-gui-info.more-tt"}}
-    b_more.style.width = 18; b_more.style.height = 20
-    local rank_lbl = p_flow.add{type = "label", caption = p[job] > 0 and tostring(p[job]) or {"colony-gui-info.off"}}
-    rank_lbl.style.width = 24; rank_lbl.style.horizontal_align = "center"
     local b_less = p_flow.add{type = "button", name = "colony_prio_" .. job .. "_less", caption = "-",
       tooltip = {"colony-gui-info.less-tt"}}
     b_less.style.width = 18; b_less.style.height = 20
+    local rank_lbl = p_flow.add{type = "label", caption = p[job] > 0 and tostring(p[job]) or {"colony-gui-info.off"}}
+    rank_lbl.style.width = 24; rank_lbl.style.horizontal_align = "center"
+    local b_more = p_flow.add{type = "button", name = "colony_prio_" .. job .. "_more", caption = "+",
+      tooltip = {"colony-gui-info.more-tt"}}
+    b_more.style.width = 18; b_more.style.height = 20
 
     local t_flow = table_gui.add{type = "flow", direction = "horizontal"}
     t_flow.style.vertical_align = "center"
@@ -465,20 +453,6 @@ events.on(defines.events.on_gui_click, function(ev)
     end
     return
   end
-  if name == "colony_pop_less" or name == "colony_pop_more" then
-    local player = game.get_player(ev.player_index)
-    local e = player and player.opened
-    if not (e and e.valid and e.name == colony_mod.HALL) then return end
-    local colony = colony_at(e)
-    if not colony then return end
-    local capacity = colony_mod.capacity(colony)
-    local cur = colony.pop_target or capacity
-    local nxt = math.max(0, math.min(capacity, cur + (name == "colony_pop_more" and 1 or -1)))
-    colony.pop_target = nxt >= capacity and nil or nxt
-    local frame = player.gui.relative[INFO_FRAME]
-    if frame and frame.body then fill_info(frame.body, colony) end
-    return
-  end
   local ore, ore_dir = name:match("^colony_ore_(.+)_(more|less)$")
   if ore then
     local player = game.get_player(ev.player_index)
@@ -489,8 +463,14 @@ events.on(defines.events.on_gui_click, function(ev)
     if not (h and mine_plan.valid(ore)) then return end
     h.ores = h.ores or {}
     local rank = mine_plan.rank(h.ores, ore)
-    if ore_dir == "more" then mine_plan.set(h.ores, ore, rank == 0 and 1 or math.max(1, rank - 1))
-    else mine_plan.shift(h.ores, ore, 1) end
+    if ore_dir == "more" then
+      if rank == 0 then mine_plan.set(h.ores, ore, mine_plan.MAX_RANK)
+      elseif rank > 1 then mine_plan.set(h.ores, ore, rank - 1) end
+    else
+      if rank > 0 and rank < mine_plan.MAX_RANK then mine_plan.set(h.ores, ore, rank + 1)
+      elseif rank == mine_plan.MAX_RANK then mine_plan.set(h.ores, ore, 0) end
+    end
+    colony_mod.reassign_workforce(colony)
     local frame = player.gui.relative[HUT_FRAME]
     if frame and frame.body then fill_hut(frame.body, h) end
     return
@@ -505,6 +485,7 @@ events.on(defines.events.on_gui_click, function(ev)
     local def = labour.HUTS[e.name]
     local cur = h.limit or def.capacity
     h.limit = math.max(0, math.min(def.capacity, cur + (name == "colony_hut_limit_more" and 1 or -1)))
+    colony_mod.reassign_workforce(colony)
     local frame = player.gui.relative[HUT_FRAME]
     if frame and frame.body then fill_hut(frame.body, h) end
     return
@@ -541,13 +522,16 @@ events.on(defines.events.on_gui_click, function(ev)
     colony.priority = jobs.defaults()
   else
     colony.priority = colony.priority or jobs.defaults()
+    local cur = jobs.rank(colony.priority, job)
     if dir == "more" then
-      local rank = jobs.rank(colony.priority, job)
-      jobs.set(colony.priority, job, rank == 0 and 1 or math.max(1, rank - 1))
+      if cur == 0 then jobs.set(colony.priority, job, jobs.MAX_RANK)
+      elseif cur > 1 then jobs.set(colony.priority, job, cur - 1) end
     else
-      jobs.shift(colony.priority, job, 1)
+      if cur > 0 and cur < jobs.MAX_RANK then jobs.set(colony.priority, job, cur + 1)
+      elseif cur == jobs.MAX_RANK then jobs.set(colony.priority, job, 0) end
     end
   end
+  colony_mod.reassign_workforce(colony)
   local frame = player.gui.relative[INFO_FRAME]
   if frame and frame.body then fill_info(frame.body, colony) end
 end)

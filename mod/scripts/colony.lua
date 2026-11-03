@@ -30,8 +30,7 @@ M.HALL = "colony-town-hall"
 M.WATCHTOWER = "colony-watchtower"
 M.PLOT = "colony-farm-plot"
 M.WELL = "colony-well"
-M.TOWER_RADIUS = 1              -- chunks a watchtower claims around itself (design §2.1)
-M.HUT_RADIUS = 30               -- working radius around a labour hut (harvesting also needs territory)
+M.HUT_RADIUS = 48              -- working radius around a labour hut (other colonies' land excluded)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
 M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not regrow in lockstep
 M.FORAGE_PER_CHUNK = 3          -- natural forage patches seeded per already-generated territory chunk
@@ -51,7 +50,6 @@ M.CRATES = {
 M.COMPOST_BIN = "colony-compost-bin"
 M.SALT_PAN = "colony-salt-pan"
 M.COMPOST_TICKS = 600           -- conversion pass cadence; a bin is a building, not a per-tick machine
-M.CLAIM_RADIUS = 1              -- chunks, Chebyshev => 3x3 chunks
 M.STARVE_AFTER = 4              -- consecutive evaluations with unmet critical need before a colonist dies
 M.SCENIC_RADIUS = 40            -- tiles around the hall that scenic reads (fixed: cost must not grow with the town)
 M.SCENIC_STRIDE = 4             -- tile sample stride: 1/16 of the area is actually read
@@ -59,6 +57,7 @@ M.SCENIC_EVERY = 4              -- evaluations between scenic samples (surroundi
 M.POP_TTL = 5                   -- ticks a cached population count / food total / stock snapshot may be reused
 M.FOOD_TTL = 30
 M.STOCK_TTL = 30
+M.HOUSE_STOCK_TTL = 20          -- ticks a house's stock snapshot may be reused by the haul planner (#22)
 M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
 M.FOOD_PER_COLONIST = yields.FOOD_PER_INTERVAL   -- food items per interval
 M.FOOD_ITEMS = {"colony-forage", "colony-fish", "colony-meat", "colony-produce", "raw-fish",
@@ -167,6 +166,24 @@ function M.households(colony)
   local out = {}
   for i, h in ipairs(houses) do out[h.entity.unit_number] = split[i] or {} end
   return out
+end
+
+function M.house_of_colonist(colony, un)
+  if not colony then return nil end
+  -- Sleeping asks this for every colonist that goes to bed, so the split is cached: `households` sorts the
+  -- whole town and re-runs the housing assignment, which is far too much work per colonist (#22).
+  local cache = colony.house_index
+  if not (cache and colony.house_index_tick and game.tick - colony.house_index_tick < M.POP_TTL) then
+    cache = {}
+    for house_un, members in pairs(M.households(colony)) do
+      local h = colony.houses and colony.houses[house_un]
+      if h and h.entity and h.entity.valid then
+        for _, member in ipairs(members) do cache[member] = h.entity end
+      end
+    end
+    colony.house_index, colony.house_index_tick = cache, game.tick
+  end
+  return cache[un] or (colony.hall and colony.hall.valid and colony.hall or nil)
 end
 
 -- Crates in deterministic (unit_number) order; prunes dead ones. `kind` filters to one crate type.
@@ -368,13 +385,18 @@ function M.shift_job_target(colony, job, delta)
   local current_count = (work.job_counts(colony)[job] or 0)
   local new_val = headcount.shift_target(cur, delta, current_count)
   colony.job_targets[job] = new_val
-  for un in pairs(colony.colonists or {}) do
+  M.reassign_workforce(colony)
+  return new_val
+end
+
+function M.reassign_workforce(colony)
+  if not colony then return end
+  for un, c in pairs(colony.colonists or {}) do
     local st = storage.unit_state and storage.unit_state[un]
-    if st and st.state == "idle" then
+    if c.valid and st and (st.state == "idle" or ((st.state == "sleeping" or st.state == "to_bed") and not work.is_sleep_time(c.surface))) then
       work.assign(colony, un)
     end
   end
-  return new_val
 end
 
 function M.headcount_capped(colony, job)
@@ -434,6 +456,17 @@ function M.house_stock(h)
   local stock = {}
   for item in pairs(housing.items_of(housing.TIERS[h.kind])) do stock[item] = inv.get_item_count(item) end
   return stock, inv
+end
+
+-- Stock snapshot for the haul planner. A house holds 6-10 item types, so reading every house on every
+-- assignment was the town's single biggest Lua cost once a colony had ~80 houses (#22). Deliveries are the
+-- only thing that changes it, and a trip takes far longer than the TTL, so a slightly stale snapshot costs
+-- nothing; the in-flight load is subtracted fresh by `housing.demand`.
+function M.house_stock_cached(h)
+  if h.stock_tick and game.tick - h.stock_tick < M.HOUSE_STOCK_TTL then return h.stock end
+  local stock = M.house_stock(h)
+  h.stock, h.stock_tick = stock, game.tick
+  return stock
 end
 
 function M.is_powered(h)
@@ -619,8 +652,7 @@ function M.evaluate(data)
     pollution = pollution, deaths = colony.deaths,
   })
   colony.d, colony.d_parts = d, parts
-  local pop_target = math.min(capacity, colony.pop_target or capacity)
-  if colony.accept_migrants ~= false and d > desirability.defaults.migrate_in and pop < pop_target then
+  if colony.accept_migrants ~= false and d > desirability.defaults.migrate_in and pop < capacity then
     if spawn_colonist(colony) and settings.global["colony-debug-log"].value then
       game.print("[colony " .. colony.id .. "] migrant arrived, D=" .. string.format("%.2f", d))
     end
@@ -629,6 +661,18 @@ function M.evaluate(data)
     for _ = 1, n do if not leave_one(colony) then break end end
     if n > 0 and settings.global["colony-debug-log"].value then
       game.print("[colony " .. colony.id .. "] " .. n .. " colonist(s) left, D=" .. string.format("%.2f", d))
+    end
+  end
+  -- Sleepers whose individual check was lost (save/load mid-walk) are woken here. Idle colonists already
+  -- re-assign themselves on their `work.retry` timer, so walking the whole town here would double the
+  -- assignment rate - and this loop runs for every colonist every evaluation (#22 caught the cost).
+  if not work.is_sleep_time(colony.hall.surface) then
+    for un, c in pairs(colony.colonists or {}) do
+      local st = storage.unit_state and storage.unit_state[un]
+      if c.valid and st and (st.state == "sleeping" or st.state == "to_bed") then
+        st.state = "idle"
+        work.assign(colony, un)
+      end
     end
   end
 end
@@ -649,19 +693,18 @@ function M.seed_forage(colony)
   if not (hall and hall.valid) then return 0 end
   local s = hall.surface
   local n = 0
-  for cx, col in pairs(storage.colony_chunks[colony.surface_index] or {}) do
-    for cy, owner in pairs(col) do
-      if owner == colony.id and s.is_chunk_generated({x = cx, y = cy}) then
-        local rng = game.create_random_generator(chunk_seed(colony, cx, cy))
-        for _ = 1, M.FORAGE_PER_CHUNK do
-          local x = cx * 32 + rng(0, 31) + 0.5
-          local y = cy * 32 + rng(0, 31) + 0.5
-          local tile = s.get_tile(x, y)
-          if tile and M.FORAGE_TILES[tile.name]
-            and s.can_place_entity{name = "colony-forage-patch", position = {x, y}}
-            and s.create_entity{name = "colony-forage-patch", position = {x, y}, force = "neutral"} then
-            n = n + 1
-          end
+  for _, c in ipairs(territory.chunks(colony)) do
+    local cx, cy = c[1], c[2]
+    if s.is_chunk_generated({x = cx, y = cy}) then
+      local rng = game.create_random_generator(chunk_seed(colony, cx, cy))
+      for _ = 1, M.FORAGE_PER_CHUNK do
+        local x = cx * 32 + rng(0, 31) + 0.5
+        local y = cy * 32 + rng(0, 31) + 0.5
+        local tile = s.get_tile(x, y)
+        if tile and M.FORAGE_TILES[tile.name]
+          and s.can_place_entity{name = "colony-forage-patch", position = {x, y}}
+          and s.create_entity{name = "colony-forage-patch", position = {x, y}, force = "neutral"} then
+          n = n + 1
         end
       end
     end
@@ -781,12 +824,9 @@ local function on_built(ev)
       towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, locks = {}, quotas = {}, job_targets = {},
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}}
     storage.colonies[id] = colony
-    territory.claim_around(e.surface.index, id, e.position, M.CLAIM_RADIUS)
     M.seed_forage(colony)   -- the claimed land already has berries on it
-    local cx, cy = territory.chunk_of(e.position)
-    rendering.draw_rectangle{color = {0.2, 0.8, 0.3, 0.8}, width = 3, filled = false, surface = e.surface,
-      left_top = {(cx - M.CLAIM_RADIUS) * 32, (cy - M.CLAIM_RADIUS) * 32},
-      right_bottom = {(cx + M.CLAIM_RADIUS + 1) * 32, (cy + M.CLAIM_RADIUS + 1) * 32}}
+    rendering.draw_circle{color = {0.2, 0.8, 0.3, 0.5}, width = 2, filled = false, radius = territory.HALL_RADIUS,
+      target = e, surface = e.surface, only_in_alt_mode = true}
     script.register_on_object_destroyed(e)
     scheduler.after(M.interval(), "colony.evaluate", {colony_id = id})
     scheduler.after(construct.SCAN_TICKS, "construct.scan", {colony_id = id})   -- #37 ghosts + damage
@@ -820,19 +860,12 @@ local function on_built(ev)
     end
     local colony = storage.colonies[owner]
     colony.towers[e.unit_number] = e
-    local newly_claimed = territory.claim_around(e.surface.index, colony.id, e.position, M.TOWER_RADIUS)
     local p = ev.player_index and game.get_player(ev.player_index)
     if p then
-      if newly_claimed > 0 then
-        p.create_local_flying_text{text = {"colony-message.watchtower-expanded", newly_claimed}, position = e.position}
-      else
-        p.create_local_flying_text{text = {"colony-message.watchtower-no-expansion"}, position = e.position}
-      end
+      p.create_local_flying_text{text = {"colony-message.watchtower-expanded", territory.TOWER_RADIUS}, position = e.position}
     end
-    local cx, cy = territory.chunk_of(e.position)
-    rendering.draw_rectangle{color = {0.2, 0.8, 0.3, 0.8}, width = 2, filled = false, surface = e.surface,
-      left_top = {(cx - M.TOWER_RADIUS) * 32, (cy - M.TOWER_RADIUS) * 32},
-      right_bottom = {(cx + M.TOWER_RADIUS + 1) * 32, (cy + M.TOWER_RADIUS + 1) * 32}}
+    rendering.draw_circle{color = {0.2, 0.8, 0.3, 0.5}, width = 2, filled = false, radius = territory.TOWER_RADIUS,
+      target = e, surface = e.surface, only_in_alt_mode = true}
     script.register_on_object_destroyed(e)
     M.refresh_all_cursor_overlays()
   elseif M.CRATES[name] then
@@ -922,17 +955,8 @@ events.on(defines.events.on_robot_built_entity, on_built)
 events.on(defines.events.script_raised_built, on_built)
 events.on(defines.events.script_raised_revive, on_built)
 
--- A watchtower's claim is re-derived when it is destroyed, so removing one shrinks the territory back to
--- what the hall and the remaining towers cover instead of leaving orphaned chunks owned forever.
-function M.recompute_territory(colony)
-  territory.release_colony(colony.id)
-  if colony.hall and colony.hall.valid then
-    territory.claim_around(colony.surface_index, colony.id, colony.hall.position, M.CLAIM_RADIUS)
-  end
-  for _, t in pairs(colony.towers or {}) do
-    if t.valid then territory.claim_around(colony.surface_index, colony.id, t.position, M.TOWER_RADIUS) end
-  end
-end
+-- Territory is derived from the live hall and towers (territory.owner_at), so destroying a watchtower
+-- shrinks it immediately: there is no index to rebuild.
 
 -- --- cursor territory overlay (#83, #7 guidance) ---------------------------------------------------------
 -- Rendered only while holding a watchtower or town hall in cursor. Attached rendering takes zero per-tick cost.
@@ -959,33 +983,53 @@ function M.update_cursor_overlay(player)
   if item_name ~= M.WATCHTOWER and item_name ~= M.HALL then return end
 
   local surface = player.surface
-  local surface_chunks = storage.colony_chunks and storage.colony_chunks[surface.index]
-  if not surface_chunks then return end
-
   local list = {}
-  for cx, col in pairs(surface_chunks) do
-    for cy, colony_id in pairs(col) do
-      local r_fill = rendering.draw_rectangle{
-        color = {0.2, 0.8, 0.3, 0.12},
-        filled = true,
-        draw_on_ground = true,
-        left_top = {cx * 32, cy * 32},
-        right_bottom = {(cx + 1) * 32, (cy + 1) * 32},
-        surface = surface,
-        players = {player},
-      }
-      local r_border = rendering.draw_rectangle{
-        color = {0.2, 0.8, 0.3, 0.6},
-        width = 1.5,
-        filled = false,
-        draw_on_ground = true,
-        left_top = {cx * 32, cy * 32},
-        right_bottom = {(cx + 1) * 32, (cy + 1) * 32},
-        surface = surface,
-        players = {player},
-      }
-      table.insert(list, r_fill)
-      table.insert(list, r_border)
+  for _, colony in pairs(storage.colonies or {}) do
+    if colony.surface_index == surface.index then
+      if colony.hall and colony.hall.valid then
+        local r_fill = rendering.draw_circle{
+          color = {0.2, 0.8, 0.3, 0.12},
+          filled = true,
+          radius = territory.HALL_RADIUS,
+          target = colony.hall,
+          surface = surface,
+          players = {player},
+        }
+        local r_border = rendering.draw_circle{
+          color = {0.2, 0.8, 0.3, 0.6},
+          width = 2,
+          filled = false,
+          radius = territory.HALL_RADIUS,
+          target = colony.hall,
+          surface = surface,
+          players = {player},
+        }
+        table.insert(list, r_fill)
+        table.insert(list, r_border)
+      end
+      for _, tower in pairs(colony.towers or {}) do
+        if tower and tower.valid then
+          local r_fill = rendering.draw_circle{
+            color = {0.2, 0.8, 0.3, 0.12},
+            filled = true,
+            radius = territory.TOWER_RADIUS,
+            target = tower,
+            surface = surface,
+            players = {player},
+          }
+          local r_border = rendering.draw_circle{
+            color = {0.2, 0.8, 0.3, 0.6},
+            width = 2,
+            filled = false,
+            radius = territory.TOWER_RADIUS,
+            target = tower,
+            surface = surface,
+            players = {player},
+          }
+          table.insert(list, r_fill)
+          table.insert(list, r_border)
+        end
+      end
     end
   end
   storage.cursor_overlays = storage.cursor_overlays or {}
@@ -1041,7 +1085,6 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.towers and colony.towers[un] then
       colony.towers[un] = nil
-      M.recompute_territory(colony)
       M.refresh_all_cursor_overlays()
       return
     end
@@ -1272,10 +1315,7 @@ function M.stats(colony)
     elseif h.kind == "apartment" then apartments = apartments + 1
     end
   end
-  local chunks = 0
-  for _, col in pairs(storage.colony_chunks[colony.surface_index] or {}) do
-    for _, owner in pairs(col) do if owner == colony.id then chunks = chunks + 1 end end
-  end
+  local chunks = #territory.chunks(colony)
   local huts, machines = 0, 0
   for _, h in pairs(colony.huts) do if h.entity.valid then huts = huts + 1 end end
   for _, m in pairs(colony.machines) do if m.enabled and m.entity.valid then machines = machines + 1 end end

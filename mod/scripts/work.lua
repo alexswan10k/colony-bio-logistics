@@ -366,7 +366,9 @@ end
 -- A hut short of `tool` with none in colony stock: what the colony's Toolsmith means for it, as
 -- toolsmith.gap returns it ("craft", "making", or "short", item, n).
 function M.tool_gap(colony, tool)
-  local recipe = colony.hall.force.recipes[tool]
+  local force = colony and colony.hall and colony.hall.valid and colony.hall.force
+  local recipes = force and force.recipes
+  local recipe = recipes and recipes[tool]
   return toolsmith.gap{toolsmith = M.toolsmith_of(colony) ~= nil, unlocked = recipe ~= nil and recipe.enabled == true,
     missing = workshop.missing(tool, colony_mod.stock_table(colony))}
 end
@@ -769,7 +771,8 @@ local function house_offer(colony, h)
       if ok == false or (ok == nil and occupants > 0) then critical = true end
     end
   end
-  return {kind = "supply", house = h, priority = critical and haul_plan.PRIORITY.critical or haul_plan.PRIORITY.buffer,
+  return {kind = "supply", house = h, entity = h.entity, pos = h.entity.position,
+    priority = critical and haul_plan.PRIORITY.critical or haul_plan.PRIORITY.buffer,
     key = h.entity.unit_number, demands = demands}
 end
 
@@ -782,12 +785,14 @@ local function hut_offer(h)
       -- this an older hut's full-capacity request ate a scarce supply and a newer hut (often the one built
       -- further out) never got its first tool. Once one is on the way, wait for it rather than pile up.
       if inflight > 0 then return nil end
-      return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
+      return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
+        priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
         deficit = def.capacity * 10 + 1, demands = {{item = def.tool, count = 1}}}
     end
     local want = math.min(def.capacity, h.limit or def.capacity) - tools - inflight
     if want >= 1 then
-      return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
+      return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
+        priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
         demands = {{item = def.tool, count = want}}}
     end
     if def.inputs then
@@ -798,7 +803,8 @@ local function hut_offer(h)
         if deficit > 0 then demands[#demands + 1] = {item = inp.item, count = deficit} end
       end
       if #demands > 0 then
-        return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.request, key = h.entity.unit_number,
+        return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
+          priority = haul_plan.PRIORITY.request, key = h.entity.unit_number,
           demands = demands}
       end
     end
@@ -821,7 +827,8 @@ local function hut_offer(h)
     demands = preserve.wants(chest_contents(h.entity) or {}, h.inflight)
   end
   if #demands == 0 then return nil end
-  return {kind = "supply", hut = h, priority = haul_plan.PRIORITY.request, key = h.entity.unit_number,
+  return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
+    priority = haul_plan.PRIORITY.request, key = h.entity.unit_number,
     demands = demands}
 end
 
@@ -844,7 +851,8 @@ local function hut_collect_offer(h)
     end
   end
   if #demands == 0 then return nil end
-  return {kind = "collect", hut = h, priority = haul_plan.PRIORITY.hut_output, key = h.entity.unit_number,
+  return {kind = "collect", hut = h, entity = h.entity, pos = h.entity.position,
+    priority = haul_plan.PRIORITY.hut_output, key = h.entity.unit_number,
     demands = demands, available = available}
 end
 
@@ -857,7 +865,8 @@ local function crate_contents(c) return chest_contents(c.entity) end
 local function bin_offer(b)
   local n = b.entity.get_item_count(compost.PRODUCT)
   if n < 1 then return nil end
-  return {kind = "collect", bin = b, priority = haul_plan.PRIORITY.collect, key = b.entity.unit_number,
+  return {kind = "collect", bin = b, entity = b.entity, pos = b.entity.position,
+    priority = haul_plan.PRIORITY.collect, key = b.entity.unit_number,
     demands = {{item = compost.PRODUCT, count = n}}, available = {[compost.PRODUCT] = n}}
 end
 
@@ -866,7 +875,8 @@ end
 local function salt_offer(pan)
   local n = pan.entity.get_item_count(salt.ITEM)
   if n < 1 then return nil end
-  return {kind = "collect", pan = pan, priority = haul_plan.PRIORITY.collect, key = pan.entity.unit_number,
+  return {kind = "collect", pan = pan, entity = pan.entity, pos = pan.entity.position,
+    priority = haul_plan.PRIORITY.collect, key = pan.entity.unit_number,
     demands = {{item = salt.ITEM, count = n}}, available = {[salt.ITEM] = n}}
 end
 
@@ -875,7 +885,8 @@ end
 local function well_offer(w)
   local n = w.entity.get_item_count(well.ITEM)
   if n < 1 then return nil end
-  return {kind = "collect", well = w, priority = haul_plan.PRIORITY.collect, key = w.entity.unit_number,
+  return {kind = "collect", well = w, entity = w.entity, pos = w.entity.position,
+    priority = haul_plan.PRIORITY.collect, key = w.entity.unit_number,
     demands = {{item = well.ITEM, count = n}}, available = {[well.ITEM] = n}}
 end
 
@@ -884,7 +895,8 @@ local function crate_supply_offer(c)
   if not contents then return nil end
   local demands = crates.supply(contents)
   if #demands == 0 then return nil end
-  return {kind = "collect", crate = c, priority = haul_plan.PRIORITY.collect, key = c.entity.unit_number,
+  return {kind = "collect", crate = c, entity = c.entity, pos = c.entity.position,
+    priority = haul_plan.PRIORITY.collect, key = c.entity.unit_number,
     demands = demands, available = contents}
 end
 
@@ -892,7 +904,8 @@ local function crate_demand_offer(c)
   local contents = crate_contents(c) or {}
   local demands = crates.demands(c.filters, contents, c.inflight)
   if #demands == 0 then return nil end
-  return {kind = "supply", crate = c, priority = haul_plan.PRIORITY.request, key = c.entity.unit_number,
+  return {kind = "supply", crate = c, entity = c.entity, pos = c.entity.position,
+    priority = haul_plan.PRIORITY.request, key = c.entity.unit_number,
     demands = demands}
 end
 
@@ -918,7 +931,8 @@ local function machine_offer(m)
     if n >= 1 then demands[#demands + 1] = {item = d.item, count = n}; any = true end
   end
   if not any then return nil end
-  return {kind = "supply", machine = m, priority = haul_plan.PRIORITY.request, key = m.entity.unit_number, demands = demands}
+  return {kind = "supply", machine = m, entity = m.entity, pos = m.entity.position,
+    priority = haul_plan.PRIORITY.request, key = m.entity.unit_number, demands = demands}
 end
 
 -- Finished products leave the machine now; the load is filled from the machine, not the hall.
@@ -934,7 +948,8 @@ local function collect_offer(colony, m)
     demands[#demands + 1] = {item = c.name, count = c.count}
     available[c.name] = (available[c.name] or 0) + c.count
   end
-  return {kind = "collect", machine = m, priority = haul_plan.PRIORITY.collect, key = m.entity.unit_number,
+  return {kind = "collect", machine = m, entity = m.entity, pos = m.entity.position,
+    priority = haul_plan.PRIORITY.collect, key = m.entity.unit_number,
     demands = demands, available = available}
 end
 
@@ -1006,7 +1021,8 @@ local function pool_offer(colony, p)
   local demands = motor.wants(chest_contents(p.entity) or {}, p.inflight,
     {[motor.CAR] = colony_mod.stock_count(colony, motor.CAR)}, trucks_out(p))
   if #demands == 0 then return nil end
-  return {kind = "supply", pool = p, priority = haul_plan.PRIORITY.request, key = p.entity.unit_number,
+  return {kind = "supply", pool = p, entity = p.entity, pos = p.entity.position,
+    priority = haul_plan.PRIORITY.request, key = p.entity.unit_number,
     demands = demands}
 end
 
@@ -1014,7 +1030,8 @@ end
 local function tavern_offer(t)
   local demands = recreation.wants(t.entity.get_item_count(recreation.ITEM), t.inflight[recreation.ITEM])
   if #demands == 0 then return nil end
-  return {kind = "supply", tavern = t, priority = haul_plan.PRIORITY.request, key = t.entity.unit_number,
+  return {kind = "supply", tavern = t, entity = t.entity, pos = t.entity.position,
+    priority = haul_plan.PRIORITY.request, key = t.entity.unit_number,
     demands = demands}
 end
 
@@ -1026,64 +1043,49 @@ local function canteen_offer(colony, c)
   for _, n in pairs(c.inflight) do inflight = inflight + n end
   local demands = commute.wants(colony_mod.MEAL_ITEMS, have, inflight)
   if #demands == 0 then return nil end
-  return {kind = "supply", canteen = c, priority = haul_plan.PRIORITY.request, key = c.entity.unit_number,
+  return {kind = "supply", canteen = c, entity = c.entity, pos = c.entity.position,
+    priority = haul_plan.PRIORITY.request, key = c.entity.unit_number,
     demands = demands}
 end
 
 -- One destination per trip, possibly several item types. Returns an offer with `.load` filled in.
 -- `cap` is what the carrier holds: a colonist's hands by default, a truck's bed when one is driving.
-local function find_haul_task(colony, cap)
-  local offers = {}
+local function find_haul_task(colony, cap, hauler_pos)
+  local requesters, providers = {}, {}
   for _, h in ipairs(colony_mod.house_list(colony)) do
-    local o = house_offer(colony, h); if o then offers[#offers + 1] = o end
+    local o = house_offer(colony, h); if o then requesters[#requesters + 1] = o end
   end
   for _, h in ipairs(hut_list(colony)) do
-    local o = hut_offer(h); if o then offers[#offers + 1] = o end
-    local c = hut_collect_offer(h); if c then offers[#offers + 1] = c end
+    local o = hut_offer(h); if o then requesters[#requesters + 1] = o end
+    local c = hut_collect_offer(h); if c then providers[#providers + 1] = c end
   end
   for _, c in ipairs(colony_mod.crate_list(colony, crates.SUPPLY)) do
-    local o = crate_supply_offer(c); if o then offers[#offers + 1] = o end
+    local o = crate_supply_offer(c); if o then providers[#providers + 1] = o end
   end
   for _, c in ipairs(colony_mod.crate_list(colony, crates.DEMAND)) do
-    local o = crate_demand_offer(c); if o then offers[#offers + 1] = o end
+    local o = crate_demand_offer(c); if o then requesters[#requesters + 1] = o end
   end
-  -- Compost (#78): carry the bin's fertilizer out to colony stock, and carry stock spoilage in to it.
   for _, p in ipairs(colony_mod.salt_pan_list(colony)) do
-    local o = salt_offer(p); if o then offers[#offers + 1] = o end
+    local o = salt_offer(p); if o then providers[#providers + 1] = o end
   end
   for _, w in ipairs(colony_mod.well_list(colony)) do
-    local o = well_offer(w); if o then offers[#offers + 1] = o end
+    local o = well_offer(w); if o then providers[#providers + 1] = o end
   end
   for _, p in ipairs(colony_mod.pool_list(colony)) do
-    local o = pool_offer(colony, p); if o then offers[#offers + 1] = o end
+    local o = pool_offer(colony, p); if o then requesters[#requesters + 1] = o end
   end
   for _, t in ipairs(colony_mod.tavern_list(colony)) do
-    local o = tavern_offer(t); if o then offers[#offers + 1] = o end
+    local o = tavern_offer(t); if o then requesters[#requesters + 1] = o end
   end
   for _, c in ipairs(colony_mod.canteen_list(colony)) do
-    local o = canteen_offer(colony, c); if o then offers[#offers + 1] = o end
+    local o = canteen_offer(colony, c); if o then requesters[#requesters + 1] = o end
   end
   local bins = colony_mod.bin_list(colony)
   for _, b in ipairs(bins) do
-    local o = bin_offer(b); if o then offers[#offers + 1] = o end
+    local o = bin_offer(b); if o then providers[#providers + 1] = o end
   end
-  if #bins > 0 then
-    local spoil = colony_mod.stock_count(colony, compost.SOURCE)
-    if spoil > 0 then
-      local bin = bins[1]
-      -- A full batch is worth a trip like any collection: in a town whose haulers are always busy with hut output,
-      -- the compost band alone never comes up and the hall's spoilage would sit there for good.
-      local band = spoil >= compost.SPOILAGE_PER_FERTILIZER and haul_plan.PRIORITY.collect or haul_plan.PRIORITY.compost
-      offers[#offers + 1] = {kind = "compost", bin = bin, priority = band,
-        key = bin.entity.unit_number, demands = {{item = compost.SOURCE, count = spoil}},
-        available = {[compost.SOURCE] = spoil}}
-    end
-  end
-  machine_ids(colony)   -- refresh the working sets if the registry changed
-  -- A big town has thousands of machines wanting the same ore; building an offer for every one of them on
-  -- every trip is what made the demand case 17 ms/tick in the #39 benchmark. Take a bounded slice instead:
-  -- any machine wanting an item we hold is a valid destination, and the cursor means every machine is still
-  -- looked at regularly (2000 machines / 16 per trip is a full pass every ~120 assignments).
+
+  machine_ids(colony)
   local demand = colony.machine_demand or {}
   local n = #demand
   if n > 0 then
@@ -1091,7 +1093,7 @@ local function find_haul_task(colony, cap)
     local cursor = colony.machine_offer_cursor or 1
     for i = 0, take - 1 do
       local o = machine_offer(demand[(cursor - 1 + i) % n + 1])
-      if o then offers[#offers + 1] = o end
+      if o then requesters[#requesters + 1] = o end
     end
     colony.machine_offer_cursor = (cursor - 1 + take) % n + 1
   end
@@ -1101,44 +1103,76 @@ local function find_haul_task(colony, cap)
     local take = math.min(no, M.MACHINE_OFFERS_PER_ASSIGN)
     for i = 0, take - 1 do
       local c = collect_offer(colony, output[(ocursor - 1 + i) % no + 1])
-      if c then offers[#offers + 1] = c end
+      if c then providers[#providers + 1] = c end
     end
     colony.collect_offer_cursor = (ocursor - 1 + take) % no + 1
   end
-  if #offers == 0 then return nil, 0 end
-  local backlog = 0
-  for _, o in ipairs(offers) do
-    if o.priority < haul_plan.PRIORITY.buffer then backlog = backlog + 1 end
+
+  local storages = colony_mod.storage_list(colony)
+
+  local compost_offers = {}
+  if #bins > 0 then
+    local spoil = colony_mod.stock_count(colony, compost.SOURCE)
+    if spoil > 0 then
+      local bin = bins[1]
+      local band = spoil >= compost.SPOILAGE_PER_FERTILIZER and haul_plan.PRIORITY.collect or haul_plan.PRIORITY.compost
+      local src_storage = nil
+      for _, s in ipairs(storages) do
+        if (s.available[compost.SOURCE] or 0) > 0 then src_storage = s; break end
+      end
+      compost_offers[1] = {
+        priority = band,
+        source = src_storage or storages[1],
+        bin = bin,
+        spoil = spoil,
+        item = compost.SOURCE,
+        key = bin.entity.unit_number,
+      }
+    end
   end
-  haul_plan.order(offers)
-  local hall = colony_mod.stock_table(colony)
-  local offer, load = haul_plan.choose(offers, hall, cap or M.CARRY_CAP)
-  if not offer then return nil, backlog end
-  offer.load = load
-  return offer, backlog
+
+  return haul_plan.match(requesters, providers, storages, compost_offers, cap or M.CARRY_CAP, hauler_pos)
 end
 
 -- Take the load out of its source. The returned stacks hold the amounts that really left, so a
 -- partially filled request can never duplicate items.
 local function take_load(colony, offer)
   local taken = {}
-  for _, s in ipairs(offer.load) do
-    local n
-    if offer.kind == "collect" then
-      local src = offer.machine and offer.machine.entity or (offer.hut and offer.hut.entity)
-        or (offer.crate and offer.crate.entity) or (offer.pan and offer.pan.entity)
-        or (offer.well and offer.well.entity) or offer.bin.entity
-      n = src.remove_item{name = s.item, count = s.count}
+  for _, s in ipairs(offer.load or {}) do
+    local n = 0
+    if offer.kind == "collect" or offer.kind == "direct" then
+      local src = offer.source and offer.source.entity
+        or (offer.machine and offer.machine.entity)
+        or (offer.hut and offer.hut.entity)
+        or (offer.crate and offer.crate.entity)
+        or (offer.pan and offer.pan.entity)
+        or (offer.well and offer.well.entity)
+        or (offer.bin and offer.bin.entity)
+      if src and src.valid then
+        n = src.remove_item{name = s.item, count = s.count}
+      end
     else
-      n = colony_mod.take_stock(colony, s.item, s.count)
+      local src = offer.source and offer.source.entity
+      if src and src.valid then
+        n = src.remove_item{name = s.item, count = s.count}
+      end
+      if n < s.count then
+        local extra = colony_mod.take_stock(colony, s.item, s.count - n)
+        n = n + extra
+      end
     end
     if n and n > 0 then taken[#taken + 1] = {item = s.item, count = n} end
   end
   if #taken == 0 then return nil end
-  if offer.kind == "supply" then
-    local target = offer.house or offer.machine or offer.hut or offer.crate or offer.pan or offer.pool or offer.tavern or offer.canteen
-    for _, s in ipairs(taken) do target.inflight[s.item] = (target.inflight[s.item] or 0) + s.count end
-    return taken, target
+  if offer.kind == "supply" or offer.kind == "direct" then
+    local tgt = offer.target or offer.house or offer.machine or offer.hut or offer.crate or offer.pan or offer.pool or offer.tavern or offer.canteen
+    local inflight_obj = tgt and (tgt.house or tgt.machine or tgt.hut or tgt.crate or tgt.pan or tgt.pool or tgt.tavern or tgt.canteen or tgt)
+    if inflight_obj and inflight_obj.inflight then
+      for _, s in ipairs(taken) do
+        inflight_obj.inflight[s.item] = (inflight_obj.inflight[s.item] or 0) + s.count
+      end
+    end
+    return taken, inflight_obj
   end
   return taken, nil
 end
@@ -1279,24 +1313,38 @@ end
 local function haul_trip(colony, task)
   local taken, inflight_target = take_load(colony, task)
   if not taken then return nil end
-  -- Where the load physically is: a collect is picked up at its source, anything from colony stock at the hall.
+  -- Where the load physically is: picked up at source, or fallback to colony hall.
   local pickup = colony.hall.position
-  if task.kind == "collect" then
+  if task.source and task.source.entity and task.source.entity.valid then
+    pickup = task.source.entity.position
+  elseif task.kind == "collect" then
     local src = task.machine or task.hut or task.crate or task.pan or task.well or task.bin
-    pickup = src.entity.position
+    if src and src.entity and src.entity.valid then pickup = src.entity.position end
   end
+
   local dest, state = nil, "to_house"
-  if task.kind == "collect" then dest, state = colony.hall.position, "to_hall"
-  elseif task.kind == "compost" then dest, state = task.bin.entity.position, "to_bin"
-  elseif task.house then dest = task.house.entity.position
-  elseif task.machine then dest = task.machine.entity.position
-  elseif task.crate then dest = task.crate.entity.position
-  elseif task.pool then dest = task.pool.entity.position
-  elseif task.tavern then dest = task.tavern.entity.position
-  elseif task.canteen then dest = task.canteen.entity.position
-  else dest = task.hut.entity.position end
-  return {colony_id = colony.id, job = "haul", state = state, bin = task.bin,
-    target = inflight_target or (task.kind == "collect" and task.machine or nil), inflight_target = inflight_target,
+  local dest_entity = nil
+  if task.kind == "collect" then
+    dest_entity = task.target and task.target.entity
+    dest = (dest_entity and dest_entity.valid and dest_entity.position) or colony.hall.position
+    state = "to_hall"
+  elseif task.kind == "compost" then
+    local bin_obj = task.bin or (task.target and (task.target.bin or task.target))
+    dest_entity = bin_obj and bin_obj.entity
+    dest = (dest_entity and dest_entity.valid and dest_entity.position) or colony.hall.position
+    state = "to_bin"
+  else -- direct or supply
+    local tgt_obj = task.target or task.house or task.machine or task.crate or task.pool or task.tavern or task.canteen or task.hut
+    dest_entity = tgt_obj and tgt_obj.entity
+    dest = (dest_entity and dest_entity.valid and dest_entity.position) or colony.hall.position
+    state = "to_house"
+  end
+
+  local bin_obj = task.bin or (task.kind == "compost" and (task.target and (task.target.bin or task.target))) or nil
+  local target_obj = inflight_target or (task.target and (task.target.house or task.target.machine or task.target.crate or task.target.pool or task.target.tavern or task.target.canteen or task.target.hut or task.target)) or (task.kind == "collect" and task.machine or nil)
+
+  return {colony_id = colony.id, job = "haul", state = state, bin = bin_obj,
+    target = target_obj, inflight_target = inflight_target, dest_entity = dest_entity,
     carry = taken, pickup = {x = pickup.x, y = pickup.y}, dest = dest}, dest
 end
 
@@ -1368,7 +1416,7 @@ local function start_drive(colony, un, e, task)
   if not (next(colony.pools or {}) and wants_truck(task)) then return false end
   local pool = dispatch_pool(colony, e.position)
   if not pool then return false end
-  local big = find_haul_task(colony, motor.CAPACITY)
+  local big = find_haul_task(colony, motor.CAPACITY, e.position)
   if not (big and motor.worth_truck(haul_plan.total(big.load))) then return false end
   if pool.entity.remove_item{name = motor.CAR, count = 1} < 1 then return false end
   local trip, dest = haul_trip(colony, big)
@@ -1460,7 +1508,7 @@ local function assign_truck(colony, tun)
   if not (driver and driver.valid) or M.is_sleep_time(e.surface) or t.trips <= 0 then
     return send_home(colony, tun, e)
   end
-  local task = find_haul_task(colony, motor.CAPACITY)
+  local task = find_haul_task(colony, motor.CAPACITY, e.position)
   if task and motor.worth_truck(haul_plan.total(task.load)) and start_haul(colony, tun, e, task, "truck 🚚") then
     t.trips = t.trips - 1
     return
@@ -1474,7 +1522,7 @@ local function truck_home(colony, tun)
   if not t then return end
   local driver = colony.colonists[t.driver]
   if t.trips <= 0 and driver and driver.valid and t.entity.valid and not M.is_sleep_time(t.entity.surface) then
-    local task = find_haul_task(colony, motor.CAPACITY)
+    local task = find_haul_task(colony, motor.CAPACITY, t.entity.position)
     local trips = task and motor.worth_truck(haul_plan.total(task.load)) and burn_fuel(t.pool)
     if trips then
       t.trips = trips
@@ -1533,7 +1581,7 @@ end
 M.take_cover = nil
 
 function M.is_sleep_time(surface)
-  if not surface or surface.freeze_daytime then return false end
+  if not surface or surface.freeze_daytime or not surface.daytime then return false end
   local d = surface.daytime
   return d >= 0.40 and d <= 0.60
 end
@@ -1609,7 +1657,7 @@ function M.assign(colony, un)
       if next(missing) and not missing[prev_hut.job] and mates >= 2 then
         should_switch = true
       elseif pop < M.SMALL_TOWN then
-        local task, backlog = find_haul_task(colony)
+        local task, backlog = find_haul_task(colony, nil, e.position)
         local counts = task and job_counts(colony)
         local haul_wanted = task and (headcount.target(colony.job_targets, "haul") or work_plan.haul_target(math.max(pop, 1), backlog))
         if task and (counts.haul or 0) < haul_wanted then should_switch = true end
@@ -1626,7 +1674,7 @@ function M.assign(colony, un)
   local counts = job_counts(colony)
   if st and st.job then counts[st.job] = math.max((counts[st.job] or 1) - 1, 0) end
   local slots, capacity, slot_list, hut_count = job_slots(colony)
-  local task, backlog = find_haul_task(colony)
+  local task, backlog = find_haul_task(colony, nil, e.position)
   missing = missing or colony_missing_jobs(colony)
 
   local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
@@ -2173,7 +2221,19 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     end
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_hall" then
-    if st.carry then return_to_hall(colony, st.carry) end
+    if st.carry then
+      local dest_e = st.dest_entity
+      if dest_e and dest_e.valid then
+        local leftover = {}
+        for _, s in ipairs(st.carry) do
+          local n = dest_e.insert{name = s.item, count = s.count}
+          if n < s.count then leftover[#leftover + 1] = {item = s.item, count = s.count - n} end
+        end
+        if #leftover > 0 then return_to_hall(colony, leftover) end
+      else
+        return_to_hall(colony, st.carry)
+      end
+    end
     st.carry = nil
     colony.ledger_cache = nil
     M.assign(colony, ev.unit_number)

@@ -285,3 +285,233 @@ describe("hut out of range clarity", function()
     eq(level, "red", "no-sites should have red severity")
   end)
 end)
+
+describe("colony logistics network", function()
+  local function make_chest(inv_contents)
+    local contents = {}
+    for k, v in pairs(inv_contents or {}) do contents[k] = v end
+    local inv = {
+      is_empty = function() return next(contents) == nil end,
+      is_full = function() return false end,
+      get_contents = function()
+        local list = {}
+        for k, v in pairs(contents) do list[#list + 1] = {name = k, count = v} end
+        return list
+      end,
+      get_item_count = function(name) return contents[name] or 0 end,
+      remove_item = function(t)
+        local have = contents[t.name] or 0
+        local take = math.min(have, t.count)
+        contents[t.name] = (have - take > 0) and (have - take) or nil
+        return take
+      end,
+      insert = function(t)
+        contents[t.name] = (contents[t.name] or 0) + t.count
+        return t.count
+      end,
+    }
+    return inv, contents
+  end
+
+  it("delivers food directly from forager hut to hungry house without touching Town Hall", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+
+    local hall_inv, hall_store = make_chest({})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 100, y = 100},
+      surface = {index = 1, find_non_colliding_position = function(_, pos) return pos end},
+      force = {technologies = {}, print = function() end},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+      remove_item = function(t) return hall_inv.remove_item(t) end,
+      insert = function(t) return hall_inv.insert(t) end,
+    }
+
+    local forager_inv, forager_store = make_chest({["colony-forage"] = 15, ["iron-axe"] = 1})
+    local forager_ent = {
+      valid = true, name = "colony-forager-hut", unit_number = 200, position = {x = 10, y = 10},
+      surface = hall_ent.surface, force = hall_ent.force,
+      get_item_count = function(item) return forager_inv.get_item_count(item) end,
+      get_inventory = function() return forager_inv end,
+      remove_item = function(t) return forager_inv.remove_item(t) end,
+      insert = function(t) return forager_inv.insert(t) end,
+    }
+    local forager_hut = {entity = forager_ent, job = "forage", wear = 0, limit = 2, workers = {}, inflight = {}, colony_id = 1}
+
+    local house_inv, house_store = make_chest({})
+    local house_ent = {
+      valid = true, name = "colony-housing-cabin", unit_number = 300, position = {x = 14, y = 10},
+      surface = hall_ent.surface, force = hall_ent.force,
+      get_item_count = function(item) return house_inv.get_item_count(item) end,
+      get_inventory = function() return house_inv end,
+      remove_item = function(t) return house_inv.remove_item(t) end,
+      insert = function(t) return house_inv.insert(t) end,
+    }
+    local house = {entity = house_ent, kind = "cabin", occupants = 4, inflight = {}, sat = {food = false}}
+
+    local colonist_ent = {
+      valid = true, name = "colony-colonist", unit_number = 500, position = {x = 5, y = 10},
+      surface = hall_ent.surface, force = hall_ent.force,
+      commandable = {set_command = function() end},
+    }
+
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {[200] = forager_hut},
+      houses = {[300] = house}, machines = {}, towers = {}, plots = {}, crates = {},
+      bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {},
+      cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0,
+      locks = {}, quotas = {}, job_targets = {}, colonists = {[500] = colonist_ent},
+      deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {},
+      ghost_blocked = {}, animals = {}, priority = {},
+    }
+    storage.colonies = {[1] = c}
+    storage.next_colony_id = 2
+    storage.unit_state = {}
+
+    -- Hauler gets assigned
+    work.assign(c, 500)
+
+    local st = storage.unit_state[500]
+    truthy(st, "hauler has a state")
+    eq(st.job, "haul")
+    -- Check direct transfer pickup & destination
+    eq(st.pickup.x, 10, "pickup is at forager hut")
+    eq(st.pickup.y, 10)
+    eq(st.dest.x, 14, "destination is at cabin")
+    eq(st.dest.y, 10)
+    eq(st.carry[1].item, "colony-forage")
+    eq(st.carry[1].count, 15, "claimed all 15 forage from forager (cabin wanted 20)")
+    eq(forager_store["colony-forage"], nil, "forager hut emptied")
+    eq(hall_store["colony-forage"], nil, "Town Hall was not touched")
+
+    -- Step 1: Arrive at pickup (forager hut)
+    env.fire(defines.events.on_ai_command_completed, {unit_number = 500, result = defines.behavior_result.success})
+    st = storage.unit_state[500]
+    eq(st.state, "to_house", "now heading to house")
+
+    -- Step 2: Arrive at destination (cabin)
+    env.fire(defines.events.on_ai_command_completed, {unit_number = 500, result = defines.behavior_result.success})
+    eq(house_store["colony-forage"], 15, "cabin received 15 forage directly!")
+    eq(house.inflight["colony-forage"], 0, "inflight reservation cleared")
+  end)
+
+  it("pushes hut output directly to nearest warehouse instead of far Town Hall", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local crates = require("scripts.model.crates")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+
+    local hall_inv, hall_store = make_chest({})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 100, y = 100},
+      surface = {index = 1, find_non_colliding_position = function(_, pos) return pos end},
+      force = {technologies = {}, print = function() end},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+      remove_item = function(t) return hall_inv.remove_item(t) end,
+      insert = function(t) return hall_inv.insert(t) end,
+    }
+
+    local miner_inv, miner_store = make_chest({["copper-ore"] = 20, ["colony-pickaxe"] = 1})
+    local miner_ent = {
+      valid = true, name = "colony-miner-hut", unit_number = 200, position = {x = 10, y = 10},
+      surface = hall_ent.surface, force = hall_ent.force,
+      get_item_count = function(item) return miner_inv.get_item_count(item) end,
+      get_inventory = function() return miner_inv end,
+      remove_item = function(t) return miner_inv.remove_item(t) end,
+      insert = function(t) return miner_inv.insert(t) end,
+    }
+    local miner_hut = {entity = miner_ent, job = "mine", wear = 0, limit = 2, workers = {}, inflight = {}, ores = {["copper-ore"] = 1}, colony_id = 1}
+
+    local wh_inv, wh_store = make_chest({})
+    local wh_ent = {
+      valid = true, name = "colony-warehouse", unit_number = 300, position = {x = 15, y = 10},
+      surface = hall_ent.surface, force = hall_ent.force,
+      get_item_count = function(item) return wh_inv.get_item_count(item) end,
+      get_inventory = function() return wh_inv end,
+      remove_item = function(t) return wh_inv.remove_item(t) end,
+      insert = function(t) return wh_inv.insert(t) end,
+    }
+    local wh = {entity = wh_ent, kind = crates.WAREHOUSE}
+
+    local colonist_ent = {
+      valid = true, name = "colony-colonist", unit_number = 500, position = {x = 10, y = 10},
+      surface = hall_ent.surface, force = hall_ent.force,
+      commandable = {set_command = function() end},
+    }
+
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {[200] = miner_hut},
+      houses = {}, machines = {}, towers = {}, plots = {}, crates = {[300] = wh},
+      bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {},
+      cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0,
+      locks = {[500] = "haul"}, quotas = {}, job_targets = {}, colonists = {[500] = colonist_ent},
+      deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {},
+      ghost_blocked = {}, animals = {}, priority = {},
+    }
+    storage.colonies = {[1] = c}
+    storage.next_colony_id = 2
+    storage.unit_state = {}
+
+    work.assign(c, 500)
+    local st = storage.unit_state[500]
+    truthy(st)
+    eq(st.job, "haul")
+    eq(st.dest.x, 15, "destination is nearest warehouse at x=15, not hall at x=100")
+    eq(st.dest.y, 10)
+    eq(st.carry[1].item, "copper-ore")
+    eq(st.carry[1].count, 20)
+
+    -- Arrive at warehouse
+    env.fire(defines.events.on_ai_command_completed, {unit_number = 500, result = defines.behavior_result.success})
+    eq(wh_store["copper-ore"], 20, "copper ore stored in warehouse")
+    eq(hall_store["copper-ore"], nil, "no copper ore in Town Hall")
+  end)
+
+  it("includes watchtowers in stock_table and storage_list as buffer storage", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+
+    local hall_inv = make_chest({["colony-forage"] = 5})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1}, force = {},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+    }
+
+    local tower_inv = make_chest({["colony-forage"] = 10, ["iron-axe"] = 2})
+    local tower_ent = {
+      valid = true, name = colony_mod.WATCHTOWER, unit_number = 200, position = {x = 40, y = 40},
+      surface = hall_ent.surface, force = hall_ent.force,
+      get_item_count = function(item) return tower_inv.get_item_count(item) end,
+      get_inventory = function() return tower_inv end,
+    }
+
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {}, houses = {},
+      machines = {}, towers = {[200] = tower_ent}, plots = {}, crates = {},
+      bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {},
+      cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0,
+      locks = {}, quotas = {}, job_targets = {}, colonists = {}, deaths = {},
+      claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, animals = {},
+    }
+
+    local stock = colony_mod.stock_table(c)
+    eq(stock["colony-forage"], 15, "5 from hall + 10 from tower buffer")
+    eq(stock["iron-axe"], 2, "2 from tower buffer")
+
+    local storages = colony_mod.storage_list(c)
+    eq(#storages, 2, "hall + watchtower")
+    eq(storages[2].kind, "watchtower")
+    eq(storages[2].key, 200)
+    eq(storages[2].available["colony-forage"], 10)
+  end)
+end)

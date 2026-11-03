@@ -341,7 +341,7 @@ function M.nearest_bin(colony, pos)
   return best
 end
 
--- Colony stock (Town Hall + warehouses) as one table: an assignment asks about a dozen items and each
+-- Colony stock (Town Hall + warehouses + watchtower buffers) as one table: an assignment asks about a dozen items and each
 -- question used to rebuild and sort the warehouse list. Supply trips still take from the hall first (the
 -- town's working stock) and fall back to bulk storage; deposits fill the hall first and overflow outward.
 function M.stock_table(colony)
@@ -358,8 +358,71 @@ function M.stock_table(colony)
       for _, s in ipairs(inv.get_contents()) do t[s.name] = (t[s.name] or 0) + s.count end
     end
   end
+  for un, tower in pairs(colony.towers or {}) do
+    if tower.valid then
+      local inv = tower.get_inventory(defines.inventory.chest)
+      if inv then
+        for _, s in ipairs(inv.get_contents()) do t[s.name] = (t[s.name] or 0) + s.count end
+      end
+    else
+      colony.towers[un] = nil
+    end
+  end
   colony.stock_cache, colony.stock_tick = t, game.tick
   return t
+end
+
+-- Storage locations (Town Hall, Warehouses, Watchtowers):
+-- Hall is central working storage, Warehouses are bulk storage, Watchtowers are forward buffer storage.
+function M.storage_list(colony)
+  local list = {}
+  local hall = colony.hall
+  if hall and hall.valid then
+    local inv = hall.get_inventory(defines.inventory.chest)
+    local contents = {}
+    if inv then for _, s in ipairs(inv.get_contents()) do contents[s.name] = s.count end end
+    list[#list + 1] = {
+      kind = "hall",
+      entity = hall,
+      pos = hall.position,
+      available = contents,
+      has_space = inv and not inv.is_full(),
+      key = hall.unit_number,
+    }
+  end
+  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
+    if c.entity and c.entity.valid then
+      local inv = c.entity.get_inventory(defines.inventory.chest)
+      local contents = {}
+      if inv then for _, s in ipairs(inv.get_contents()) do contents[s.name] = s.count end end
+      list[#list + 1] = {
+        kind = "warehouse",
+        entity = c.entity,
+        pos = c.entity.position,
+        available = contents,
+        has_space = inv and not inv.is_full(),
+        key = c.entity.unit_number,
+      }
+    end
+  end
+  for un, tower in pairs(colony.towers or {}) do
+    if tower.valid then
+      local inv = tower.get_inventory(defines.inventory.chest)
+      local contents = {}
+      if inv then for _, s in ipairs(inv.get_contents()) do contents[s.name] = s.count end end
+      list[#list + 1] = {
+        kind = "watchtower",
+        entity = tower,
+        pos = tower.position,
+        available = contents,
+        has_space = inv and not inv.is_full(),
+        key = un,
+      }
+    else
+      colony.towers[un] = nil
+    end
+  end
+  return list
 end
 
 function M.stock_count(colony, item)
@@ -384,6 +447,14 @@ function M.ledger_snapshot(colony)
     if c.entity and c.entity.valid then
       local inv = c.entity.get_inventory(defines.inventory.chest)
       if inv then for _, s in ipairs(inv.get_contents()) do stock[s.name] = (stock[s.name] or 0) + s.count end end
+    end
+  end
+  for un, tower in pairs(colony.towers or {}) do
+    if tower.valid then
+      local inv = tower.get_inventory(defines.inventory.chest)
+      if inv then for _, s in ipairs(inv.get_contents()) do stock[s.name] = (stock[s.name] or 0) + s.count end end
+    else
+      colony.towers[un] = nil
     end
   end
 
@@ -530,6 +601,14 @@ function M.take_stock(colony, item, count)
     if taken >= count then break end
     taken = taken + c.entity.remove_item{name = item, count = count - taken}
   end
+  for un, tower in pairs(colony.towers or {}) do
+    if taken >= count then break end
+    if tower.valid then
+      taken = taken + tower.remove_item{name = item, count = count - taken}
+    else
+      colony.towers[un] = nil
+    end
+  end
   return taken
 end
 
@@ -541,6 +620,14 @@ function M.put_stock(colony, item, count)
   for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
     if left <= 0 then break end
     left = left - c.entity.insert{name = item, count = left}
+  end
+  for un, tower in pairs(colony.towers or {}) do
+    if left <= 0 then break end
+    if tower.valid then
+      left = left - tower.insert{name = item, count = left}
+    else
+      colony.towers[un] = nil
+    end
   end
   return count - left
 end
@@ -600,6 +687,15 @@ function M.total_food(colony)
   for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
     for _, item in ipairs(M.FOOD_ITEMS) do
       if prototypes.item[item] then n = n + c.entity.get_item_count(item) end
+    end
+  end
+  for un, tower in pairs(colony.towers or {}) do
+    if tower.valid then
+      for _, item in ipairs(M.FOOD_ITEMS) do
+        if prototypes.item[item] then n = n + tower.get_item_count(item) end
+      end
+    else
+      colony.towers[un] = nil
     end
   end
   for _, h in pairs(colony.huts or {}) do

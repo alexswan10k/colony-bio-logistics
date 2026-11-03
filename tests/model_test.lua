@@ -468,6 +468,86 @@ describe("haul_plan", function()
     local pick = hp.choose(offers, {["iron-ore"] = 9, coal = 9, wood = 9}, 20)
     eq(pick.key, 3)
   end)
+  it("matches active provider directly to requester when item is available", function()
+    local house = {key = 1, priority = hp.PRIORITY.critical, pos = {x = 10, y = 10}, demands = {{item = "colony-forage", count = 8}}}
+    local forager = {key = 2, priority = hp.PRIORITY.hut_output, pos = {x = 15, y = 10}, available = {["colony-forage"] = 15}}
+    local hall = {key = 3, pos = {x = 80, y = 80}, available = {["colony-forage"] = 50}, has_space = true}
+
+    local task, backlog = hp.match({house}, {forager}, {hall}, nil, 20)
+    truthy(task)
+    eq(task.kind, "direct")
+    eq(task.source.key, 2)
+    eq(task.target.key, 1)
+    eq(task.load[1].item, "colony-forage")
+    eq(task.load[1].count, 8)
+    eq(backlog, 2)
+  end)
+  it("prefers closer active provider over farther active provider", function()
+    local house = {key = 1, priority = hp.PRIORITY.critical, pos = {x = 10, y = 10}, demands = {{item = "colony-forage", count = 8}}}
+    local near_forager = {key = 2, priority = hp.PRIORITY.hut_output, pos = {x = 12, y = 10}, available = {["colony-forage"] = 10}}
+    local far_forager = {key = 3, priority = hp.PRIORITY.hut_output, pos = {x = 60, y = 60}, available = {["colony-forage"] = 20}}
+    local hall = {key = 4, pos = {x = 80, y = 80}, available = {}, has_space = true}
+
+    local task = hp.match({house}, {far_forager, near_forager}, {hall}, nil, 20)
+    truthy(task)
+    eq(task.kind, "direct")
+    eq(task.source.key, 2)
+  end)
+  it("falls back to storage when active providers do not have the demanded item", function()
+    local house = {key = 1, priority = hp.PRIORITY.critical, pos = {x = 10, y = 10}, demands = {{item = "colony-forage", count = 8}}}
+    local miner = {key = 2, priority = hp.PRIORITY.hut_output, pos = {x = 15, y = 10}, available = {["copper-ore"] = 30}}
+    local hall = {key = 3, pos = {x = 50, y = 50}, available = {["colony-forage"] = 50}, has_space = true}
+
+    local task = hp.match({house}, {miner}, {hall}, nil, 20)
+    truthy(task)
+    eq(task.kind, "supply")
+    eq(task.source.key, 3)
+    eq(task.target.key, 1)
+    eq(task.load[1].item, "colony-forage")
+  end)
+  it("pushes active provider output to nearest open storage when no requester needs it", function()
+    local miner = {key = 2, priority = hp.PRIORITY.hut_output, pos = {x = 10, y = 10}, available = {["copper-ore"] = 30}}
+    local warehouse = {key = 3, pos = {x = 15, y = 10}, available = {}, has_space = true}
+    local hall = {key = 4, pos = {x = 100, y = 100}, available = {}, has_space = true}
+
+    local task = hp.match({}, {miner}, {hall, warehouse}, nil, 20)
+    truthy(task)
+    eq(task.kind, "collect")
+    eq(task.source.key, 2)
+    eq(task.target.key, 3) -- picks nearest warehouse over far hall
+    eq(task.load[1].item, "copper-ore")
+  end)
+  it("serves production chain directly (woodcutter to toolsmith)", function()
+    local toolsmith = {key = 10, priority = hp.PRIORITY.request, pos = {x = 20, y = 20}, demands = {{item = "wood", count = 10}}}
+    local woodcutter = {key = 20, priority = hp.PRIORITY.hut_output, pos = {x = 25, y = 20}, available = {wood = 40}}
+    local hall = {key = 30, pos = {x = 80, y = 80}, available = {wood = 100}, has_space = true}
+
+    local task = hp.match({toolsmith}, {woodcutter}, {hall}, nil, 20)
+    truthy(task)
+    eq(task.kind, "direct")
+    eq(task.source.key, 20)
+    eq(task.target.key, 10)
+    eq(task.load[1].item, "wood")
+  end)
+  it("critical starving house takes priority over buffer top-up for direct food transfer", function()
+    local starving = {key = 1, priority = hp.PRIORITY.critical, pos = {x = 10, y = 10}, demands = {{item = "colony-forage", count = 8}}}
+    local fed = {key = 2, priority = hp.PRIORITY.buffer, pos = {x = 12, y = 10}, demands = {{item = "colony-forage", count = 8}}}
+    local forager = {key = 3, priority = hp.PRIORITY.hut_output, pos = {x = 15, y = 10}, available = {["colony-forage"] = 8}}
+
+    local task = hp.match({fed, starving}, {forager}, {}, nil, 20)
+    truthy(task)
+    eq(task.kind, "direct")
+    eq(task.target.key, 1) -- starving house served first
+  end)
+  it("direct transfer takes partial available amount when provider has less than demand", function()
+    local house = {key = 1, priority = hp.PRIORITY.critical, pos = {x = 10, y = 10}, demands = {{item = "colony-forage", count = 8}}}
+    local forager = {key = 2, priority = hp.PRIORITY.hut_output, pos = {x = 15, y = 10}, available = {["colony-forage"] = 3}}
+
+    local task = hp.match({house}, {forager}, {}, nil, 20)
+    truthy(task)
+    eq(task.kind, "direct")
+    eq(task.load[1].count, 3)
+  end)
 end)
 
 describe("housing", function()

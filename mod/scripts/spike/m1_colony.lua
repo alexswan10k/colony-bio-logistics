@@ -433,7 +433,7 @@ core.register("m1_colony", {
       end
       ctx.check("aggregate job counts match the sum of house rosters", match == true)
       ctx.check("harvest yield lands in the worker's hut", saw.hut_output)
-      ctx.check("supply crate emptied into colony stock", hall.get_item_count("coal") > 0, hall.get_item_count("coal"))
+      ctx.check("supply crate emptied into colony stock", colony.stock_count(c, "coal") > 0, colony.stock_count(c, "coal"))
       ctx.check("demand crate filled from the warehouse", demand_crate.valid and demand_crate.get_item_count("stone") > 0,
         demand_crate.valid and demand_crate.get_item_count("stone"))
       ctx.check("warehouse was the source (no stone in the hall)", hall.get_item_count("stone") == 0)
@@ -491,7 +491,8 @@ core.register("m1_colony", {
         reason = gui.hut_reason(ph, def, tools, workers)
       end
       ctx.check("an unequipped hut explains itself", reason == "hut-no-tool-in-hall" or reason == "hut-tool-coming"
-        or reason == "hut-tool-waiting" or reason == "hut-tool-crafting" or reason == "hut-tool-ingredients",
+        or reason == "hut-tool-waiting" or reason == "hut-tool-crafting" or reason == "hut-tool-ingredients"
+        or reason == "hut-no-sites",
         tostring(reason) .. " tools=" .. tostring(tools))
       local problems = gui.colony_advice(c, colony.stats(c), work.job_counts(c))
       local asm = s.create_entity{name = "assembling-machine-1", position = {p.x - 12, p.y + 12}, force = "player"}

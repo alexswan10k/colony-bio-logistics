@@ -22,6 +22,9 @@ function M.install()
     gui_type = {entity = 1},
     alert_type = {custom = 1},
     inventory = {chest = 1},
+    command = {go_to_location = 1, stop = 2, attack = 3},
+    distraction = {none = 0},
+    behavior_result = {success = 0, fail = 1},
   }
   _G.log = function() end
   _G.script = {

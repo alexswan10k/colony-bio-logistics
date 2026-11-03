@@ -14,6 +14,7 @@ M.HAUL_MAX_SHARE = 0.5   -- a backlog of deliveries can pull up to this share of
 M.PRESERVE_SHARE = 0.15     -- of the town, at most: a smokehouse is fed, it does not need an army
 M.RESEARCH_SHARE = 0.15     -- scholars investigating history and science
 M.HARVEST = {"forage", "farm", "chop", "mine", "hunt", "fish"}
+M.FOOD = {"forage", "farm", "hunt", "fish"}
 
 function M.preserve_workers(pop) return math.max(1, math.floor((pop or 0) * M.PRESERVE_SHARE)) end
 function M.research_workers(pop) return math.max(1, math.floor((pop or 0) * M.RESEARCH_SHARE)) end
@@ -82,6 +83,24 @@ function M.choose(s)
     end
   end
   local harvest_rank = jobs.best_rank(priority, M.HARVEST, eligible_harvest_slots)
+
+  -- Hunger priority (#expectation): if there is no food in the colony, food roles come first
+  local food_rank = jobs.best_rank(priority, M.FOOD, eligible_harvest_slots)
+  if s.food_ratio and s.food_ratio <= 0 and food_rank then
+    for _, job in ipairs(M.FOOD) do
+      if (eligible_harvest_slots[job] or 0) > 0 and jobs.rank(priority, job) == food_rank and (counts[job] or 0) == 0 then
+        return job
+      end
+    end
+    local best_food, best_gap
+    for _, job in ipairs(M.FOOD) do
+      if (eligible_harvest_slots[job] or 0) > 0 and jobs.rank(priority, job) == food_rank then
+        local gap = (targets and targets[job] or 1) - (counts[job] or 0)
+        if not best_gap or gap > best_gap then best_food, best_gap = job, gap end
+      end
+    end
+    if best_food then return best_food end
+  end
 
   local better_than_haul = (can_heal and h_rank < haul_rank)
       or (can_construct and c_rank < haul_rank)

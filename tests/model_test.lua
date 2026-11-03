@@ -291,6 +291,12 @@ describe("work_plan", function()
       slots = {chop = 2, mine = 2, forage = 2}, capacity = {chop = 2, mine = 2, forage = 2}})
     eq(job, "chop")
   end)
+  it("prioritises food jobs over non-food jobs when food is 0", function()
+    local job = wp.choose(s{pop = 4, food_ratio = 0, haul = true,
+      priority = {haul = 1, forage = 2, chop = 2, mine = 2},
+      slots = {chop = 2, mine = 2, forage = 2}, capacity = {chop = 2, mine = 2, forage = 2}})
+    eq(job, "forage")
+  end)
   it("honours the priority matrix: a disabled role is never assigned", function()
     eq(wp.choose(s{slots = {forage = 3}, capacity = {forage = 3},
       priority = {haul = 0, forage = 0, chop = 0, mine = 0}}), nil)
@@ -1037,6 +1043,7 @@ describe("advice", function()
     hut.inflight = 1; eq((advice.hut(hut)), "tool-coming")
     hut.limit = 0; eq((advice.hut(hut)), "paused")
     eq((advice.hut({needs_tool = true, tools = 2, capacity = 3, workers = 2, sites = 0})), "no-sites")
+    eq((advice.hut({needs_tool = true, tools = 0, capacity = 3, workers = 0, sites = 0})), "no-sites")
     -- A hut at its stock limit stands down (even short of a tool), and says which item; an idle Toolsmith says so.
     local r, it = advice.hut({needs_tool = true, tools = 0, capacity = 3, workers = 0, quota_item = "wood"})
     eq(r, "quota-met"); eq(it, "wood")

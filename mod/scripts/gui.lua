@@ -165,9 +165,15 @@ end)
 -- ---------- labour hut panel ----------
 -- While the panel is open, the hut's working radius is drawn in the world (the same idea as the Town
 -- Hall's territory rectangle) so "why is nothing being harvested?" is answerable at a glance.
-local function draw_hut_range(h)
+local function draw_hut_range(h, sites)
+  if sites == nil and h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" then
+    sites = work.site_count(h)
+  end
   local r = (h.job == "forage" and colony_mod.FORAGE_RADIUS or colony_mod.HUT_RADIUS)
-  rendering.draw_circle{color = {0.9, 0.9, 0.3, 0.7}, width = 2, filled = false,
+  local is_empty = (sites ~= nil and sites == 0)
+  local color = is_empty and {1.0, 0.25, 0.25, 0.75} or {0.9, 0.9, 0.3, 0.7}
+  local width = is_empty and 3 or 2
+  rendering.draw_circle{color = color, width = width, filled = false,
     radius = r, target = h.entity, surface = h.entity.surface, time_to_live = 60}
 end
 
@@ -199,6 +205,7 @@ function M.hut_reason(h, def, tools, workers)
   if not reason then return nil end
   if reason == "quota-met" then return "hut-quota-met", {item(arg)}, "green" end
   if reason == "nothing-to-do" then return "hut-nothing-to-do", {}, "green" end
+  if reason == "no-sites" then return "hut-no-sites", {}, "red" end
   if reason == "no-tool-in-hall" then
     local kind, ingredient, n
     if colony then kind, ingredient, n = work.tool_gap(colony, arg) end
@@ -305,7 +312,13 @@ local function fill_hut(frame, h)
   end
   if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" then
     local sites = work.site_count(h)
-    if sites > 0 then frame.add{type = "label", caption = {"colony-gui-hut.sites", sites}} end
+    if sites > 0 then
+      frame.add{type = "label", caption = {"colony-gui-hut.sites", sites}}
+    else
+      local warn = frame.add{type = "label", caption = {"", "[color=red]⚠ [/color]", {"colony-gui-hut.no-sites"}}, style = "bold_label"}
+      local lbl = frame.add{type = "label", caption = {"colony-gui-hut.sites", 0}}
+      lbl.style.font_color = {1, 0.3, 0.3}
+    end
   end
 end
 

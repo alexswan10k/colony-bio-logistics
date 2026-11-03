@@ -233,3 +233,55 @@ describe("gui priority and target buttons", function()
     eq(hut.ores["iron-ore"], 1, "ore_more should raise priority to rank 1")
   end)
 end)
+
+describe("hut out of range clarity", function()
+  it("reports no-sites as red blocker when a forager has no bushes in range even if tool is missing", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local labour = require("scripts.model.labour")
+    local gui = require("scripts.gui")
+    local work = require("scripts.work")
+    local feedback = require("scripts.feedback")
+
+    local forager_ent = {
+      valid = true, name = "colony-forager-hut", unit_number = 300, position = {x = 0, y = 0},
+      surface = {
+        index = 1,
+        find_entities_filtered = function() return {} end,
+        count_tiles_filtered = function() return 0 end,
+        count_entities_filtered = function() return 0 end,
+        get_pollution = function() return 0 end,
+      },
+      force = {technologies = {}, connected_players = {}},
+      get_item_count = function() return 0 end,
+      get_inventory = function() return {get_item_count = function() return 0 end, get_contents = function() return {} end} end,
+    }
+    local hut = {entity = forager_ent, job = "forage", wear = 0, limit = 2, workers = {}, inflight = {}, colony_id = 1}
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = forager_ent.surface, force = forager_ent.force,
+      get_item_count = function() return 0 end,
+      get_inventory = function() return {get_item_count = function() return 0 end, get_contents = function() return {} end} end,
+    }
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {[300] = hut}, houses = {},
+      machines = {}, towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {},
+      wells = {}, pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0,
+      buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {},
+      job_targets = {}, colonists = {}, deaths = {}, claimed = {}, no_site = {},
+      ghosts = {}, repairs = {}, ghost_blocked = {}, animals = {},
+    }
+    storage.colonies = {[1] = c}
+    storage.next_colony_id = 2
+
+    local def, tools, allowed, workers = work.hut_info(hut)
+    eq(tools, 0, "no hoe in hut")
+    local sites = work.site_count(hut)
+    eq(sites, 0, "0 forage patches in range")
+
+    local reason, args, level = gui.hut_reason(hut, def, tools, workers)
+    eq(reason, "hut-no-sites", "reason should be no-sites despite missing hoe")
+    eq(level, "red", "no-sites should have red severity")
+  end)
+end)

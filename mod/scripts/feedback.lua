@@ -60,12 +60,17 @@ local function hut_status(colony, h, stock, haul_rank)
       if inv and inv.get_item_count(it) > 0 then inputs_missing = false end
     end
   end
+  local sites
+  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" then
+    sites = work.site_count(h)
+  end
   local stuck = (colony.no_site[h.entity.unit_number] or 0) > game.tick
   local met, quota_item = work.hut_quota_met(colony, h)
   local nothing = h.entity.name == "colony-toolsmith" and #work.toolsmith_wanted(colony) == 0
-  local reason, arg = advice.hut{quota_item = met and quota_item or nil, nothing_to_do = nothing,needs_tool = def.tool ~= nil, tool = def.tool, tools = tools, capacity = def.capacity,
+  local reason, arg = advice.hut{quota_item = met and quota_item or nil, nothing_to_do = nothing,
+    needs_tool = def.tool ~= nil, tool = def.tool, tools = tools, capacity = def.capacity,
     limit = h.limit, workers = workers, inflight = def.tool and (h.inflight[def.tool] or 0) or 0,
-    hall_stock = def.tool and (stock[def.tool] or 0) or 0, sites = stuck and 0 or nil,
+    hall_stock = def.tool and (stock[def.tool] or 0) or 0, sites = (stuck or (sites and sites == 0)) and 0 or sites,
     inputs_missing = inputs_missing, haul_rank = haul_rank}
   if not reason then
     return {level = "green"}, {"colony-status.hut-working", workers, allowed}

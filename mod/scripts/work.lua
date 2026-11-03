@@ -700,6 +700,17 @@ function M.site_count(h)
     end
     return n
   end
+  if h.job == "hunt" then
+    local n = 0
+    local r2 = radius * radius
+    for un, rec in pairs(colony.animals or {}) do
+      local a = rec.entity
+      if a and a.valid and not colony.claimed["boar:" .. un] and dist2(a.position, base) <= r2 and in_territory(a) then
+        n = n + 1
+      end
+    end
+    return n
+  end
   local list
   if h.job == "forage" then list = s.find_entities_filtered{name = "colony-forage-patch", position = base, radius = radius}
   else list = s.find_entities_filtered{position = base, radius = radius, type = "tree"} end
@@ -1528,12 +1539,20 @@ function M.is_sleep_time(surface)
 end
 
 -- Huts of one role that still have a free slot, least-staffed first (see labour.spread).
-local function candidates_for(slot_list, job)
+-- Breaks ties by proximity to colonist's house (#expectation: work close to home).
+local function candidates_for(slot_list, job, home_pos)
   local out = {}
   for _, sl in ipairs(slot_list) do
     if sl.job == job then out[#out + 1] = sl end
   end
-  return labour.spread(out)
+  local sorted = labour.spread(out)
+  if home_pos and #sorted > 1 then
+    table.sort(sorted, function(a, b)
+      if a.workers ~= b.workers then return a.workers < b.workers end
+      return dist2(a.hut.entity.position, home_pos) < dist2(b.hut.entity.position, home_pos)
+    end)
+  end
+  return sorted
 end
 
 function M.assign(colony, un)
@@ -1647,7 +1666,9 @@ function M.assign(colony, un)
       if start_construct(colony, un, e) then return end
       idle(colony, un, e); return
     end
-    local candidate_huts = candidates_for(slot_list, job)
+    local house = colony_mod.house_of_colonist(colony, un)
+    local home_pos = house and house.valid and house.position or e.position
+    local candidate_huts = candidates_for(slot_list, job, home_pos)
     local started = false
     for _, sl in ipairs(candidate_huts) do
       sl.hut.workers[un] = true

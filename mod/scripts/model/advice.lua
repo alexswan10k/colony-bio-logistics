@@ -31,6 +31,7 @@ function M.hut(f)
   if f.quota_item then return "quota-met", f.quota_item end
   -- A supply-gated hut with nothing to make (a Toolsmith when every hut is tooled and a spare is in stock).
   if f.nothing_to_do then return "nothing-to-do" end
+  if f.sites ~= nil and f.sites == 0 then return "no-sites" end
   if f.needs_tool and f.tools == 0 then
     if (f.inflight or 0) > 0 then return "tool-coming" end
     if (f.hall_stock or 0) <= 0 then return "no-tool-in-hall", f.tool end
@@ -38,7 +39,6 @@ function M.hut(f)
     return "tool-waiting"
   end
   if f.inputs_missing then return "no-inputs" end
-  if f.sites ~= nil and f.sites == 0 then return "no-sites" end
   if f.workers == 0 and f.tools > 0 then return "no-workers" end
   return nil
 end

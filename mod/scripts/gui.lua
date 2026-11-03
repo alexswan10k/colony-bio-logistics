@@ -58,7 +58,7 @@ end
 -- Per-colonist job locks live on the house, not the Town Hall: a house lists only its own handful of
 -- occupants, so the panel stays usable when a town grows to hundreds of colonists.
 local LOCK_OPTS = {{"auto", "A"}, {"haul", "H"}, {"forage", "F"}, {"chop", "C"}, {"mine", "M"}, {"farm", "G"},
-  {"hunt", "T"}, {"fish", "I"}, {"preserve", "P"}, {"construct", "B"}, {"research", "R"}}
+  {"hunt", "T"}, {"fish", "I"}, {"preserve", "P"}, {"construct", "B"}, {"research", "R"}, {"heal", "D"}}
 
 local function fill_roster(pane, colony, ids)
   colony.locks = colony.locks or {}
@@ -173,7 +173,7 @@ end
 function M.hut_reason(h, def, tools, workers)
   local colony = storage.colonies[h.colony_id]
   local sites
-  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" then sites = work.site_count(h) end
+  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" then sites = work.site_count(h) end
   local inputs_missing = false
   if not def.tool and workers == 0 then
     local inv = h.entity.type == "lab" and h.entity.get_inventory(defines.inventory.lab_input)
@@ -284,7 +284,7 @@ local function fill_hut(frame, h)
     end
     frame.add{type = "label", caption = {"colony-gui-hut.ore-hint"}}
   end
-  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" then
+  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" then
     local sites = work.site_count(h)
     if sites > 0 then frame.add{type = "label", caption = {"colony-gui-hut.sites", sites}} end
   end
@@ -363,6 +363,9 @@ local function fill_info(frame, colony)
   if (st.away or 0) > 0 or (st.commuters_here or 0) > 0 then
     frame.add{type = "label", caption = {"colony-gui-info.commuters", st.away or 0, st.commuters_here or 0}}
   end
+  if (st.sick or 0) > 0 then
+    frame.add{type = "label", caption = {"colony-gui-info.sick", st.sick, st.sick_lung or 0, st.sick_poison or 0}}
+  end
   if (st.fallen or 0) > 0 then
     frame.add{type = "label", caption = {"colony-gui-info.fallen", st.fallen, st.buried or 0}}
   end
@@ -372,13 +375,13 @@ local function fill_info(frame, colony)
     string.format("%.2f", parts.food or 0), string.format("%.2f", parts.housing or 0),
     string.format("%.2f", parts.scenic or 0), string.format("%.2f", parts.leisure or 0),
     string.format("%.2f", parts.pollution or 0), string.format("%.2f", parts.deaths or 0),
-    string.format("%.2f", parts.recreation or 0)}}
+    string.format("%.2f", parts.recreation or 0), string.format("%.2f", parts.sickness or 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.desirability-inputs",
     string.format("%.2f", st.scenic or 0), string.format("%.2f", st.pollution or 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.jobs",
     counts.haul or 0, counts.forage or 0, counts.chop or 0, counts.mine or 0, counts.farm or 0,
     counts.hunt or 0, counts.fish or 0, counts.preserve or 0, counts.construct or 0,
-    counts.research or 0, math.max(st.pop - busy, 0)}}
+    counts.research or 0, counts.heal or 0, math.max(st.pop - busy, 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.territory", st.chunks, st.huts, st.machines, st.towers, st.crates}}
   if st.ghosts > 0 or st.damaged > 0 then
     frame.add{type = "label", caption = {"colony-gui-info.construction", st.ghosts, st.damaged}}

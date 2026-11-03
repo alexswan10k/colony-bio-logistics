@@ -59,6 +59,10 @@ Three headless gates cover the things the unit tests and the playable spike cann
   no houses) 200 tiles apart on one line. B posts a deficit, five of A's idle colonists ride out while A holds their
   beds, work and eat until the canteen is empty, then ride home; after B's hall is restocked a second shift comes out
   and refills the canteen itself. A + B + riders + dead stays 8 throughout, and no commuter is ever sent as a migrant.
+- `scripts/headless-spike.sh m1_illness` - the #47 illness spike (12 checks, `TICKS=6600`). Three seeded Smoker's Lung
+  patients are cured by a doctor at a Clinic, one hauled medicine each. With no medicine left, a lung patient near the
+  end dies once, as an illness death. A cabin stocked with forage at `spoil_percent = 0.9` (settable on insert in 2.1)
+  poisons its occupants, and the poisoning passes by itself.
 - `scripts/headless-spike.sh m1_tavern` - the #48 Tavern spike (19 checks, `TICKS=5000`): haulers fill an empty
   Tavern with ale from the hall, a tent within 24 tiles is Inspired and one 30+ tiles away is not, recreation sits
   between 0 and 1 and shows in desirability, ale is consumed, the tooltip says `tavern-serving`, and once all ale is

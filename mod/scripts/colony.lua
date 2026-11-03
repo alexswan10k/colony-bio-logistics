@@ -32,6 +32,7 @@ local transit = require("scripts.transit")
 local mortality = require("scripts.mortality")
 local shelter = require("scripts.shelter")
 local commute = require("scripts.commute")
+local illness = require("scripts.illness")
 local mortality_model = require("scripts.model.mortality")
 local M = {}
 
@@ -45,6 +46,9 @@ M.PLATFORM = "colony-passenger-platform"
 M.CEMETERY = "colony-cemetery"
 M.CANTEEN = "colony-canteen"
 M.MEAL_ITEMS = commute.FOOD_ITEMS     -- what a Canteen serves (#50): the foods houses eat
+local MEAL_SET = {}
+for _, item in ipairs(M.MEAL_ITEMS) do MEAL_SET[item] = true end
+M.is_sick = illness.is_sick
 M.HUT_RADIUS = 48              -- working radius around a labour hut (other colonies' land excluded)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
 M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not regrow in lockstep
@@ -750,6 +754,7 @@ function M.evaluate(data)
 
   -- per-house consumption (items come out of the house's own inventory)
   local score_sum, rated = 0, 0
+  local rotten = {}     -- houses that just ate nearly spoiled food (#47)
   for i, h in ipairs(houses) do
     local tier = housing.TIERS[h.kind]
     local stock, inv = M.house_stock(h)
@@ -757,6 +762,7 @@ function M.evaluate(data)
     for k, v in pairs(stock) do before[k] = v end
     local consumed, sat, score, crit = housing.step(tier, occ[i], stock, M.is_powered(h), h.acc)
     h.stock_tick = nil   -- the shelves just changed: status lines must not read the old snapshot
+    if occ[i] > 0 and illness.rotten_meal(inv, consumed, MEAL_SET) then rotten[h.entity.unit_number] = true end
     for item, n in pairs(consumed) do if n > 0 then inv.remove{name = item, count = n} end end
     h.score, h.sat, h.occupants = score, sat, occ[i]
     if occ[i] > 0 then
@@ -775,6 +781,7 @@ function M.evaluate(data)
     end
   end
   colony.recreation = M.serve_taverns(colony, houses, occ)
+  illness.evaluate(colony, rotten)
   local kept = {}
   for _, a in ipairs(colony.deaths) do if a < 40 then kept[#kept + 1] = a + 1 end end
   colony.deaths = kept
@@ -793,6 +800,7 @@ function M.evaluate(data)
     free_housing_ratio = capacity > 0 and math.max(capacity - pop - (colony.away or 0), 0) / capacity or 0,
     scenic = colony.scenic or 0, leisure = rated > 0 and score_sum / rated or 0, recreation = colony.recreation or 0,
     pollution = pollution, deaths = colony.deaths,
+    sickness = pop > 0 and (colony.sick_count or 0) / pop or 0,
     death_halflife = mortality_model.halflife(desirability.defaults.death_halflife, #M.cemetery_list(colony) > 0),
   })
   colony.d, colony.d_parts = d, parts
@@ -1340,7 +1348,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
   end
 end)
 
-work.bind(M); gui.bind(M); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M); commute.bind(M, transit)   -- avoids a require cycle (runtime require is illegal)
+work.bind(M); gui.bind(M); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M); commute.bind(M, transit); illness.bind(M)   -- avoids a require cycle (runtime require is illegal)
 
 -- ---------- opt-in machine registry (#34) ----------
 -- The badge is alt-mode only: a small Town Hall icon over every machine the colony serves, so the player
@@ -1648,7 +1656,8 @@ function M.stats(colony)
     d = colony.d or 0, parts = colony.d_parts or {},
     scenic = colony.scenic or 0, pollution = colony.pollution or 0,
     fallen = colony.fallen or 0, buried = colony.buried or 0,
-    away = colony.away or 0, commuters_here = #commute.here(colony)}
+    away = colony.away or 0, commuters_here = #commute.here(colony),
+    sick = colony.sick_count or 0, sick_lung = colony.sick_lung or 0, sick_poison = colony.sick_poison or 0}
 end
 
 return M

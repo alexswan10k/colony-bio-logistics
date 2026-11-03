@@ -106,6 +106,16 @@ function M.platform(f)
   return {level = "green", key = "platform-idle", args = {}}
 end
 
+-- A Clinic's tooltip (#47). facts: medicine (on hand), sick (in town), doctors (on duty). Red when people are sick
+-- and nothing is being done about it.
+function M.clinic(f)
+  if (f.sick or 0) > 0 and (f.medicine or 0) <= 0 then return {level = "red", key = "clinic-no-medicine", args = {}} end
+  if (f.sick or 0) > 0 and (f.doctors or 0) == 0 then return {level = "amber", key = "clinic-no-doctor", args = {f.sick}} end
+  if (f.sick or 0) > 0 then return {level = "green", key = "clinic-treating", args = {f.doctors, f.sick, f.medicine}} end
+  if (f.medicine or 0) <= 0 then return {level = "amber", key = "clinic-no-medicine", args = {}} end
+  return {level = "green", key = "clinic-idle", args = {f.medicine}}
+end
+
 -- A Canteen's tooltip (#50). facts: meals (food on hand), commuters (at work here), open (commuters still wanted).
 function M.canteen(f)
   if (f.meals or 0) <= 0 then return {level = "amber", key = "canteen-empty", args = {}} end

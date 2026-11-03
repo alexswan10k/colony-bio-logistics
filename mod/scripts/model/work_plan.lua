@@ -64,6 +64,13 @@ function M.choose(s)
   local p_capped = headcount.is_capped(targets, "preserve", counts.preserve)
   local can_preserve = p_rank > 0 and (slots.preserve or 0) > 0 and not p_capped and (counts.preserve or 0) < p_cap
 
+  -- Doctors (#47): a Clinic only has an open slot while it holds medicine and someone is sick (the adapter closes
+  -- it otherwise), and it holds two, so the clinic's own capacity is the cap.
+  local h_rank = jobs.rank(priority, "heal")
+  local h_capped = headcount.is_capped(targets, "heal", counts.heal)
+  local can_heal = h_rank > 0 and (slots.heal or 0) > 0 and not h_capped
+  if can_heal and h_rank <= jobs.rank(priority, "construct") then return "heal" end
+
   local r_rank = jobs.rank(priority, "research")
   local r_cap = headcount.target(targets, "research") or M.research_workers(pop)
   local r_capped = headcount.is_capped(targets, "research", counts.research)
@@ -113,6 +120,7 @@ function M.choose(s)
   end
 
   -- Fallbacks if earlier prioritized roles were skipped
+  if can_heal then return "heal" end
   if can_construct then return "construct" end
   if can_preserve then return "preserve" end
   if can_research then return "research" end

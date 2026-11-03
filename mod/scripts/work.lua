@@ -25,6 +25,7 @@ local salt = require("scripts.model.salt")
 local well = require("scripts.model.well")
 local construct = require("scripts.model.construct")
 local science = require("scripts.model.science")
+local illness = require("scripts.model.illness")
 local motor = require("scripts.model.motor")
 local recreation = require("scripts.model.recreation")
 local M = {}
@@ -41,7 +42,7 @@ M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still 
 M.CARRY_CAP = yields.CARRY_CAP
 M.ORES = mine_plan.ORES   -- every ore a Miner's Hut can be pointed at
 M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", hunt = "hunter",
-  fish = "fisher", preserve = "preserver", haul = "hauler", construct = "builder", research = "scholar"}
+  fish = "fisher", preserve = "preserver", haul = "hauler", construct = "builder", research = "scholar", heal = "doctor"}
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
 
@@ -472,6 +473,10 @@ local function find_site(colony, e, hut)
       if (contents[p] or 0) > 0 then have = true; break end
     end
     return have and hut.entity or nil
+  elseif hut.job == "heal" then
+    -- A Clinic (#47) is its own workplace: doctors go on duty while it holds medicine and someone is sick.
+    if (colony.sick_count or 0) > 0 and hut.entity.get_item_count(illness.MEDICINE) > 0 then return hut.entity end
+    return nil
   end
 end
 
@@ -479,7 +484,7 @@ end
 function M.site_count(h)
   local colony = storage.colonies[h.colony_id]
   if not (colony and h.entity.valid) then return 0 end
-  if h.job == "research" or h.job == "preserve" or h.job == "fish" then return 1 end
+  if h.job == "research" or h.job == "preserve" or h.job == "fish" or h.job == "heal" then return 1 end
   local s, base, radius = h.entity.surface, h.entity.position, colony_mod.HUT_RADIUS
   local in_territory = function(t) return harvestable(colony, t) end
   local free = function(t) return in_territory(t) and not colony.claimed[key(t)] end
@@ -600,6 +605,8 @@ local function hut_offer(h)
   local demands
   if h.job == "research" then
     demands = science.wants(h.entity.name, chest_contents(h.entity) or {}, h.inflight)
+  elseif h.job == "heal" then
+    demands = illness.wants(h.entity.get_item_count(illness.MEDICINE), h.inflight[illness.MEDICINE])
   elseif h.entity.name == "colony-kitchen" then
     demands = kitchen.wants(chest_contents(h.entity) or {}, h.inflight)
   else
@@ -1024,7 +1031,8 @@ local function start_trip(colony, un, hut)
   -- position moves under our feet.
   if hut.job == "hunt" then
     colony.claimed["boar:" .. site.unit_number] = true
-  elseif hut.job ~= "mine" and hut.job ~= "fish" and hut.job ~= "preserve" and hut.job ~= "research" then
+  elseif hut.job ~= "mine" and hut.job ~= "fish" and hut.job ~= "preserve" and hut.job ~= "research"
+      and hut.job ~= "heal" then
     colony.claimed[key(site)] = true
   end
   if hut.job == "hunt" then
@@ -1036,7 +1044,8 @@ local function start_trip(colony, un, hut)
   end
   storage.unit_state[un] = {colony_id = colony.id, job = hut.job, hut = hut, state = "to_site", site = site,
     site_key = key(site)}
-  set_label(e, M.LABELS[hut.job] .. (colony_mod.is_inspired(colony, un) and " ★" or ""))
+  set_label(e, M.LABELS[hut.job] .. (colony_mod.is_inspired(colony, un) and " ★" or "")
+    .. (colony_mod.is_sick(un) and " 🤒" or ""))
   go(e, site, 1.5)
   return true
 end
@@ -1539,6 +1548,18 @@ scheduler.register("work.finish", function(d)
       if site.amount > n then site.amount = site.amount - n else site.destroy() end   -- 0 is not a legal amount
       e.surface.pollute(pos, M.MINE_POLLUTION)       -- 1:1 depletion, zero electricity, but not zero pollution
     end
+  elseif st.job == "heal" then
+    -- Doctors (#47) stay on duty while there is medicine and someone to treat; the cures themselves happen in
+    -- the colony evaluation (scripts/illness.lua), which counts the doctors working here.
+    local lock = colony.locks and colony.locks[d.un]
+    if (colony.sick_count or 0) > 0 and hut.entity.get_item_count(illness.MEDICINE) > 0 and (not lock or lock == "heal") then
+      scheduler.after(M.WORK_TICKS + (d.un * 23) % 240, "work.finish", {un = d.un})
+      return
+    end
+    if hut.workers then hut.workers[d.un] = nil end
+    M.release(st)
+    M.assign(colony, d.un)
+    return
   elseif st.job == "research" then
     -- Lab research is performed natively by the engine while powered and stocked (#42).
     -- Scholars maintain and staff the facility.
@@ -1830,6 +1851,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     end
     -- Inspired colonists (served by a Tavern, #48) finish each job sooner.
     local ticks = recreation.work_ticks(M.WORK_TICKS, colony_mod.is_inspired(colony, ev.unit_number))
+    ticks = illness.work_ticks(ticks, colony_mod.is_sick(ev.unit_number))   -- the sick work at half speed (#47)
     scheduler.after(ticks + (ev.unit_number * 23) % 240, "work.finish", {un = ev.unit_number})
   elseif st.state == "to_hut" then
     local e = unit_entity(colony, ev.unit_number)
@@ -1895,6 +1917,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
     M.release(st)
     storage.unit_state[un] = nil
   end
+  if un and storage.sick then storage.sick[un] = nil end
   -- A truck destroyed on the road (a parked one is already gone from storage.trucks): the car is lost, the
   -- driver climbs out at the pool.
   local t = un and storage.trucks and storage.trucks[un]

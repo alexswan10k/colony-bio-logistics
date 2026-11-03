@@ -6,6 +6,7 @@ M.defaults = {
   w_food = 0.35, w_housing = 0.20, w_scenic = 0.20, w_leisure = 0.25,
   w_recreation = 0.15,        -- share of the town served by a stocked Tavern (#48): a bonus, so 0 costs nothing
   w_pollution = 0.6,
+  w_sickness = 0.3,           -- share of the town that is ill (#47): a penalty
   pollution_cap = 1.0,        -- pollution normalised so 1.0 = "terrible"
   death_penalty = 0.15,       -- per recent death
   death_halflife = 6,         -- intervals
@@ -18,6 +19,7 @@ local function clamp(x, lo, hi) return math.max(lo, math.min(hi, x)) end
 M.clamp = clamp
 
 -- inputs: food_ratio (stock / target stock), free_housing_ratio, scenic, leisure, recreation (0..1), pollution (0..1+),
+-- sickness (share of the town ill, 0..1),
 -- deaths = list of ages (intervals), death_halflife = optional override (a Cemetery shortens mourning, #53)
 function M.compute(inp, p)
   p = p or M.defaults
@@ -32,6 +34,7 @@ function M.compute(inp, p)
     recreation = (p.w_recreation or 0) * clamp(inp.recreation or 0, 0, 1),
     pollution = -p.w_pollution * clamp(inp.pollution or 0, 0, p.pollution_cap),
     deaths = -death_pen,
+    sickness = -(p.w_sickness or 0) * clamp(inp.sickness or 0, 0, 1),
   }
   local d = 0
   for _, v in pairs(parts) do d = d + v end

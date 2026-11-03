@@ -11,6 +11,7 @@ local jobs = require("scripts.model.jobs")
 local motor = require("scripts.model.motor")
 local recreation = require("scripts.model.recreation")
 local mortality = require("scripts.model.mortality")
+local illness = require("scripts.model.illness")
 local transit = require("scripts.transit")
 local work = require("scripts.work")
 local M = {}
@@ -56,6 +57,11 @@ end
 
 local function hut_status(colony, h, stock, haul_rank)
   local def, tools, allowed, workers = work.hut_info(h)
+  if h.job == "heal" then     -- a Clinic (#47) answers to the sick, not to sites
+    local r = advice.clinic{medicine = h.entity.get_item_count(illness.MEDICINE), sick = colony.sick_count or 0,
+      doctors = workers}
+    return r, {"colony-status." .. r.key, r.args[1], r.args[2], r.args[3]}, illness.MEDICINE
+  end
   local inputs_missing = false
   if not def.tool and workers == 0 then
     local inv = h.entity.get_inventory(defines.inventory.chest)

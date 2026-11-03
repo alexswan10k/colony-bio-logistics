@@ -434,6 +434,50 @@ def canteen():
 
 
 @asset
+def clinic():
+    """infirmary (#47) in the same 3/4 view: a tall slate roof dominates the top half, whitewashed plaster walls,
+    a green-cross board (the red cross is a protected emblem) above the door, two lit windows and a herb barrel on the ground beside the step"""
+    WHITE = (236, 232, 220)
+    CROSS = (58, 150, 72)
+    SLATE = (88, 100, 110)
+    a = Art(128, 128)
+    a.ao(10, 84, 120, 122, .5, 4)
+    yf, yr, yt = house(a, 14, 114, 116, 34, 80, WHITE, SLATE, wall_tex=speckle(1.2, 30), rk=.6)
+    a.line([(14, yf + 1), (114, yf + 1)], 2, (200, 194, 180), shade=.15, hi=0)           # eave trim on the wall
+    door(a, 22, 100, 40, 116)
+    a.rect(20, 116, 42, 120, STONE_L, shade=.2)                                          # step below the door
+    a.rect(25, 88, 37, 97, WHITE, shade=.2, edge=.3)                                     # sign board above the door
+    a.rect(29, 89, 33, 96, CROSS, shade=.1, edge=0, hi=.2)                                 # green cross, vertical bar
+    a.rect(26, 91, 36, 94, CROSS, shade=.1, edge=0, hi=.2)                                 # green cross, arm
+    window(a, 52, 96, 64, 108, lit=True)
+    window(a, 74, 96, 86, 108, lit=True)
+    a.ell(96, 100, 110, 106, WOOD_L, shade=.25)                                          # herb barrel, top
+    a.rect(96, 103, 110, 116, WOOD, tex=planks_v(3), shade=.3)                           # herb barrel, body
+    a.line([(96, 107), (110, 107)], 2, IRON_D, shade=0, hi=0)                            # hoops
+    a.line([(96, 113), (110, 113)], 2, IRON_D, shade=0, hi=0)
+    a.ell(100, 101, 106, 105, (84, 150, 72), shade=.3)                                   # green herbs on top
+    a.save(path("clinic"), shadow=SHADOW)
+    icon_of("clinic")
+
+
+@asset
+def herbal_medicine():
+    """Herbal Medicine (#47): a corked bottle of green tincture with a label and a sprig of leaves (64 px icon)"""
+    a = Art(64, 64)                                                                                     # bottle
+    a.rect(28, 14, 36, 26, (150, 170, 160), shade=.25)                                                  # neck
+    a.rect(26, 8, 38, 16, (176, 128, 80), tex=planks_v(3), shade=.3, r=2)                              # cork
+    a.ell(16, 24, 48, 58, (74, 150, 84), shade=.35, edge=.55)                                          # tincture body
+    a.rect(23, 38, 41, 50, (236, 226, 200), shade=.15, r=1)                                            # paper label
+    a.line([(26, 43), (38, 43)], 1.5, (110, 96, 74), shade=0, hi=0)
+    a.line([(26, 47), (36, 47)], 1.5, (110, 96, 74), shade=0, hi=0)
+    a.glint(20, 30, 25, 50, .5)
+    a.line([(38, 22), (52, 10)], 2, (60, 112, 50), shade=.2, hi=0)                                    # sprig stem
+    a.poly([(46, 14), (56, 4), (60, 14), (50, 18)], (96, 166, 74), shade=.3)                           # leaves
+    a.poly([(40, 18), (48, 10), (50, 20), (42, 24)], (84, 158, 66), shade=.3)
+    done(a, "icon-herbal-medicine")
+
+
+@asset
 def passenger_platform():
     """station platform (#49) in the same 3/4 view as the houses: a raised plank deck with a stone kerb and a
     yellow edge line, a lean-to canopy over the back half (roof seen from above, posts down to the deck), a

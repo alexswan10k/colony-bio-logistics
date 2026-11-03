@@ -59,6 +59,13 @@ $$D = (W_{\text{food}} \cdot S_{\text{food}}) + (W_{\text{housing}} \cdot S_{\te
 * **Illness & Disease:**
   * Living or working in high-pollution chunks causes **Smoker's Lung**; eating near-spoiled food causes **Food Poisoning**; working on Gleba causes **Swamp Fever**.
   * Sick colonists work at $50\%$ speed and eventually die unless treated by a Doctor colonist at a **Clinic / Hospital** stocked with Herbal Medicine or Pharmaceuticals.
+  * **Implemented (#47, decided on #20):**
+    * **Diseases.** Smoker's Lung is caught from the colony's pollution (2% per colonist per evaluation at full pollution, linear below that). It never passes on its own and kills after 40 untreated evaluations. Food Poisoning is caught when a house eats food at least 75% spoiled (30% per occupant). It passes by itself after 4 evaluations. Swamp Fever waits for Gleba (#70).
+    * **No contagion.** Rolls are a hash of unit number, tick and purpose, once per colony evaluation, so runs are deterministic with no stored generator.
+    * **Effects.** A sick colonist works at half speed. The sick share of the town is a desirability penalty (`w_sickness` 0.3).
+    * **Treatment.** A **Clinic** (2x2, Medicine tech) is a labour hut with the new **heal** job. Doctors go on duty while it holds Herbal Medicine (2 forage + 1 wood) and someone is sick. Each doctor on duty cures 2 patients per evaluation, longest-sick first, at 1 medicine each. Patients do not walk to the Clinic yet. Haulers keep 10 medicine there.
+    * **Deaths.** Someone who dies of illness is struck off first and recorded through `mortality.record`, as a death from "illness".
+    * **Known gap.** A train ride clears sickness, because the entity is destroyed on boarding.
 
 ---
 

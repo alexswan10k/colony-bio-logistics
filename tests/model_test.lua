@@ -1354,3 +1354,51 @@ describe("commute (#50)", function()
     eq(advice.canteen{meals = 5}.key, "canteen-full")
   end)
 end)
+
+describe("illness (#47)", function()
+  local il = require("scripts.model.illness")
+  it("rolls are deterministic and spread over [0,1)", function()
+    eq(il.roll(123, 600, 1), il.roll(123, 600, 1))
+    local lo, hi, sum = 1, 0, 0
+    for un = 1, 2000 do
+      local r = il.roll(un, 600, 1)
+      lo, hi, sum = math.min(lo, r), math.max(hi, r), sum + r
+    end
+    eq(lo >= 0 and hi < 1, true)
+    eq(math.abs(sum / 2000 - 0.5) < 0.05, true)
+  end)
+  it("catches lung in proportion to pollution, never in clean air", function()
+    eq(il.catches("lung", 0, 0), false)
+    eq(il.catches("lung", 1, il.LUNG_RATE - 0.001), true)
+    eq(il.catches("lung", 0.5, il.LUNG_RATE * 0.5 + 0.001), false)
+    eq(il.catches("poison", 1, il.POISON_RATE - 0.001), true)
+  end)
+  it("poisoning passes by itself, the lung kills if untreated", function()
+    local p = {kind = "poison", age = 0}
+    local out
+    for _ = 1, il.DISEASES.poison.recovers_after do out = il.step(p) end
+    eq(out, "recovers")
+    local l = {kind = "lung", age = 0}
+    for _ = 1, il.DISEASES.lung.fatal_after - 1 do eq(il.step(l), nil) end
+    eq(il.step(l), "dies")
+  end)
+  it("cures are limited by patients, doctors and medicine", function()
+    eq(il.treat(5, 1, 10), il.CURES_PER_DOCTOR)
+    eq(il.treat(1, 2, 10), 1)
+    eq(il.treat(5, 2, 1), 1)
+    eq(il.treat(5, 0, 10), 0)
+  end)
+  it("the sick work at half speed", function()
+    eq(il.work_ticks(100, true), 200); eq(il.work_ticks(100, false), 100)
+  end)
+  it("sickness is a desirability penalty", function()
+    local _, parts = desirability.compute({food_ratio = 1, free_housing_ratio = 0, sickness = 0.5})
+    eq(math.abs(parts.sickness + desirability.defaults.w_sickness * 0.5) < 1e-9, true)
+  end)
+  it("clinic tooltip: red with sick and no medicine, amber with no doctor", function()
+    eq(advice.clinic{sick = 2, medicine = 0}.level, "red")
+    eq(advice.clinic{sick = 2, medicine = 3, doctors = 0}.key, "clinic-no-doctor")
+    eq(advice.clinic{sick = 2, medicine = 3, doctors = 1}.key, "clinic-treating")
+    eq(advice.clinic{sick = 0, medicine = 3}.key, "clinic-idle")
+  end)
+end)

@@ -83,6 +83,9 @@ local platform = chest_clone("iron-chest", "colony-passenger-platform", "passeng
 -- Canteen (#50): an outpost's food stop for commuters from other rail-linked colonies.
 local canteen = chest_clone("iron-chest", "colony-canteen", "canteen", 8, 1)
 
+-- Clinic (#47): doctors cure sick colonists with Herbal Medicine (labour.lua job "heal").
+local clinic = chest_clone("iron-chest", "colony-clinic", "clinic", 8, 1)
+
 -- Passenger Coach (#49): a vanilla cargo wagon, recoloured and renamed. Colonists ride it abstractly (no seats),
 -- so `inventory_size` stays at 1 and the wagon's own inventory is not used for passengers.
 do
@@ -252,7 +255,7 @@ end
 
 data:extend({
   hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
-  smokehouse, kitchen, tavern, motorpool, platform, canteen, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
+  smokehouse, kitchen, tavern, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -276,6 +279,7 @@ data:extend({
   item_of(motorpool, "motor-pool", "z[colony]-l2[motor-pool]"),
   item_of(platform, "passenger-platform", "z[colony]-l3[passenger-platform]"),
   item_of(canteen, "canteen", "z[colony]-l5[canteen]"),
+  item_of(clinic, "clinic", "z[colony]-l6[clinic]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(warehouse, "warehouse", "z[colony]-l[warehouse]"),
@@ -360,6 +364,7 @@ data:extend({
   recipe("colony-motor-pool", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 20, ["iron-gear-wheel"] = 10}, 3, 1, false),
   recipe("colony-passenger-platform", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-canteen", {wood = 30, ["stone-brick"] = 10, ["iron-plate"] = 10}, 3, 1, false),
+  recipe("colony-clinic", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-passenger-coach", {["cargo-wagon"] = 1, wood = 20}, 5, 1, false),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4, false),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1, 1, false),
@@ -418,4 +423,15 @@ data:extend({
    icon = G .. "icon-ale.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-b2[ale]",
    localised_name = {"recipe-name.colony-ale"}},
+  {type = "item", name = "colony-herbal-medicine", icon = G .. "icon-herbal-medicine.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-b3[herbal-medicine]", stack_size = 50,
+   localised_name = {"item-name.colony-herbal-medicine"},
+   localised_description = {"item-description.colony-herbal-medicine"}},
+  {type = "recipe", name = "colony-herbal-medicine", enabled = false, energy_required = 3,
+   ingredients = {{type = "item", name = "colony-forage", amount = 2},
+                  {type = "item", name = "wood", amount = 1}},
+   results = {{type = "item", name = "colony-herbal-medicine", amount = 1}},
+   icon = G .. "icon-herbal-medicine.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-b3[herbal-medicine]",
+   localised_name = {"recipe-name.colony-herbal-medicine"}},
 })

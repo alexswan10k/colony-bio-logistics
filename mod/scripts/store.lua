@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 26
+local SCHEMA = 27
 
 local migrations = {
   [1] = function()
@@ -140,6 +140,11 @@ local migrations = {
       c.canteens = c.canteens or {}
       c.away = c.away or 0
     end
+  end,
+  [27] = function()
+    -- Illness (#47): storage.sick [unit_number] = {kind = "lung"|"poison", age}; colonies gain sick_count /
+    -- sick_lung / sick_poison on their next evaluation; "heal" joins the job matrix at its default rank.
+    storage.sick = storage.sick or {}
   end,
 }
 

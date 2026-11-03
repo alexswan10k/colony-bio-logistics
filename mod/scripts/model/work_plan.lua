@@ -47,12 +47,11 @@ function M.choose(s)
   local priority = s.priority
   local targets = s.targets
   local haul_on = jobs.enabled(priority, "haul")
+  local haul_rank = jobs.rank(priority, "haul")
 
   local haul_capped = headcount.is_capped(targets, "haul", counts.haul)
   local haul_wanted = headcount.target(targets, "haul") or M.haul_target(math.max(pop, 1), s.backlog)
-  if haul_on and s.haul and not haul_capped and (counts.haul or 0) < haul_wanted then
-    return "haul"
-  end
+  local can_haul = haul_on and s.haul and not haul_capped and (counts.haul or 0) < haul_wanted
 
   local c_rank = jobs.rank(priority, "construct")
   local c_cap = headcount.target(targets, "construct") or construct.builders(pop)
@@ -69,7 +68,6 @@ function M.choose(s)
   local h_rank = jobs.rank(priority, "heal")
   local h_capped = headcount.is_capped(targets, "heal", counts.heal)
   local can_heal = h_rank > 0 and (slots.heal or 0) > 0 and not h_capped
-  if can_heal and h_rank <= jobs.rank(priority, "construct") then return "heal" end
 
   local r_rank = jobs.rank(priority, "research")
   local r_cap = headcount.target(targets, "research") or M.research_workers(pop)
@@ -84,6 +82,21 @@ function M.choose(s)
     end
   end
   local harvest_rank = jobs.best_rank(priority, M.HARVEST, eligible_harvest_slots)
+
+  local better_than_haul = (can_heal and h_rank < haul_rank)
+      or (can_construct and c_rank < haul_rank)
+      or (can_preserve and p_rank < haul_rank)
+      or (can_research and r_rank < haul_rank)
+      or (harvest_rank and harvest_rank < haul_rank)
+
+  if can_haul and not better_than_haul then
+    return "haul"
+  end
+
+  if can_heal and (not harvest_rank or h_rank <= harvest_rank) and (not can_construct or h_rank <= c_rank)
+      and (not can_preserve or h_rank <= p_rank) and (not can_research or h_rank <= r_rank) then
+    return "heal"
+  end
 
   -- Check construction if prioritized
   if can_construct and (not harvest_rank or c_rank <= harvest_rank) and (not can_preserve or c_rank <= p_rank)

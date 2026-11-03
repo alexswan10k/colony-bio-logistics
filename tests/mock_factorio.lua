@@ -13,7 +13,16 @@ function M.install()
     draw_sprite = function() return {valid = true, destroy = function() end} end,
     destroy = function() end,
   }
-  _G.defines = {events = setmetatable({}, {__index = function(t, k) local v = #t + 1000 + (rawlen and 0 or 0); rawset(t, k, k); return k end})}
+  _G.prototypes = {technology = {}, item = {}}
+  _G.defines = {
+    events = setmetatable({}, {__index = function(t, k) local v = #t + 1000 + (rawlen and 0 or 0); rawset(t, k, k); return k end}),
+    entity_status_diode = {green = 1, red = 2},
+    relative_gui_type = {container_gui = 1},
+    relative_gui_position = {right = 1},
+    gui_type = {entity = 1},
+    alert_type = {custom = 1},
+    inventory = {chest = 1},
+  }
   _G.log = function() end
   _G.script = {
     on_event = function(ev, fn) env.handlers[ev] = fn end,

@@ -286,6 +286,11 @@ describe("work_plan", function()
   it("honours the priority matrix: a rank-1 role beats the food ratio", function()
     eq(wp.choose(s{food_ratio = 0.1, priority = {haul = 1, forage = 3, chop = 1, mine = 1}}), "chop")
   end)
+  it("honours the priority matrix: a rank-1 harvest role beats a rank-2 hauling job", function()
+    local job = wp.choose(s{pop = 6, haul = true, priority = {haul = 2, chop = 1, forage = 2, mine = 2},
+      slots = {chop = 2, mine = 2, forage = 2}, capacity = {chop = 2, mine = 2, forage = 2}})
+    eq(job, "chop")
+  end)
   it("honours the priority matrix: a disabled role is never assigned", function()
     eq(wp.choose(s{slots = {forage = 3}, capacity = {forage = 3},
       priority = {haul = 0, forage = 0, chop = 0, mine = 0}}), nil)

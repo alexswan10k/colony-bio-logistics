@@ -563,8 +563,8 @@ events.on(defines.events.on_gui_click, function(ev)
     end
     return
   end
-  local ore, ore_dir = name:match("^colony_ore_(.+)_(more|less)$")
-  if ore then
+  local ore, ore_dir = name:match("^colony_ore_(.-)_(%a+)$")
+  if ore and (ore_dir == "more" or ore_dir == "less") then
     local player = game.get_player(ev.player_index)
     local e = player and player.opened
     if not (e and e.valid and labour.HUTS[e.name]) then return end
@@ -574,11 +574,11 @@ events.on(defines.events.on_gui_click, function(ev)
     h.ores = h.ores or {}
     local rank = mine_plan.rank(h.ores, ore)
     if ore_dir == "more" then
-      if rank == 0 then mine_plan.set(h.ores, ore, 1)
-      elseif rank < mine_plan.MAX_RANK then mine_plan.set(h.ores, ore, rank + 1) end
+      if rank == 0 then mine_plan.set(h.ores, ore, mine_plan.MAX_RANK)
+      elseif rank > 1 then mine_plan.set(h.ores, ore, rank - 1) end
     else
-      if rank > 1 then mine_plan.set(h.ores, ore, rank - 1)
-      elseif rank == 1 then mine_plan.set(h.ores, ore, 0) end
+      if rank > 0 and rank < mine_plan.MAX_RANK then mine_plan.set(h.ores, ore, rank + 1)
+      elseif rank == mine_plan.MAX_RANK then mine_plan.set(h.ores, ore, 0) end
     end
     colony_mod.reassign_workforce(colony)
     local frame = player.gui.relative[HUT_FRAME]
@@ -600,8 +600,8 @@ events.on(defines.events.on_gui_click, function(ev)
     if frame and frame.body then fill_hut(frame.body, h) end
     return
   end
-  local target_job, target_dir = name:match("^colony_target_(%a+)_(more|less)$")
-  if target_job or name == "colony_target_reset" then
+  local target_job, target_dir = name:match("^colony_target_(%a+)_(%a+)$")
+  if (target_job and (target_dir == "more" or target_dir == "less")) or name == "colony_target_reset" then
     local player = game.get_player(ev.player_index)
     local e = player and player.opened
     if not (e and e.valid and e.name == colony_mod.HALL) then return end
@@ -621,8 +621,8 @@ events.on(defines.events.on_gui_click, function(ev)
     if frame and frame.body then fill_info(frame.body, colony) end
     return
   end
-  local job, dir = name:match("^colony_prio_(%a+)_(more|less)$")
-  if not (job or name == "colony_prio_reset") then return end
+  local job, dir = name:match("^colony_prio_(%a+)_(%a+)$")
+  if not ((job and (dir == "more" or dir == "less")) or name == "colony_prio_reset") then return end
   local player = game.get_player(ev.player_index)
   local e = player and player.opened
   if not (e and e.valid and e.name == colony_mod.HALL) then return end

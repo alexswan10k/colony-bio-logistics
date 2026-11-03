@@ -31,6 +31,7 @@ local illness = require("scripts.model.illness")
 local headcount = require("scripts.model.headcount")
 local motor = require("scripts.model.motor")
 local recreation = require("scripts.model.recreation")
+local jobs = require("scripts.model.jobs")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
@@ -1576,7 +1577,7 @@ function M.assign(colony, un)
   -- whole job matrix for every colonist that finishes a trip (#22 re-measured it).
   local prev_hut = st and st.hut
   if prev_hut then
-    local capped = not lock and colony_mod.headcount_capped(colony, prev_hut.job)
+    local capped = not lock and (colony_mod.headcount_capped(colony, prev_hut.job) or not jobs.enabled(colony.priority, prev_hut.job))
     -- A harvester leaves its post when another resource is missing, or (small towns only: it rebuilds the haul
     -- list) when deliveries are waiting and the town is short of haulers. Kept off the common path otherwise:
     -- keeping the post must stay O(1) (#22).

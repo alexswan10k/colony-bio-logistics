@@ -87,6 +87,15 @@ end
 
 local function hall_status(colony)
   local pop, capacity = colony_mod.live_colonists(colony), colony_mod.capacity(colony)
+  -- Under attack (#61) outranks everything: the alert points the player at the town while colonists hide.
+  if colony.alarms and #colony.alarms > 0 then
+    local hiding = 0
+    for un in pairs(colony.colonists) do
+      local st = storage.unit_state[un]
+      if st and (st.state == "sheltered" or st.state == "to_shelter") then hiding = hiding + 1 end
+    end
+    return {level = "red"}, {"colony-advice.under-attack", hiding}, "gun-turret"
+  end
   local problem
   if (jobs.effective(colony.priority).haul or 1) == 0 then problem = {"colony-advice.haul-off"}
   elseif pop > 0 and colony_mod.total_food(colony) <= 0 then problem = {"colony-advice.no-food"} end

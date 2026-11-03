@@ -8,6 +8,7 @@ local territory = require("scripts.territory")
 local work_plan = require("scripts.model.work_plan")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
+local alarm = require("scripts.model.alarm")
 local haul_plan = require("scripts.model.haul_plan")
 local farm = require("scripts.model.farm")
 local mine_plan = require("scripts.model.mine_plan")
@@ -1265,6 +1266,35 @@ function M.send_to_platform(colony, un, platform)
   return true
 end
 
+-- Civil defence (#61, scripts/shelter.lua): run for `shelter` (a house or the Town Hall) and wait there.
+function M.send_to_shelter(colony, un, shelter)
+  local e = colony.colonists[un]
+  if not (e and e.valid and shelter and shelter.valid) then return false end
+  local st = storage.unit_state[un]
+  local job = st and st.job
+  if st then
+    if st.hut and st.hut.workers then st.hut.workers[un] = nil end
+    M.release(st)
+  end
+  local from = st and st.fled_from or {x = e.position.x, y = e.position.y}
+  storage.unit_state[un] = {colony_id = colony.id, job = job or "idle", state = "to_shelter", shelter = shelter, fled_from = from}
+  set_label(e, "taking shelter 🛡")
+  go(e, shelter, 2)
+  return true
+end
+
+-- The alarm is over: come out (vulnerable again) and go back to work.
+function M.leave_shelter(colony, un)
+  local e = colony.colonists[un]
+  local st = storage.unit_state[un]
+  if e and e.valid then e.destructible = true end
+  if st then st.state, st.shelter, st.fled_from = "idle", nil, nil end
+  M.assign(colony, un)
+end
+
+-- Set by scripts/shelter.lua: sends a colonist standing inside an alarm to shelter, true if it did.
+M.take_cover = nil
+
 function M.is_sleep_time(surface)
   if not surface or surface.freeze_daytime then return false end
   local d = surface.daytime
@@ -1291,6 +1321,11 @@ function M.assign(colony, un)
   if st and (st.state == "to_platform" or st.state == "waiting_train") and st.platform and st.platform.entity.valid then
     return
   end
+  -- Sheltering from enemies: the alarm decides when it is over (scripts/shelter.lua).
+  if st and (st.state == "to_shelter" or st.state == "sheltered") and st.fled_from
+      and alarm.covers(colony.alarms, st.fled_from) then return end
+  if M.take_cover and colony.alarms and #colony.alarms > 0 and M.take_cover(colony, un, e) then return end
+  if st and st.state == "sheltered" then e.destructible = true end   -- its alarm is gone: out and back to work
   local lock = colony.locks and colony.locks[un]
 
   -- Night time: colonists return to their house to sleep
@@ -1632,6 +1667,21 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     else
       storage.unit_state[ev.unit_number] = {colony_id = colony.id, state = "idle"}   -- cannot reach it: stay
       M.assign(colony, ev.unit_number)
+    end
+    return
+  end
+  if st.state == "to_shelter" then
+    -- Inside: out of reach of the enemy until the all-clear. A shelter it cannot reach leaves it exposed, and
+    -- the next alarm check sends it to another one.
+    local e = unit_entity(colony, ev.unit_number)
+    if not (e and e.valid) then return end
+    if ev.result == defines.behavior_result.success and st.shelter and st.shelter.valid then
+      st.state = "sheltered"
+      e.destructible = false
+      e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
+      set_label(e, "sheltering 🛡")
+    else
+      st.state, st.shelter = "exposed", nil
     end
     return
   end

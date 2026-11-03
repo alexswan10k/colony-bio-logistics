@@ -236,6 +236,11 @@ As colonies advance to Tier 2 and Tier 3 Housing, colonists desire **Recreation 
 
 ## 7. Colony Defense, Militia & Vehicles
 
+### 7.0 Civilians Take Shelter (built, #61)
+* **Alarm:** anything of the colony's damaged by the enemy force inside its territory raises an alarm at that spot (nearby hits within 24 tiles refresh the same alarm). There is no peacetime scanning: the trigger is `on_entity_damaged`, and the upkeep (one `find_units` per alarm plus a pass over the colonists) only runs once a second while an alarm is up. The first alarm is announced with a map link, and the Town Hall goes red with a native alert ("Under attack! N colonists sheltering") until it clears.
+* **Shelter:** colonists within 40 tiles of an alarm drop their work (claims and carried goods are released as for any aborted trip) and run to the nearest house or Town Hall at least 24 tiles from every threat (failing that, the one farthest from it). Inside a shelter a colonist cannot be hurt (`destructible = false`, standing in for "indoors"); if the shelter falls it runs again. Drivers waiting in a Motor Pool and passengers bound for a platform are left alone.
+* **All-clear:** an alarm stays up while enemy units are within 40 tiles of it, but never more than a minute past the last hit, so biters idling at a nest near town cannot keep everyone indoors; it clears 10 s after the enemy is gone. A colonist comes out once no alarm covers the place it fled from, becomes vulnerable again and goes back to work. Turrets and, later, the Militia (M3) do the fighting.
+
 ### 7.1 The Armory & Weapon Integration
 * **Armory Building:** Stocked with vanilla weapons (SMGs, Shotguns, Rocket Launchers, Tesla/Railguns), Armor, and Ammo.
 * **Equipping:** Civilians assigned to **Militia/Guard** consume 1 Weapon and 1 Armor at the Armory to become a Militia unit, automatically restocking ammo between fights.

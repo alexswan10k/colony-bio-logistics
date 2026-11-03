@@ -30,6 +30,7 @@ local gui = require("scripts.gui")
 local feedback = require("scripts.feedback")
 local transit = require("scripts.transit")
 local mortality = require("scripts.mortality")
+local shelter = require("scripts.shelter")
 local mortality_model = require("scripts.model.mortality")
 local M = {}
 
@@ -963,7 +964,7 @@ local function on_built(ev)
     if owner then refund(ev, e, name, {"colony-message.hall-too-close"}); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, locks = {}, quotas = {}, job_targets = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {}, locks = {}, quotas = {}, job_targets = {},
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}}
     storage.colonies[id] = colony
     M.seed_forage(colony)   -- the claimed land already has berries on it
@@ -1309,7 +1310,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
   end
 end)
 
-work.bind(M); gui.bind(M); feedback.bind(M); transit.bind(M); mortality.bind(M)   -- avoids a require cycle (runtime require is illegal)
+work.bind(M); gui.bind(M); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M)   -- avoids a require cycle (runtime require is illegal)
 
 -- ---------- opt-in machine registry (#34) ----------
 -- The badge is alt-mode only: a small Town Hall icon over every machine the colony serves, so the player

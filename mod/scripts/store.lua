@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 24
+local SCHEMA = 25
 
 local migrations = {
   [1] = function()
@@ -125,6 +125,11 @@ local migrations = {
       c.cemeteries = c.cemeteries or {}
       c.fallen, c.buried = c.fallen or 0, c.buried or 0
     end
+  end,
+  [25] = function()
+    -- Civil defence (#61): colony.alarms = array of {pos, ends, id}; colonists gain the to_shelter / sheltered /
+    -- exposed states, and `alarm_check` marks a running upkeep loop.
+    for _, c in pairs(storage.colonies) do c.alarms = c.alarms or {} end
   end,
 }
 

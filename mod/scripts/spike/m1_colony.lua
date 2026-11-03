@@ -97,6 +97,15 @@ core.register("m1_colony", {
     if far_miner and far_miner.valid then
       far_miner.insert{name = "colony-pickaxe", count = 3}
       c.huts[far_miner.unit_number].ores = {stone = 0}
+      -- Rocks are mineable sites too: a huge-rock beside a stone-only miner adds a site (and counts as stone).
+      local fh = c.huts[far_miner.unit_number]
+      fh.ores = {["iron-ore"] = 0, ["copper-ore"] = 0, coal = 0, stone = 1}
+      local before = work.site_count(fh)
+      local rock = s.create_entity{name = "huge-rock", position = {far_miner.position.x + 3, far_miner.position.y + 5}}
+      ctx.check("a rock counts as a mining site", rock and rock.valid and work.site_count(fh) == before + 1,
+        before .. " -> " .. work.site_count(fh))
+      if rock and rock.valid then rock.destroy() end
+      fh.ores = {stone = 0}
     end
     farmhut.insert{name = "colony-hoe", count = 3}
     local plots = {}

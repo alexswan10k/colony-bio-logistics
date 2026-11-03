@@ -329,6 +329,37 @@ local function nearest(list, pos, accept)
   return best
 end
 
+-- Rocks (rock-huge, rock-big, sand-rock-big...) are `simple-entity`s, not resource patches, but mining one gives
+-- stone (and coal), so a Miner's Hut works them too. A rock is a one-off site: the colonist brings back its whole
+-- average yield of the wanted ore and the rock is gone. Yields come from the prototype, which never changes at
+-- runtime, so the cache is rebuilt identically on load.
+local rock_yields = {}
+local function rock_yield(e, ore)
+  local y = rock_yields[e.name]
+  if not y then
+    y = {}
+    local props = e.prototype.mineable_properties
+    if props and props.minable then
+      for _, p in ipairs(props.products or {}) do
+        if p.type == "item" then
+          local amt = p.amount or (((p.amount_min or 0) + (p.amount_max or 0)) / 2)
+          y[p.name] = (y[p.name] or 0) + math.floor(amt * (p.probability or 1))
+        end
+      end
+    end
+    rock_yields[e.name] = y
+  end
+  return y[ore] or 0
+end
+
+local function find_rocks(s, base, radius, ore)
+  local out = {}
+  for _, r in ipairs(s.find_entities_filtered{position = base, radius = radius, type = "simple-entity"}) do
+    if r.valid and r.name:find("rock", 1, true) and rock_yield(r, ore) > 0 then out[#out + 1] = r end
+  end
+  return out
+end
+
 -- A hut may work anything in its own radius that is not another colony's land. The radius is centred on a
 -- hut that was itself built inside the colony, so a resource a few tiles past the drawn border is still
 -- fair game: the old strict "owner == this colony" test made border huts look permanently empty.
@@ -361,6 +392,12 @@ local function find_site(colony, e, hut)
         last_met = ore
       else
         local site = nearest(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = ore}, base, in_territory)
+        local rock = nearest(find_rocks(s, base, radius, ore), base, in_territory)
+        if site and rock then
+          if dist2(rock.position, base) < dist2(site.position, base) then site = rock end
+        else
+          site = site or rock
+        end
         if site then return site end
       end
     end
@@ -446,6 +483,9 @@ function M.site_count(h)
     for _, ore in ipairs(mine_plan.order(h.ores)) do
       for _, e in ipairs(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = ore}) do
         if e.valid and free(e) then n = n + 1 end
+      end
+      for _, e in ipairs(find_rocks(s, base, radius, ore)) do
+        if free(e) then n = n + 1 end
       end
     end
     return n
@@ -1145,6 +1185,16 @@ scheduler.register("work.finish", function(d)
     end
   elseif st.job == "fish" then
     item, n = "colony-fish", fishing.FISH_PER_TRIP
+  elseif st.job == "mine" and site.type == "simple-entity" then
+    -- A rock: take its whole yield of the best-ranked ore it holds that the colony still wants, and it is gone.
+    for _, ore in ipairs(mine_plan.order(hut.ores)) do
+      local y = rock_yield(site, ore)
+      if y > 0 and not colony_mod.quota_met(colony, ore) then item, n = ore, y; break end
+    end
+    if n > 0 then
+      site.destroy()
+      e.surface.pollute(pos, M.MINE_POLLUTION)
+    end
   elseif st.job == "mine" then
     n = math.min(M.MINE_PER_TRIP, site.amount or 0)
     if n > 0 then

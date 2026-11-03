@@ -833,7 +833,7 @@ local function on_built(ev)
     M.seed_forage(colony)   -- the claimed land already has berries on it
     local founder = ev.player_index and game.get_player(ev.player_index)
     if founder then founder.create_local_flying_text{text = {"colony-message.colony-founded"}, position = e.position} end
-    rendering.draw_circle{color = {0.2, 0.8, 0.3, 0.5}, width = 2, filled = false, radius = territory.HALL_RADIUS,
+    rendering.draw_circle{color = {0.1, 0.4, 0.15, 0.5}, width = 2, filled = false, radius = territory.HALL_RADIUS,
       target = e, surface = e.surface, only_in_alt_mode = true}
     script.register_on_object_destroyed(e)
     scheduler.after(M.interval(), "colony.evaluate", {colony_id = id})
@@ -872,7 +872,7 @@ local function on_built(ev)
     if p then
       p.create_local_flying_text{text = {"colony-message.watchtower-expanded", territory.TOWER_RADIUS}, position = e.position}
     end
-    rendering.draw_circle{color = {0.2, 0.8, 0.3, 0.5}, width = 2, filled = false, radius = territory.TOWER_RADIUS,
+    rendering.draw_circle{color = {0.1, 0.4, 0.15, 0.5}, width = 2, filled = false, radius = territory.TOWER_RADIUS,
       target = e, surface = e.surface, only_in_alt_mode = true}
     script.register_on_object_destroyed(e)
     M.refresh_all_cursor_overlays()
@@ -941,7 +941,7 @@ local function on_built(ev)
         }
       end
       colony.huts[e.unit_number] = hut
-      rendering.draw_circle{color = {0.9, 0.9, 0.3, 0.5}, width = 2, filled = false, radius = M.HUT_RADIUS,
+      rendering.draw_circle{color = {0.45, 0.45, 0.15, 0.5}, width = 2, filled = false, radius = M.HUT_RADIUS,
         target = e, surface = e.surface, only_in_alt_mode = true}
       return
     end
@@ -998,7 +998,7 @@ function M.update_cursor_overlay(player)
     if colony.surface_index == surface.index then
       if colony.hall and colony.hall.valid then
         local r_fill = rendering.draw_circle{
-          color = {0.2, 0.8, 0.3, 0.12},
+          color = {0.008, 0.032, 0.012, 0.04},   -- premultiplied: a faint wash, the terrain stays readable
           filled = true,
           radius = territory.HALL_RADIUS,
           target = colony.hall,
@@ -1006,7 +1006,7 @@ function M.update_cursor_overlay(player)
           players = {player},
         }
         local r_border = rendering.draw_circle{
-          color = {0.2, 0.8, 0.3, 0.6},
+          color = {0.1, 0.4, 0.15, 0.5},
           width = 2,
           filled = false,
           radius = territory.HALL_RADIUS,
@@ -1020,7 +1020,7 @@ function M.update_cursor_overlay(player)
       for _, tower in pairs(colony.towers or {}) do
         if tower and tower.valid then
           local r_fill = rendering.draw_circle{
-            color = {0.2, 0.8, 0.3, 0.12},
+            color = {0.008, 0.032, 0.012, 0.04},   -- premultiplied: a faint wash, the terrain stays readable
             filled = true,
             radius = territory.TOWER_RADIUS,
             target = tower,
@@ -1028,7 +1028,7 @@ function M.update_cursor_overlay(player)
             players = {player},
           }
           local r_border = rendering.draw_circle{
-            color = {0.2, 0.8, 0.3, 0.6},
+            color = {0.1, 0.4, 0.15, 0.5},
             width = 2,
             filled = false,
             radius = territory.TOWER_RADIUS,

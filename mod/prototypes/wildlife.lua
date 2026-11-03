@@ -9,8 +9,12 @@ local G = "__colony-bio-logistics__/graphics/"
 local boar = table.deepcopy(data.raw["unit"]["small-biter"])
 
 local function sprite()
-  return {filename = G .. "boar.png", width = 64, height = 64, direction_count = 1, frame_count = 1,
-    line_length = 1, scale = 0.55, animation_speed = 1}
+  local common = {width = 64, height = 64, direction_count = 1, frame_count = 1, line_length = 1, scale = 0.55,
+    animation_speed = 1}
+  local main, shadow = table.deepcopy(common), table.deepcopy(common)
+  main.filename = G .. "boar.png"
+  shadow.filename = G .. "boar-shadow.png"; shadow.width = 128; shadow.draw_as_shadow = true
+  return {layers = {main, shadow}}
 end
 
 boar.name = "colony-wild-boar"

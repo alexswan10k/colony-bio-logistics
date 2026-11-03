@@ -34,8 +34,8 @@ SKIN = (226, 180, 140)
 GREEN = (96, 140, 68)
 SOIL = (112, 78, 50)
 
-SHADOW = (5, 4, 3, .46)
-ICON_SHADOW = (2, 2, 1.6, .55)
+SHADOW = "proj"          # separate projected-shadow layer (name-shadow.png, draw_as_shadow)
+ICON_SHADOW = "bake"
 REGISTRY = {}
 
 
@@ -51,7 +51,13 @@ def path(name):
 def icon_of(name, icon_name=None):
     """building icon = the sprite downsampled to 64 px"""
     from PIL import Image
-    Image.open(path(name)).resize((64, 64), Image.LANCZOS).save(path(icon_name or "icon-" + name))
+    from PIL import ImageFilter
+    im = Image.open(path(name)).convert("RGBA").resize((64, 64), Image.LANCZOS)
+    sh = Image.new("L", (64, 64), 0); sh.paste(im.getchannel("A"), (2, 2))
+    out = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    layer = Image.new("RGBA", (64, 64), (8, 6, 4, 0)); layer.putalpha(sh.filter(ImageFilter.GaussianBlur(1.4)).point(lambda v: int(v * .5)))
+    out.alpha_composite(layer); out.alpha_composite(im)
+    out.save(path(icon_name or "icon-" + name))
 
 
 # parts -----------------------------------------------------------------------------------------------------
@@ -160,52 +166,67 @@ def em_kitchen(a, cx, cy):
 # buildings -------------------------------------------------------------------------------------------------
 def hut(name, roof, wall, emblem, px=128, chim=None, deco=None):
     a = Art(px, px)
-    a.ao(10, 92, px - 4, px - 4, .5, 4)
-    house(a, 14, 114, 114, 36, 64, wall, roof)
+    a.ao(10, 84, px - 4, px - 4, .5, 4)
+    yf, yr, yt = house(a, 14, 114, 114, 28, 76, wall, roof, rk=.8)
     if chim is not None:
-        chimney(a, chim, 66, 22)
-    door(a, 28, 88, 50, 114)
-    window(a, 58, 90, 70, 102, lit=True)
-    plaque(a, 94, 98)
-    emblem(a, 94, 98)
+        chimney(a, chim, yr + 2, 20)
+    door(a, 26, 94, 46, 114)
+    window(a, 54, 96, 64, 106, lit=True)
+    plaque(a, 90, 101, 24, 22)
+    emblem(a, 90, 101)
     if deco:
         deco(a)
     a.save(path(name), shadow=SHADOW)
     icon_of(name)
 
 
-def hut_smoke(a):
-    smoke(a, 36, 28)
-
-
 @asset
 def huts():
     hut("forager-hut", (84, 134, 66), (176, 142, 92), em_basket)
-    hut("woodcutter-hut", (112, 76, 50), (160, 116, 72), em_log, chim=86)
+    hut("woodcutter-hut", (112, 76, 50), (160, 116, 72), em_log, chim=88)
     hut("miner-hut", (104, 106, 114), (146, 142, 136), em_pick)
     hut("farm-hut", (166, 130, 62), (196, 164, 108), em_crop)
     hut("hunting-lodge", (92, 108, 68), (148, 112, 74), em_hunt)
     hut("fishing-dock", (58, 96, 124), (150, 126, 92), em_fish)
-    hut("smokehouse", (74, 68, 64), (150, 122, 92), em_smoke, chim=80, deco=lambda a: smoke(a, 86, 40, 3))
-    hut("kitchen", (180, 88, 56), (200, 168, 124), em_kitchen, chim=84, deco=lambda a: smoke(a, 90, 40, 3, .4))
+    hut("smokehouse", (74, 68, 64), (150, 122, 92), em_smoke, chim=84, deco=lambda a: smoke(a, 90, 32, 3))
+    hut("kitchen", (180, 88, 56), (200, 168, 124), em_kitchen, chim=86, deco=lambda a: smoke(a, 92, 32, 3, .4))
 
 
 @asset
 def tent():
+    """ridge tent from above: ridge runs front-to-back, two canvas panels, open gable at the front"""
     a = Art(128, 128)
-    a.ao(6, 88, 124, 124, .55, 5)
-    cloth = (138, 136, 86)
-    apex, fl, fr, bl, br = (64, 34), (12, 112), (116, 112), (34, 72), (94, 72)
-    a.poly([apex, bl, fl], mul(cloth, .74), tex=thatch(2), grain=10)
-    a.poly([apex, br, fr], mul(cloth, .62), tex=thatch(2), grain=10)
-    a.poly([apex, fl, fr], cloth, tex=combine(thatch(2), speckle(.5)), grain=10, shade=.16)
-    a.poly([(64, 62), (44, 112), (84, 112)], (36, 28, 20), shade=.3, grain=4)
-    a.poly([(64, 62), (44, 112), (56, 112)], mul(cloth, 1.1), shade=.2)
-    a.line([(64, 34), (64, 20)], 3, WOOD_D)
-    a.poly([(64, 20), (82, 25), (64, 30)], (196, 60, 44))
-    for x in (12, 116):
-        a.line([(x, 112), (x + (-8 if x < 64 else 8), 120)], 1.2, (210, 200, 170), shade=0, hi=0, edge=.3)
-        a.rect(x + (-11 if x < 64 else 5), 118, x + (-5 if x < 64 else 11), 122, WOOD_D)
+    a.ao(8, 70, 122, 122, .5, 5)
+    canvas = (178, 158, 112)
+    stitch = (90, 70, 44)
+    # guy ropes + pegs behind the tent
+    for (x0, y0, x1, y1) in ((30, 44, 12, 34), (98, 44, 116, 34)):
+        a.line([(x0, y0), (x1, y1)], 1.2, (206, 190, 150), shade=0, hi=0, edge=.2)
+        a.line([(x1, y1 - 2), (x1, y1 + 3)], 2.4, WOOD_D)
+    # side panels (left lit, right shaded) meeting at the ridge
+    a.poly([(64, 22), (30, 42), (20, 108), (64, 84)], canvas, tex=combine(thatch(1), speckle(.5, 40)), shade=.12, grain=9)
+    a.poly([(64, 22), (98, 42), (108, 108), (64, 84)], mul(canvas, .72), tex=combine(thatch(1), speckle(.5, 50)), shade=.12, grain=9)
+    # patches and stitching
+    a.poly([(34, 56), (52, 48), (54, 66), (36, 72)], mul(canvas, .9), tex=speckle(.4, 30), shade=.1, edge=.3, hi=.15, ecol=stitch)
+    a.poly([(76, 60), (94, 56), (96, 74), (78, 78)], mul(canvas, .62), shade=.1, edge=.3, hi=0, ecol=stitch)
+    for k in range(5):
+        a.line([(26 + k * 2.6, 52 + k * 11), (30 + k * 2.6, 52 + k * 11)], 1, stitch, shade=0, hi=0, edge=0)
+    # ridge pole + rope ties
+    a.line([(64, 20), (64, 86)], 3.2, WOOD, shade=.25)
+    for y in (36, 56, 74):
+        a.line([(61.5, y), (66.5, y)], 1.6, (200, 180, 130), shade=0, hi=0, edge=.3)
+    # open front gable: dark interior with tied-back flaps
+    a.poly([(20, 108), (108, 108), (64, 84)], (30, 24, 18), shade=.3, grain=5)
+    a.poly([(30, 108), (98, 108), (64, 92)], (58, 46, 34), shade=.15, grain=5, edge=.2, hi=0)
+    a.poly([(20, 108), (47, 108), (64, 84), (56, 96)], mul(canvas, 1.05), shade=.15, tex=speckle(.4, 30))
+    a.poly([(108, 108), (82, 108), (64, 84), (72, 96)], mul(canvas, .8), shade=.15, tex=speckle(.4, 30))
+    a.line([(64, 82), (64, 118)], 3.4, WOOD, shade=.25)                                    # front pole
+    a.rect(58, 114, 70, 118, WOOD_D, shade=.2)
+    for x in (18, 110):
+        a.line([(x, 108), (x + (-10 if x < 64 else 10), 118)], 1.2, (206, 190, 150), shade=0, hi=0, edge=.2)
+        a.line([(x + (-12 if x < 64 else 10), 116), (x + (-9 if x < 64 else 13), 121)], 2.4, WOOD_D)
+    a.line([(64, 22), (64, 10)], 1.4, DARKWOOD)
+    a.poly([(64, 10), (80, 14), (64, 18)], (200, 66, 48), tex=speckle(.3, 30))
     a.save(path("tent"), shadow=SHADOW)
     icon_of("tent")
 
@@ -213,13 +234,13 @@ def tent():
 @asset
 def cabin():
     a = Art(192, 192)
-    a.ao(10, 140, 186, 186, .5, 5)
-    yf, yr, yt = house(a, 20, 172, 176, 66, 104, (150, 100, 58), (96, 70, 52), wall_tex=logs(9), roof_tex=shingle(11, 6), found=True)
-    chimney(a, 134, yr, 30, 16)
-    door(a, 40, 128, 70, 176)
-    window(a, 96, 126, 124, 152, lit=True)
-    window(a, 140, 126, 160, 152)
-    a.rect(14, 168, 70, 178, STONE_L, tex=stone(8), shade=.2)
+    a.ao(10, 130, 186, 186, .5, 5)
+    yf, yr, yt = house(a, 20, 172, 176, 44, 126, (150, 100, 58), (96, 70, 52), wall_tex=logs(9), roof_tex=shingle(11, 6), rk=.8)
+    chimney(a, 134, yr + 2, 28, 16)
+    door(a, 38, 140, 64, 176)
+    window(a, 88, 144, 114, 164, lit=True)
+    window(a, 130, 144, 156, 164)
+    a.rect(30, 170, 74, 180, STONE_L, tex=stone(8), shade=.2)
     a.save(path("cabin"), shadow=SHADOW)
     icon_of("cabin")
 
@@ -227,14 +248,14 @@ def cabin():
 @asset
 def homestead():
     a = Art(192, 192)
-    a.ao(8, 140, 186, 186, .5, 5)
-    house(a, 18, 174, 176, 68, 104, (200, 170, 126), (156, 58, 48), wall_tex=planks_h(8), roof_tex=shingle(10, 6))
-    chimney(a, 142, 100, 30, 16, BRICK)
-    window(a, 36, 124, 62, 152, lit=True)
-    window(a, 130, 124, 156, 152, lit=True)
-    door(a, 78, 124, 112, 176)
-    a.poly([(70, 120), (120, 120), (126, 130), (64, 130)], WOOD_D, tex=planks_h(5))
-    a.rect(64, 168, 126, 180, STONE_L, tex=stone(8), shade=.2)
+    a.ao(8, 130, 186, 186, .5, 5)
+    yf, yr, yt = house(a, 18, 174, 176, 46, 126, (200, 170, 126), (156, 58, 48), wall_tex=planks_h(8), roof_tex=shingle(10, 6), rk=.8)
+    chimney(a, 142, yr + 2, 28, 16, BRICK)
+    window(a, 36, 142, 62, 164, lit=True)
+    window(a, 130, 142, 156, 164, lit=True)
+    door(a, 80, 138, 112, 176)
+    a.poly([(72, 136), (120, 136), (126, 144), (66, 144)], WOOD_D, tex=planks_h(5))
+    a.rect(66, 170, 126, 182, STONE_L, tex=stone(8), shade=.2)
     a.save(path("homestead"), shadow=SHADOW)
     icon_of("homestead")
 
@@ -243,18 +264,19 @@ def homestead():
 def apartment():
     a = Art(256, 256)
     a.ao(8, 190, 250, 250, .5, 6)
-    a.rect(24, 74, 232, 238, (164, 92, 72), tex=brick(14, 7), shade=.16)           # front face
-    a.rect(20, 40, 236, 78, (130, 124, 116), tex=speckle(1.2), shade=.2)            # flat roof, seen from above
-    a.rect(20, 74, 236, 86, STONE, tex=stone(10), shade=.25)                        # cornice
-    a.rect(34, 48, 70, 66, IRON, tex=tin(4), shade=.25)                             # roof units
-    a.ell(150, 46, 196, 70, IRON_D, shade=.3)
-    a.rect(112, 44, 130, 66, (118, 84, 60), tex=planks_v(4))                        # water tank
-    for ry in (96, 142, 188):
-        for cx in (42, 94, 146, 198 - 2):
-            window(a, cx, ry, cx + 22, ry + 28, lit=(cx + ry) % 3 != 0)
-            a.rect(cx - 5, ry + 31, cx + 27, ry + 36, IRON_D, shade=.25)             # balcony rail
-    a.rect(88, 212, 168, 220, (52, 70, 100), shade=.3)                               # awning
-    door(a, 100, 220, 156, 238, (44, 64, 90))
+    a.rect(24, 112, 232, 238, (164, 92, 72), tex=brick(14, 7), shade=.16)           # front face
+    a.rect(20, 20, 236, 116, (130, 124, 116), tex=speckle(1.2), shade=.2)           # flat roof, seen from above
+    a.rect(20, 106, 236, 118, STONE, tex=stone(10), shade=.25)                      # cornice
+    a.rect(34, 32, 82, 62, IRON, tex=tin(4), shade=.25)                             # roof units
+    a.ell(150, 36, 208, 70, IRON_D, shade=.3)
+    a.rect(100, 30, 128, 72, (118, 84, 60), tex=planks_v(4))                        # water tank
+    a.ell(98, 22, 130, 40, (98, 70, 50), shade=.25)
+    a.rect(60, 80, 104, 96, STONE_L, tex=stone(6), shade=.2)
+    for ry in (128, 160, 192):
+        for cx in (42, 94, 146, 196):
+            window(a, cx, ry, cx + 22, ry + 20, lit=(cx + ry) % 3 != 0)
+    a.rect(88, 214, 168, 222, (52, 70, 100), shade=.3)                               # awning
+    door(a, 100, 222, 156, 238, (44, 64, 90))
     a.save(path("apartment"), shadow=SHADOW)
     icon_of("apartment")
 
@@ -262,24 +284,21 @@ def apartment():
 @asset
 def hall():
     a = Art(192, 192)
-    a.ao(6, 140, 188, 188, .55, 6)
-    a.line([(96, 56), (96, 8)], 3, WOOD_D)
-    a.poly([(96, 8), (136, 16), (96, 26)], (204, 62, 46), tex=speckle(.4))
-    house(a, 14, 178, 178, 70, 110, (186, 150, 100), RED_ROOF, wall_tex=planks_h(9), roof_tex=shingle(11, 7), ov=7)
-    chimney(a, 38, 94, 30, 14)
+    a.ao(6, 130, 188, 188, .55, 6)
+    yf, yr, yt = house(a, 14, 178, 178, 46, 130, (186, 150, 100), RED_ROOF, wall_tex=planks_h(9), roof_tex=shingle(11, 7), ov=7, rk=.8)
+    chimney(a, 38, yr + 2, 30, 14)
+    a.line([(96, yr), (96, yt - 24)], 3, WOOD_D)
+    a.poly([(96, yt - 24), (136, yt - 16), (96, yt - 6)], (204, 62, 46), tex=speckle(.4))
     for x in (30, 140):
-        window(a, x, 126, x + 22, 154, lit=True)
-    a.rect(70, 116, 122, 178, DARKWOOD, shade=.25)                                   # great doors
-    a.poly([(70, 122), (96, 106), (122, 122)], mul(WOOD, .8), shade=.2)
-    door(a, 76, 128, 94, 178)
-    door(a, 98, 128, 116, 178)
-    a.rect(60, 172, 132, 186, STONE_L, tex=stone(9), shade=.22)                      # steps
-    a.rect(52, 166, 66, 178, WOOD_D)
-    a.rect(126, 166, 140, 178, WOOD_D)
-    a.ell(56, 154, 62, 160, (255, 214, 120), shade=.0, edge=0, hi=0)                 # lanterns
-    a.ell(130, 154, 136, 160, (255, 214, 120), shade=.0, edge=0, hi=0)
-    a.glint(50, 148, 68, 166, .35, (255, 220, 140))
-    a.glint(124, 148, 142, 166, .35, (255, 220, 140))
+        window(a, x, 142, x + 22, 164, lit=True)
+    a.rect(70, 132, 122, 178, DARKWOOD, shade=.25)                                   # great doors
+    door(a, 76, 138, 94, 178)
+    door(a, 98, 138, 116, 178)
+    a.rect(60, 174, 132, 188, STONE_L, tex=stone(9), shade=.22)                      # steps
+    a.glint(50, 150, 68, 168, .35, (255, 220, 140))
+    a.glint(124, 150, 142, 168, .35, (255, 220, 140))
+    a.ell(56, 156, 62, 162, (255, 214, 120), shade=.0, edge=0, hi=0)
+    a.ell(130, 156, 136, 162, (255, 214, 120), shade=.0, edge=0, hi=0)
     a.save(path("town-hall"), shadow=SHADOW)
     icon_of("town-hall")
 
@@ -287,19 +306,17 @@ def hall():
 @asset
 def town_archive():
     a = Art(192, 192)
-    a.ao(10, 142, 186, 188, .5, 5)
-    a.rect(20, 92, 172, 176, STONE_L, tex=stone(14), shade=.16)
-    a.poly([(10, 96), (96, 56), (182, 96)], (170, 160, 146), tex=stone(9), shade=.2)         # pediment roof
-    a.poly([(30, 94), (96, 66), (162, 94)], (214, 206, 190), shade=.2, tex=speckle(.6))
-    for cx in (34, 68, 124, 158):
-        a.rect(cx - 8, 98, cx + 8, 174, (226, 220, 206), shade=.3, tex=planks_v(4))
-        a.rect(cx - 10, 94, cx + 10, 102, (186, 178, 164))
-        a.rect(cx - 10, 170, cx + 10, 178, (186, 178, 164))
-    a.rect(82, 120, 110, 176, (48, 34, 24), shade=.3)
-    a.line([(96, 120), (96, 176)], 1.6, (24, 16, 10))
-    window(a, 44, 116, 60, 142)
-    window(a, 132, 116, 148, 142)
-    a.rect(26, 176, 166, 186, STONE, tex=stone(10), shade=.2)
+    a.ao(10, 130, 186, 188, .5, 5)
+    yf, yr, yt = house(a, 18, 174, 174, 54, 120, STONE_L, (176, 166, 150), wall_tex=stone(14), roof_tex=stone(9), ov=8, rk=.8, ridge=False)
+    for cx in (32, 66, 126, 160):
+        a.rect(cx - 7, yf + 2, cx + 7, 172, (230, 224, 210), shade=.3, tex=planks_v(4))
+        a.rect(cx - 9, yf, cx + 9, yf + 6, (186, 178, 164))
+        a.rect(cx - 9, 168, cx + 9, 176, (186, 178, 164))
+    a.rect(82, 132, 110, 174, (48, 34, 24), shade=.3)
+    a.line([(96, 132), (96, 174)], 1.6, (24, 16, 10))
+    window(a, 40, 136, 54, 160)
+    window(a, 138, 136, 152, 160)
+    a.rect(24, 174, 168, 186, STONE, tex=stone(10), shade=.2)
     a.save(path("town-archive"), shadow=SHADOW)
     icon_of("town-archive")
 
@@ -308,22 +325,22 @@ def town_archive():
 def university():
     a = Art(256, 256)
     a.ao(8, 190, 250, 252, .5, 6)
-    a.rect(14, 112, 242, 236, (172, 108, 84), tex=brick(14, 7), shade=.16)                  # wings + hall
-    a.rect(10, 104, 246, 116, STONE, tex=stone(10), shade=.25)
-    a.rect(78, 84, 178, 114, STONE_L, tex=stone(12), shade=.2)                              # drum
-    a.ell(78, 18, 178, 100, (76, 148, 128), tex=combine(speckle(.5), tin(9)), shade=.32)     # copper dome
-    a.glint(96, 26, 130, 56, .5)
-    a.line([(128, 20), (128, 6)], 2.5, (214, 180, 70))
-    a.ell(124, 2, 132, 10, (214, 180, 70), edge=.4)
-    for x in (26, 58, 178, 210):
-        window(a, x, 130, x + 20, 160, lit=True)
-        window(a, x, 178, x + 20, 208)
-    for cx in (92, 114, 142, 164):
-        a.rect(cx - 6, 134, cx + 6, 226, (232, 226, 212), tex=planks_v(4), shade=.3)
-    a.poly([(82, 134), (128, 116), (174, 134)], (190, 182, 168), shade=.2)
-    a.rect(106, 190, 150, 236, (52, 36, 26), shade=.3)
-    a.line([(128, 190), (128, 236)], 1.8, (26, 18, 12))
-    a.rect(72, 232, 184, 246, STONE_L, tex=stone(10), shade=.2)
+    a.rect(88, 66, 168, 100, STONE_L, tex=stone(12), shade=.2)                              # drum
+    a.ell(84, 6, 172, 92, (76, 148, 128), tex=combine(speckle(.5), tin(9)), shade=.32)       # copper dome
+    a.glint(100, 14, 134, 44, .5)
+    a.line([(128, 8), (128, 0)], 2.5, (214, 180, 70))
+    a.rect(10, 140, 246, 236, (172, 108, 84), tex=brick(14, 7), shade=.16)                  # wings: front face
+    a.rect(6, 112, 250, 146, (150, 142, 132), tex=speckle(1.0), shade=.2)                   # wings: flat roof
+    a.rect(6, 138, 250, 150, STONE, tex=stone(10), shade=.25)
+    yf, yr, yt = house(a, 70, 186, 236, 90, 80, (186, 130, 100), (120, 156, 140), wall_tex=brick(14, 7), roof_tex=tin(8), ov=6, rk=.8, found=False)
+    for x in (24, 54, 186, 216):
+        window(a, x, 158, x + 20, 180, lit=True)
+        window(a, x, 196, x + 20, 218)
+    for cx in (84, 108, 148, 172):
+        a.rect(cx - 6, yf + 4, cx + 6, 228, (232, 226, 212), tex=planks_v(4), shade=.3)
+    a.rect(110, 196, 146, 236, (52, 36, 26), shade=.3)
+    a.line([(128, 196), (128, 236)], 1.8, (26, 18, 12))
+    a.rect(76, 232, 180, 246, STONE_L, tex=stone(10), shade=.2)
     a.save(path("university"), shadow=SHADOW)
     icon_of("university")
 
@@ -331,16 +348,16 @@ def university():
 @asset
 def warehouse():
     a = Art(192, 192)
-    a.ao(8, 140, 186, 188, .5, 5)
-    house(a, 12, 180, 178, 64, 100, (118, 104, 88), (112, 124, 134), wall_tex=planks_h(10), roof_tex=tin(6), ov=6, found=True)
-    a.rect(60, 124, 132, 178, (82, 70, 60), tex=planks_v(7), shade=.3)
-    a.rect(58, 120, 134, 128, IRON_D, shade=.3)
+    a.ao(8, 130, 186, 188, .5, 5)
+    yf, yr, yt = house(a, 12, 180, 178, 42, 130, (118, 104, 88), (112, 124, 134), wall_tex=planks_h(10), roof_tex=tin(6), ov=6, rk=.8)
+    a.rect(60, 142, 132, 178, (82, 70, 60), tex=planks_v(7), shade=.3)
+    a.rect(58, 138, 134, 146, IRON_D, shade=.3)
     for i in range(6):                                                                    # hazard stripe
         a.poly([(58 + i * 13, 170), (66 + i * 13, 170), (72 + i * 13, 178), (64 + i * 13, 178)], YELLOW if i % 2 == 0 else (40, 38, 34), edge=0, hi=0)
-    for (x, y) in ((140, 148), (158, 148), (149, 130)):
-        a.rect(x, y, x + 20, y + 26, (190, 146, 90), tex=planks_h(5), shade=.25)
+    for (x, y) in ((142, 152), (160, 152), (151, 138)):
+        a.rect(x, y, x + 20, y + 24, (190, 146, 90), tex=planks_h(5), shade=.25)
         a.rect(x, y, x + 20, y + 4, WOOD_D, edge=.3)
-    window(a, 26, 132, 46, 152)
+    window(a, 26, 148, 46, 164)
     a.save(path("warehouse"), shadow=SHADOW)
     icon_of("warehouse")
 
@@ -374,27 +391,27 @@ def crates():
     def crate(name, band, arrow):
         a = Art(128, 128)
         a.ao(12, 84, 118, 124, .5, 4)
-        a.rect(18, 74, 110, 112, PLANK, tex=planks_h(7), shade=.2)                       # front face
+        a.rect(18, 84, 110, 112, PLANK, tex=planks_h(7), shade=.2)                       # front face
         a.line([(22, 108), (106, 80)], 4, WOOD_D)
-        a.rect(18, 74, 28, 112, WOOD_D, shade=.25)
-        a.rect(100, 74, 110, 112, WOOD_D, shade=.25)
-        a.rect(18, 30, 110, 76, WOOD_L, tex=planks_v(8), shade=.18)                      # lid
+        a.rect(18, 84, 28, 112, WOOD_D, shade=.25)
+        a.rect(100, 84, 110, 112, WOOD_D, shade=.25)
+        a.rect(18, 30, 110, 84, WOOD_L, tex=planks_v(8), shade=.18)                      # lid
         a.rect(18, 30, 110, 38, WOOD_D, shade=.2)                                        # frame
-        a.rect(18, 68, 110, 76, WOOD_D, shade=.2)
-        a.rect(18, 30, 26, 76, WOOD_D, shade=.2)
-        a.rect(102, 30, 110, 76, WOOD_D, shade=.2)
-        for x, y in ((20, 32), (100, 32), (20, 68), (100, 68), (20, 100), (100, 100)):
+        a.rect(18, 76, 110, 84, WOOD_D, shade=.2)
+        a.rect(18, 30, 26, 84, WOOD_D, shade=.2)
+        a.rect(102, 30, 110, 84, WOOD_D, shade=.2)
+        for x, y in ((20, 32), (100, 32), (20, 76), (100, 76), (20, 102), (100, 102)):
             a.rect(x, y, x + 8, y + 8, IRON, shade=.3, tex=speckle(.5))
-        a.rect(32, 44, 96, 62, band, r=2, shade=.25, tex=speckle(.5, 30))               # painted band
+        a.rect(32, 46, 96, 66, band, r=2, shade=.25, tex=speckle(.5, 30))               # painted band
         arrow(a)
         a.save(path(name), shadow=SHADOW)
         icon_of(name)
 
     def up(a):
-        a.poly([(64, 46), (80, 56), (70, 56), (70, 62), (58, 62), (58, 56), (48, 56)], (236, 250, 230), edge=.4, shade=.1)
+        a.poly([(64, 48), (80, 58), (70, 58), (70, 64), (58, 64), (58, 58), (48, 58)], (236, 250, 230), edge=.4, shade=.1)
 
     def down(a):
-        a.poly([(64, 62), (80, 52), (70, 52), (70, 46), (58, 46), (58, 52), (48, 52)], (230, 242, 252), edge=.4, shade=.1)
+        a.poly([(64, 64), (80, 54), (70, 54), (70, 48), (58, 48), (58, 54), (48, 54)], (230, 242, 252), edge=.4, shade=.1)
 
     crate("supply-crate", (74, 150, 70), up)
     crate("demand-crate", (66, 112, 176), down)
@@ -476,7 +493,7 @@ def farm_plots():
         a = Art(64, 64)
         soil(a)
         plants(a)
-        a.save(path(name), shadow=(1.5, 2, 1.5, .35))
+        a.save(path(name), shadow=None)
 
     def none(a):
         pass
@@ -534,12 +551,12 @@ def colonist():
 
     a = Art(64, 64)
     figure(a, 0, 0, 0)
-    a.save(path("colonist"), shadow=(3, 2, 1.5, .4))
+    a.save(path("colonist"), shadow=SHADOW)
     sheet = Art(64 * 8, 64)                                                                             # run cycle, 8 frames
     for i in range(8):
         ph = math.sin(i / 8 * math.tau)
         figure(sheet, i * 64, int(round(ph * 5)), -abs(ph) * 1.6)
-    sheet.save(path("colonist-run"), shadow=(3, 2, 1.5, .4))
+    sheet.save(path("colonist-run"), shadow=SHADOW, frames=8)
 
 
 @asset
@@ -685,6 +702,20 @@ def icons_misc():
     a.line([(18, 12), (24, 54)], 3, (216, 176, 62), hi=0)
     a.ell(28, 24, 44, 40, (216, 176, 62), shade=.3, edge=.45)
     done(a, "icon-civic-pack")
+
+
+@asset
+def radius_rings():
+    """Range rings for `radius_visualisation_specification` (the engine stretches the sprite to the radius):
+    a thin bright ring plus a barely-there fill so the terrain underneath stays readable."""
+    from PIL import Image, ImageDraw
+    N, K = 512, 4
+    for name, col in (("radius-green", (96, 214, 110)), ("radius-yellow", (236, 214, 90))):
+        im = Image.new("RGBA", (N * K, N * K), (0, 0, 0, 0))
+        d = ImageDraw.Draw(im)
+        d.ellipse((0, 0, N * K - 1, N * K - 1), fill=col + (16,))
+        d.ellipse((0, 0, N * K - 1, N * K - 1), outline=col + (200,), width=3 * K)
+        im.resize((N, N), Image.LANCZOS).save(path(name))
 
 
 def main():

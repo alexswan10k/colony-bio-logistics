@@ -252,7 +252,41 @@ class Art:
         out.alpha_composite(self.im)
         return out
 
-    def save(self, path, size=None, shadow=(5, 4, 3, .45)):
-        img = self.render(shadow)
+    def shadow_image(self, frames=1, kx=.8, sy=.45, alpha=125):
+        """Projected ground shadow as a separate layer (Factorio `draw_as_shadow`): each frame is sheared to the
+        right and flattened about the sprite's ground line, on a canvas twice as wide, same centre."""
+        a = self.im.getchannel("A")
+        fw = self.size[0] // frames
+        H = self.size[1]
+        base = (a.getbbox() or (0, 0, 0, H))[3] - 2 * SS
+        out = Image.new("L", (self.size[0] * 2, H), 0)
+        for f in range(frames):
+            fr = a.crop((f * fw, 0, (f + 1) * fw, H))
+            pad = fw // 2
+            k = kx / sy
+            sh = Image.new("L", (fw * 2, H), 0)
+            sh.paste(fr.transform((fw * 2, H), Image.AFFINE, (1, k, -pad - k * base, 0, 1 / sy, base - base / sy), Image.BILINEAR), (0, 0))
+            # contact patch so the footprint is always dark even where the shear leaves a gap
+            ImageDraw.Draw(sh).rectangle((pad, base - 6 * SS, pad + fw, base), fill=0)
+            sh = ImageChops.lighter(sh, fr.crop((0, 0, fw, H)).transform((fw * 2, H), Image.AFFINE, (1, 0, -pad, 0, 1, 0)).point(lambda v: v // 2))
+            out.paste(sh, (f * fw * 2, 0))
+        out = out.filter(ImageFilter.GaussianBlur(SS * .7)).point(lambda v: min(255, v * alpha // 255))
+        img = Image.new("RGBA", out.size, (0, 0, 0, 0)); img.putalpha(out)
+        return img
+
+    def save(self, path, shadow="proj", frames=1, size=None):
+        """main sprite (+ `<name>-shadow.png` when shadow == "proj"; "bake" burns a drop shadow into the sprite)"""
         w, h = size or (self.w, self.h)
-        img.resize((w, h), Image.LANCZOS).save(path)
+        if shadow == "bake":
+            out = self.under.copy()
+            al = self.im.getchannel("A")
+            sh = Image.new("L", self.size, 0); sh.paste(al, (2 * SS, 2 * SS))
+            sh = sh.filter(ImageFilter.GaussianBlur(1.6 * SS)).point(lambda v: int(v * .55))
+            layer = Image.new("RGBA", self.size, (8, 6, 4, 0)); layer.putalpha(sh)
+            out.alpha_composite(layer); out.alpha_composite(self.im)
+        else:
+            out = self.under.copy(); out.alpha_composite(self.im)
+        out.resize((w, h), Image.LANCZOS).save(path)
+        if shadow == "proj":
+            si = self.shadow_image(frames)
+            si.resize((w * 2, h), Image.LANCZOS).save(path[:-4] + "-shadow.png")

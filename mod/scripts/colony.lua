@@ -831,6 +831,8 @@ local function on_built(ev)
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}}
     storage.colonies[id] = colony
     M.seed_forage(colony)   -- the claimed land already has berries on it
+    local founder = ev.player_index and game.get_player(ev.player_index)
+    if founder then founder.create_local_flying_text{text = {"colony-message.colony-founded"}, position = e.position} end
     rendering.draw_circle{color = {0.2, 0.8, 0.3, 0.5}, width = 2, filled = false, radius = territory.HALL_RADIUS,
       target = e, surface = e.surface, only_in_alt_mode = true}
     script.register_on_object_destroyed(e)

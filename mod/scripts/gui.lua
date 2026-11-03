@@ -59,6 +59,15 @@ function M.colony_advice(colony, st, counts)
     hall_stock = stock, tool_gaps = merged}
 end
 
+-- A panel is rebuilt only when what it shows has changed. Rebuilding every half second reset scroll
+-- positions and swallowed hovers and clicks; the signature is a cheap digest of the same inputs.
+local function unchanged(frame, sig)
+  local text = serpent.line(sig, {comment = false, sortkeys = true})
+  if frame.tags and frame.tags.sig == text then return true end
+  frame.tags = {sig = text}
+  return false
+end
+
 -- ---------- household panel ----------
 -- Per-colonist job locks live on the house, not the Town Hall: a house lists only its own handful of
 -- occupants, so the panel stays usable when a town grows to hundreds of colonists.
@@ -77,14 +86,16 @@ local function fill_roster(pane, colony, ids)
     local row = pane.add{type = "flow", direction = "horizontal"}
     row.style.vertical_align = "center"
     local name = row.add{type = "label", caption = {"colony-gui-info.colonist", i, {"colony-gui-info.job-" .. job}}}
-    name.style.width = 110
-    local lock = colony.locks[un]
-    for _, opt in ipairs(LOCK_OPTS) do
-      local locked = (lock or "auto") == opt[1]
-      local b = row.add{type = "button", name = "colony_lock_" .. un .. "_" .. opt[1],
-        caption = locked and "[" .. opt[2] .. "]" or opt[2], tooltip = {"colony-gui-info.lock-" .. opt[1]}}
-      b.style.width = 34
+    name.style.width = 150
+    local items, selected = {}, 1
+    local lock = colony.locks[un] or "auto"
+    for k, opt in ipairs(LOCK_OPTS) do
+      items[k] = opt[1] == "auto" and {"colony-gui-info.lock-auto-short"} or {"colony-gui-info.job-" .. opt[1]}
+      if opt[1] == lock then selected = k end
     end
+    local dd = row.add{type = "drop-down", name = "colony_lock_" .. un, items = items, selected_index = selected,
+      tooltip = {"colony-gui-info.lock-dropdown-tt"}}
+    dd.style.width = 130
   end
 end
 
@@ -153,7 +164,14 @@ scheduler.register("gui.refresh_house", function(d)
   local colony = storage.colonies[d.colony_id]
   local h = colony and colony.houses[d.un]
   if not h then return end
-  fill_house(frame.body, h, colony)
+  local roster = {}
+  for _, un in ipairs(colony_mod.households(colony)[d.un] or {}) do
+    local st = storage.unit_state[un]
+    roster[#roster + 1] = {un, st and st.job, colony.locks and colony.locks[un]}
+  end
+  if not unchanged(frame, {colony_mod.house_stock(h), h.sat, h.occupants, h.inflight, colony_mod.is_powered(h), roster}) then
+    fill_house(frame.body, h, colony)
+  end
   scheduler.after(30, "gui.refresh_house", d)
 end)
 
@@ -310,7 +328,12 @@ scheduler.register("gui.refresh_hut", function(d)
   local colony = storage.colonies[d.colony_id]
   local h = colony and colony.huts[d.un]
   if not h then return end
-  fill_hut(frame.body, h)
+  local _, tools, allowed, workers = work.hut_info(h)
+  local reason = M.hut_reason(h, labour.HUTS[h.entity.name], tools, workers)
+  if not unchanged(frame, {tools, allowed, workers, h.limit, h.wear, h.inflight, h.ores, reason, work.site_count(h),
+      h.entity.get_item_count("colony-fertilizer")}) then
+    fill_hut(frame.body, h)
+  end
   draw_hut_range(h)
   scheduler.after(30, "gui.refresh_hut", d)
 end)
@@ -479,7 +502,8 @@ local function open_info(player, e)
   local frame = player.gui.relative.add{type = "frame", name = INFO_FRAME, direction = "vertical",
     caption = {"colony-gui-info.title"}, anchor = {gui = defines.relative_gui_type.container_gui,
       position = defines.relative_gui_position.right, names = {colony_mod.HALL}}}
-  local body = frame.add{type = "flow", name = "body", direction = "vertical"}
+  local body = frame.add{type = "scroll-pane", name = "body", direction = "vertical"}
+  body.style.maximal_height = 640
   fill_info(body, colony)
   scheduler.after(30, "gui.refresh_info", {player_index = player.index, un = e.unit_number, colony_id = colony.id})
 end
@@ -491,7 +515,13 @@ scheduler.register("gui.refresh_info", function(d)
   if not (frame and frame.valid and frame.visible and e and e.valid and e.unit_number == d.un) then return end
   local colony = storage.colonies[d.colony_id]
   if not (colony and colony.hall.valid) then return end
-  fill_info(frame.body, colony)
+  local st = colony_mod.stats(colony)
+  local counts = work.job_counts(colony)
+  local ledger = colony_mod.ledger_snapshot(colony)
+  if not unchanged(frame, {st, counts, ledger and ledger.items, M.colony_advice(colony, st, counts), colony.priority,
+      colony.job_targets, colony.accept_migrants}) then
+    fill_info(frame.body, colony)
+  end
   scheduler.after(30, "gui.refresh_info", d)
 end)
 
@@ -503,23 +533,6 @@ events.on(defines.events.on_gui_click, function(ev)
     if c then
       c.filters[clear_row] = nil
       if body then fill_crate(body, c) end
-    end
-    return
-  end
-  local un, lock_job = name:match("^colony_lock_(%d+)_(%a+)$")
-  if un then
-    local player = game.get_player(ev.player_index)
-    local e = player and player.opened
-    if not (e and e.valid and (e.name == colony_mod.HALL or colony_mod.HOUSES[e.name])) then return end
-    local colony = colony_at(e)
-    if not colony then return end
-    if lock_job ~= "auto" and not jobs.DEFAULT[lock_job] then return end   -- only roles the matrix knows
-    colony.locks = colony.locks or {}
-    colony.locks[tonumber(un)] = (lock_job ~= "auto") and lock_job or nil
-    local house = colony.houses[e.unit_number]
-    local frame = player.gui.relative[house and HOUSE_FRAME or INFO_FRAME]
-    if frame and frame.body then
-      if house then fill_house(frame.body, house, colony) else fill_info(frame.body, colony) end
     end
     return
   end
@@ -604,6 +617,20 @@ events.on(defines.events.on_gui_click, function(ev)
   colony_mod.reassign_workforce(colony)
   local frame = player.gui.relative[INFO_FRAME]
   if frame and frame.body then fill_info(frame.body, colony) end
+end)
+
+events.on(defines.events.on_gui_selection_state_changed, function(ev)
+  local un = tonumber(ev.element.name:match("^colony_lock_(%d+)$"))
+  if not un then return end
+  local player = game.get_player(ev.player_index)
+  local e = player and player.opened
+  if not (e and e.valid and colony_mod.HOUSES[e.name]) then return end
+  local colony = colony_at(e)
+  local opt = LOCK_OPTS[ev.element.selected_index]
+  if not (colony and opt) then return end
+  if opt[1] ~= "auto" and not jobs.DEFAULT[opt[1]] then return end   -- only roles the matrix knows
+  colony.locks = colony.locks or {}
+  colony.locks[un] = opt[1] ~= "auto" and opt[1] or nil
 end)
 
 -- ---------- colony crates (#33) ----------
@@ -691,6 +718,15 @@ local function recipe_requests(e)
   return out
 end
 
+local function req_status(e, m, req)
+  local colony = colony_at(e)
+  local state = advice.request{have = e.get_item_count(req.item), count = req.count, inflight = m.inflight and m.inflight[req.item] or 0,
+    stock = colony and colony_mod.stock_count(colony, req.item) or 0,
+    haul_rank = colony and jobs.effective(colony.priority).haul or 1}
+  local lvl = (state == "no-stock" or state == "haul-off") and "red" or (state == "queued" and "orange" or "green")
+  return {"", "[color=" .. lvl .. "]", {"colony-advice.req-" .. state}, "[/color]"}
+end
+
 local function fill_machine(frame, m, e)
   frame.clear()
   frame.add{type = "checkbox", name = "colony_supply_enabled", state = m ~= nil and m.enabled or false,
@@ -699,21 +735,14 @@ local function fill_machine(frame, m, e)
   frame.add{type = "label", caption = {"colony-gui.supply-rows"}}
   for i = 1, M.REQUEST_ROWS do
     local req = m.requests[i]
-    local row = frame.add{type = "flow", direction = "horizontal"}
+    local row = frame.add{type = "flow", name = "colony_req_row_" .. i, direction = "horizontal"}
     row.style.vertical_align = "center"
     row.add{type = "choose-elem-button", name = "colony_req_item_" .. i, elem_type = "item", item = req and req.item}
     local tf = row.add{type = "textfield", name = "colony_req_count_" .. i, text = req and tostring(req.count) or "",
       numeric = true, allow_decimal = false, allow_negative = false}
     tf.style.width = 60
     row.add{type = "label", caption = {"colony-gui.supply-keep"}}
-    if req then
-      local colony = colony_at(e)
-      local state = advice.request{have = e.get_item_count(req.item), count = req.count, inflight = m.inflight and m.inflight[req.item] or 0,
-        stock = colony and colony_mod.stock_count(colony, req.item) or 0,
-        haul_rank = colony and jobs.effective(colony.priority).haul or 1}
-      local lvl = (state == "no-stock" or state == "haul-off") and "red" or (state == "queued" and "amber" or "green")
-      row.add{type = "label", caption = {"", "[color=" .. (lvl == "amber" and "orange" or lvl) .. "]", {"colony-advice.req-" .. state}, "[/color]"}}
-    end
+    if req then row.add{type = "label", name = "status", caption = req_status(e, m, req)} end
   end
   frame.add{type = "checkbox", name = "colony_supply_collect", state = m.collect, caption = {"colony-gui.supply-collect"},
     tooltip = {"colony-gui.supply-collect-tt"}}
@@ -730,7 +759,26 @@ local function open_machine(player, e)
   local colony = colony_at(e)
   if not colony then body.add{type = "label", caption = {"colony-gui.supply-outside"}}; return end
   fill_machine(body, colony.machines[e.unit_number], e)
+  scheduler.after(30, "gui.refresh_machine", {player_index = player.index, un = e.unit_number})
 end
+
+-- Request status lines are updated in place: rebuilding the panel would drop focus from a count being typed.
+scheduler.register("gui.refresh_machine", function(d)
+  local player = game.get_player(d.player_index)
+  local frame = player and player.valid and player.gui.relative[MACHINE_FRAME]
+  local e = player and player.opened
+  if not (frame and frame.valid and frame.visible and e and e.valid and e.unit_number == d.un) then return end
+  local colony = colony_at(e)
+  local m = colony and colony.machines[e.unit_number]
+  if m and m.enabled then
+    for i = 1, M.REQUEST_ROWS do
+      local row, req = frame.body["colony_req_row_" .. i], m.requests[i]
+      local label = row and row.status
+      if label and req then label.caption = req_status(e, m, req) end
+    end
+  end
+  scheduler.after(30, "gui.refresh_machine", d)
+end)
 
 events.on(defines.events.on_gui_opened, function(ev)
   local player = game.get_player(ev.player_index)

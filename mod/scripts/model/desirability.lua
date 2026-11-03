@@ -18,11 +18,12 @@ local function clamp(x, lo, hi) return math.max(lo, math.min(hi, x)) end
 M.clamp = clamp
 
 -- inputs: food_ratio (stock / target stock), free_housing_ratio, scenic, leisure, recreation (0..1), pollution (0..1+),
--- deaths = list of ages (intervals)
+-- deaths = list of ages (intervals), death_halflife = optional override (a Cemetery shortens mourning, #53)
 function M.compute(inp, p)
   p = p or M.defaults
   local death_pen = 0
-  for _, age in ipairs(inp.deaths or {}) do death_pen = death_pen + p.death_penalty * 0.5 ^ (age / p.death_halflife) end
+  local halflife = inp.death_halflife or p.death_halflife
+  for _, age in ipairs(inp.deaths or {}) do death_pen = death_pen + p.death_penalty * 0.5 ^ (age / halflife) end
   local parts = {
     food = p.w_food * clamp(inp.food_ratio, 0, 1),
     housing = p.w_housing * clamp(inp.free_housing_ratio, 0, 1),

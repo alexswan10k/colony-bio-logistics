@@ -283,6 +283,10 @@ core.register("m1_colony", {
           return n
         end
         if (th and food(th) > 0) or (ch and food(ch) > 0) then saw.food = true end
+        -- Patches regrow in place (colony.REGROW_TICKS), so the end count can be back where it started: track the
+        -- lowest count seen instead.
+        local patches_now = #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30}
+        saw.patch_min = math.min(saw.patch_min or patches_now, patches_now)
         for _, plot in pairs(c.plots or {}) do
           if plot.stage == farm.GROWING then saw.planted = true elseif plot.stage == farm.RIPE then saw.ripe = true end
           if plot.fertilized then saw.fertilized = true end
@@ -386,7 +390,8 @@ core.register("m1_colony", {
       ctx.check("cabin got no wood (power substitutes)", tcnt(cabin, "wood") == 0, tcnt(cabin, "wood"))
       ctx.check("houses were fed (critical need served before machine requests)", saw.food)
       ctx.check("trees chopped down", trees_after < trees_before, trees_before .. " -> " .. trees_after)
-      ctx.check("forage patches harvested", patches_after < patches_before, patches_before .. " -> " .. patches_after)
+      ctx.check("forage patches harvested", (saw.patch_min or patches_before) < patches_before,
+        patches_before .. " -> min " .. tostring(saw.patch_min) .. " -> " .. patches_after)
       ctx.check("furnace got iron ore", saw.ore)
       ctx.check("furnace got wood as well as ore", saw.wood)
       ctx.check("opt-in furnace output collected to hall", hall.get_item_count("iron-plate") > 0, hall.get_item_count("iron-plate"))

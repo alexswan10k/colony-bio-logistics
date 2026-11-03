@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 23
+local SCHEMA = 24
 
 local migrations = {
   [1] = function()
@@ -117,6 +117,14 @@ local migrations = {
     -- [wagon unit_number] = {groups = {{from, n, stops}}, text}.
     storage.coaches = storage.coaches or {}
     for _, c in pairs(storage.colonies) do c.platforms = c.platforms or {} end
+  end,
+  [24] = function()
+    -- Permanent death (#53): colony.cemeteries [unit_number] = {entity, colony_id, graves}; colonies count
+    -- `fallen` (every death) and `buried` (deaths laid in a cemetery).
+    for _, c in pairs(storage.colonies) do
+      c.cemeteries = c.cemeteries or {}
+      c.fallen, c.buried = c.fallen or 0, c.buried or 0
+    end
   end,
 }
 

@@ -360,6 +360,9 @@ local function fill_info(frame, colony)
   local colour = st.food_ratio < 0.5 and "red" or (st.food_ratio < 1 and "orange" or "green")
   frame.add{type = "label", caption = {"", {"colony-gui-info.food", st.food, st.food_target},
     "  [color=" .. colour .. "]" .. pct(st.food_ratio) .. "[/color]"}}
+  if (st.fallen or 0) > 0 then
+    frame.add{type = "label", caption = {"colony-gui-info.fallen", st.fallen, st.buried or 0}}
+  end
   local parts = st.parts
   frame.add{type = "label", caption = {"colony-gui-info.desirability", string.format("%.2f", st.d)}}
   frame.add{type = "label", caption = {"colony-gui-info.desirability-parts",

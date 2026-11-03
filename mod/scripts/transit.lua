@@ -7,6 +7,7 @@
 local events = require("scripts.events")
 local transit = require("scripts.model.transit")
 local work = require("scripts.work")
+local mortality = require("scripts.mortality")
 local M = {}
 
 M.COACH = "colony-passenger-coach"
@@ -172,16 +173,44 @@ events.on(defines.events.on_train_changed_state, function(ev)
   end
 end)
 
+-- A coach destroyed in combat or a crash (on_entity_died, which fires before on_object_destroyed) kills its
+-- riders: each is a death in the colony it boarded from (#53). Any other removal (mined, deconstructed, a
+-- script) lets them climb down and walk back to that colony's Town Hall.
+local function each_origin(rec, fn)
+  local by = {}
+  for _, g in ipairs(rec.groups or {}) do by[g.from] = (by[g.from] or 0) + g.n end
+  local ids = {}
+  for id in pairs(by) do ids[#ids + 1] = id end
+  table.sort(ids)
+  for _, id in ipairs(ids) do
+    local colony = storage.colonies[id]
+    if colony and colony.hall.valid then fn(colony, by[id]) end
+  end
+end
+
+events.on(defines.events.on_entity_died, function(ev)
+  local e = ev.entity
+  if e.name ~= M.COACH then return end
+  local rec = storage.coaches and storage.coaches[e.unit_number]
+  if not rec then return end
+  storage.coaches[e.unit_number] = nil
+  each_origin(rec, function(colony, n)
+    for _ = 1, n do mortality.record(colony, nil, nil, "train", true) end
+    colony.hall.force.print({"colony-message.riders-killed", n})
+  end)
+end)
+
 events.on(defines.events.on_object_destroyed, function(ev)
   local rec = ev.useful_id and storage.coaches and storage.coaches[ev.useful_id]
   if not rec then return end
   storage.coaches[ev.useful_id] = nil
-  local n = transit.riders(rec.groups)
-  if n > 0 then
-    for _, colony in pairs(storage.colonies) do
-      if colony.hall.valid then colony.hall.force.print({"colony-message.coach-lost", n}); break end
+  each_origin(rec, function(colony, n)
+    local back = 0
+    for _ = 1, n do
+      if colony_mod.spawn_colonist(colony) then back = back + 1 end
     end
-  end
+    if back > 0 then colony.hall.force.print({"colony-message.riders-home", back}) end
+  end)
 end)
 
 return M

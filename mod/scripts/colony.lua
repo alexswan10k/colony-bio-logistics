@@ -29,6 +29,8 @@ local work = require("scripts.work")
 local gui = require("scripts.gui")
 local feedback = require("scripts.feedback")
 local transit = require("scripts.transit")
+local mortality = require("scripts.mortality")
+local mortality_model = require("scripts.model.mortality")
 local M = {}
 
 M.HALL = "colony-town-hall"
@@ -38,6 +40,7 @@ M.WELL = "colony-well"
 M.MOTOR_POOL = "colony-motor-pool"
 M.TAVERN = "colony-tavern"
 M.PLATFORM = "colony-passenger-platform"
+M.CEMETERY = "colony-cemetery"
 M.HUT_RADIUS = 48              -- working radius around a labour hut (other colonies' land excluded)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
 M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not regrow in lockstep
@@ -134,6 +137,18 @@ function M.tavern_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.taverns[un] end
+  return out
+end
+
+-- Cemeteries (#53), in a stable order: [unit_number] = {entity, colony_id, graves}.
+function M.cemetery_list(colony)
+  local ids = {}
+  for un, c in pairs(colony.cemeteries or {}) do
+    if c.entity.valid then ids[#ids + 1] = un else colony.cemeteries[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.cemeteries[un] end
   return out
 end
 
@@ -592,10 +607,11 @@ local function kill_one(colony, h, need_id)
     local id = members[i]
     local c = colony.colonists[id]
     if c and c.valid then
-      c.die()
+      -- Struck off before it dies, so mortality's on_entity_died handler does not count it twice.
       colony.colonists[id] = nil
-      colony.pop_cache, colony.pop_tick, colony.house_index = nil, nil, nil
-      table.insert(colony.deaths, 0)
+      if colony.locks then colony.locks[id] = nil end
+      mortality.record(colony, c.position, c.surface, "starved", true)
+      c.die()
       colony.hall.force.print({"colony-message.starved", {"colony-gui.need-" .. need_id},
         {"entity-name." .. h.entity.name}, gps(h.entity)})
       return true
@@ -761,6 +777,7 @@ function M.evaluate(data)
     free_housing_ratio = capacity > 0 and (capacity - pop) / capacity or 0,
     scenic = colony.scenic or 0, leisure = rated > 0 and score_sum / rated or 0, recreation = colony.recreation or 0,
     pollution = pollution, deaths = colony.deaths,
+    death_halflife = mortality_model.halflife(desirability.defaults.death_halflife, #M.cemetery_list(colony) > 0),
   })
   colony.d, colony.d_parts = d, parts
   if colony.accept_migrants ~= false and d > desirability.defaults.migrate_in and pop < capacity then
@@ -917,7 +934,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.MOTOR_POOL or name == M.TAVERN or name == M.PLATFORM or M.HOUSES[name] or labour.HUTS[name] then
+    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.MOTOR_POOL or name == M.TAVERN or name == M.PLATFORM or name == M.CEMETERY or M.HOUSES[name] or labour.HUTS[name] then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -946,7 +963,7 @@ local function on_built(ev)
     if owner then refund(ev, e, name, {"colony-message.hall-too-close"}); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {}, locks = {}, quotas = {}, job_targets = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, locks = {}, quotas = {}, job_targets = {},
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}}
     storage.colonies[id] = colony
     M.seed_forage(colony)   -- the claimed land already has berries on it
@@ -1058,6 +1075,13 @@ local function on_built(ev)
     rendering.draw_circle{color = {0.4, 0.7, 1, 0.5}, width = 2, filled = false, radius = 10,
       target = e, surface = e.surface, only_in_alt_mode = true}
     script.register_on_object_destroyed(e)
+  elseif name == M.CEMETERY then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.cemeteries = colony.cemeteries or {}
+    colony.cemeteries[e.unit_number] = {entity = e, colony_id = colony.id, graves = 0}
+    script.register_on_object_destroyed(e)
   elseif name == M.TAVERN then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -1137,7 +1161,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or item_name == M.HALL or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLATFORM or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -1248,6 +1272,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
       colony.taverns[un] = nil
       return
     end
+    if colony.cemeteries and colony.cemeteries[un] then
+      colony.cemeteries[un] = nil   -- the graves go with it; `buried` keeps the count
+      return
+    end
     if colony.pools and colony.pools[un] then
       colony.pools[un] = nil   -- trucks still out park at the hall instead (work.lua)
       return
@@ -1281,7 +1309,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
   end
 end)
 
-work.bind(M); gui.bind(M); feedback.bind(M); transit.bind(M)   -- avoids a require cycle (runtime require is illegal)
+work.bind(M); gui.bind(M); feedback.bind(M); transit.bind(M); mortality.bind(M)   -- avoids a require cycle (runtime require is illegal)
 
 -- ---------- opt-in machine registry (#34) ----------
 -- The badge is alt-mode only: a small Town Hall icon over every machine the colony serves, so the player
@@ -1587,7 +1615,8 @@ function M.stats(colony)
     huts = huts, machines = machines, towers = towers, chunks = chunks,
     crates = #M.crate_list(colony), ghosts = ghosts, damaged = damaged,
     d = colony.d or 0, parts = colony.d_parts or {},
-    scenic = colony.scenic or 0, pollution = colony.pollution or 0}
+    scenic = colony.scenic or 0, pollution = colony.pollution or 0,
+    fallen = colony.fallen or 0, buried = colony.buried or 0}
 end
 
 return M

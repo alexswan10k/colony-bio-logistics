@@ -54,7 +54,7 @@ data:extend({
     "colony-housing-tent", "colony-forager-hut", "colony-woodcutter-hut", "colony-basket", "colony-axe"}),
   milestone("colony-mining", "icon-miner-hut.png", {"colony-settlement"}, {
     "colony-miner-hut", "colony-pickaxe", "colony-housing-cabin", "colony-compost-bin",
-    "colony-supply-crate", "colony-warehouse"}),
+    "colony-supply-crate", "colony-warehouse", "colony-cemetery"}),
   milestone("colony-hunting-fishing", "icon-hunting-lodge.png", {"colony-mining"}, {
     "colony-hunting-lodge", "colony-rifle", "colony-fishing-dock", "colony-rod"}),
   milestone("colony-logistics", "icon-watchtower.png", {"colony-hunting-fishing"}, {

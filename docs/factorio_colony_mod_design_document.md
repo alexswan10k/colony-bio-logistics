@@ -55,6 +55,7 @@ $$D = (W_{\text{food}} \cdot S_{\text{food}}) + (W_{\text{housing}} \cdot S_{\te
 
 ### 2.4 Permanent Death, Illness & Hospitals
 * **Permanent Death:** Combat and starvation are lethal ($0\text{ HP} = \text{permanent death}$). Every death applies a temporary stacking penalty ($P_{\text{deaths}}$) to Desirability.
+  * **Implemented (#53):** every colonist death counts, whatever the cause: starvation, a train, a vehicle, enemies, fire, poison, acid, explosions (`model/mortality.cause` names the killer from `on_entity_died`). It is final, adds one entry to the death penalty (0.15, halving every 6 evaluations) and to the hall's "Dead" count, and is announced with a map link. The dead are buried in the colony's first **Cemetery** (2x2, 12 graves, unlocked with the Mining milestone) with a free plot; otherwise a **Grave** marker is left where they fell (walk-through, mine it to clear). A colony with a Cemetery mourns for half as long (half-life 3 evaluations). Riders aboard a Passenger Coach that is destroyed die with it and count against the colony they boarded from; a coach that is mined or deconstructed sets its riders back down at their own Town Hall.
 * **Illness & Disease:**
   * Living or working in high-pollution chunks causes **Smoker's Lung**; eating near-spoiled food causes **Food Poisoning**; working on Gleba causes **Swamp Fever**.
   * Sick colonists work at $50\%$ speed and eventually die unless treated by a Doctor colonist at a **Clinic / Hospital** stocked with Herbal Medicine or Pharmaceuticals.

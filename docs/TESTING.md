@@ -44,6 +44,11 @@ Three headless gates cover the things the unit tests and the playable spike cann
   apart on one rail line, a platform by each stop; colony A loses its only tent, its four colonists walk to the platform
   and wait, board the coach (riders drawn on it), and step off at B as B's colonists; nobody is lost. Migrants are
   switched off in both colonies so head counts only move by train.
+- `scripts/headless-spike.sh m1_death` - the #53 permanent death spike (16 checks, `TICKS=1500`): a colonist killed by
+  a biter (`LuaEntity.die("enemy", biter)`) is struck off once with cause `enemy` and a Grave where it fell; after a
+  Cemetery is built a car kill (`vehicle`) is buried there instead; a coach wrecked with three riders adds three
+  deaths, one removed with `destroy()` sends its two riders back to the hall; the death penalty decays at the cemetery
+  half-life; any starvation in the underfed test town must balance the books too (one penalty per death).
 - `scripts/headless-spike.sh m1_tavern` - the #48 Tavern spike (19 checks, `TICKS=5000`): haulers fill an empty
   Tavern with ale from the hall, a tent within 24 tiles is Inspired and one 30+ tiles away is not, recreation sits
   between 0 and 1 and shows in desirability, ale is consumed, the tooltip says `tavern-serving`, and once all ale is
@@ -148,8 +153,11 @@ Each of these cost a debugging round in a spike; check them before assuming the 
   was a stop touching each end of the run (west end facing west on the north side, east end facing east on the
   south side). Schedules in 2.1 still take `train.schedule = {current = 1, records = {{station = ..., wait_conditions =
   {{type = "time", ticks = 300, compare_type = "and"}}}}}` followed by `train.manual_mode = false`.
-- **Trains run colonists over.** A colonist that walks across a live track dies to the train; the colony currently
-  records no death or message for it (tracked for #53). Keep spike layouts off the line.
+- **Trains run colonists over.** A colonist that walks across a live track dies to the train; since #53 that is a
+  recorded death (`hit by a train`) like any other. Keep spike layouts off the line unless that is the test.
+- **`on_entity_died` fires inside `LuaEntity.die()`**, before it returns, and the entity is invalid afterwards, so read
+  `unit_number` first. Code that kills a colonist itself (starvation) strikes it off the roster before calling `die()`,
+  which is how the generic handler knows not to count it again.
 - **Factorio 2.1 merged a recipe's `category` / `additional_categories` into `categories`**, and a recipe that still
   sets `category` stops the game at the data stage. Leave the field out for plain crafting (the default), or use
   `categories = {...}`.

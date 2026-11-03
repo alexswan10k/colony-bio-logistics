@@ -406,25 +406,34 @@ def tavern():
 
 @asset
 def passenger_platform():
-    """covered wooden platform (#49): a plank deck, a bench, a clock-and-lamp post and a little shingled roof"""
+    """station platform (#49) in the same 3/4 view as the houses: a raised plank deck with a stone kerb and a
+    yellow edge line, a lean-to canopy over the back half (roof seen from above, posts down to the deck), a
+    bench in its shade, a clock hung from the fascia and a lamp post at the open end"""
     a = Art(128, 128)
-    a.ao(10, 92, 124, 124, .5, 4)
-    a.rect(8, 60, 120, 116, PLANK, tex=planks_h(6), shade=.25)                           # deck
-    a.rect(8, 112, 120, 118, WOOD_D, shade=.2)                                           # deck edge
-    a.line([(14, 62), (14, 116)], 5, WOOD_D)                                             # roof posts
-    a.line([(114, 62), (114, 116)], 5, WOOD_D)
-    a.rect(30, 84, 98, 89, WOOD_D, shade=.2)                                             # bench back
-    a.rect(30, 90, 98, 100, WOOD_L, tex=planks_h(3), shade=.25)                          # bench seat
-    a.rect(34, 100, 38, 110, WOOD_D)                                                     # bench legs
-    a.rect(90, 100, 94, 110, WOOD_D)
-    a.line([(24, 112), (24, 58)], 3, IRON_D)                                             # clock and lamp post
-    a.rect(20, 50, 28, 60, GLASS_LIT, r=1, shade=.2)                                     # lantern
-    a.rect(18, 46, 30, 51, IRON_D, shade=.2)
-    a.ell(18, 66, 30, 78, (240, 236, 226), shade=.25, edge=.4)                           # clock face
-    a.line([(24, 72), (24, 67)], 1, IRON_D, hi=0)
-    a.line([(24, 72), (28, 74)], 1, IRON_D, hi=0)
-    a.poly([(2, 42), (64, 12), (126, 42), (118, 48), (64, 24), (10, 48)], (120, 78, 58), tex=shingle(8, 5), shade=.2)
-    a.line([(4, 44), (124, 44)], 2, DARKWOOD, hi=0)                                      # roof trim
+    a.ao(4, 96, 126, 126, .5, 4)
+    a.rect(4, 104, 124, 120, STONE, tex=stone(9), shade=.25)                             # kerb: front face
+    a.rect(4, 38, 124, 106, PLANK, tex=planks_h(6), shade=.2)                            # deck: top face
+    a.rect(4, 98, 124, 104, YELLOW, edge=.2, hi=.2, shade=.15)                           # edge line
+    a.shade([(4, 58), (124, 58), (124, 86), (4, 86)], .45)                               # canopy shade on the deck
+    a.rect(14, 64, 114, 68, DARKWOOD, shade=.2)                                          # bench back (against the rear)
+    a.rect(14, 68, 114, 76, WOOD_L, tex=planks_h(3), shade=.25)                          # bench seat
+    for x in (18, 62, 106):
+        a.rect(x, 76, x + 4, 82, DARKWOOD, edge=0, hi=0)                                 # bench legs
+    a.rect(84, 86, 94, 96, (150, 96, 60), r=1, shade=.3)                                 # luggage
+    a.rect(86, 84, 92, 86, DARKWOOD, edge=0, hi=0)
+    for x in (10, 116):
+        a.rect(x - 2, 56, x + 2, 86, WOOD_D, shade=.25)                                  # canopy posts
+    a.poly([(0, 8), (128, 8), (128, 54), (0, 54)], (96, 112, 92), tex=tin(6), shade=.12)   # canopy roof, from above
+    a.rect(0, 52, 128, 60, mul((96, 112, 92), .7), shade=.2)                             # fascia board
+    a.line([(0, 8), (128, 8)], 2, mul((96, 112, 92), .6), hi=0)                          # back edge
+    a.glint(6, 10, 60, 30, .25)
+    a.line([(64, 60), (64, 64)], 1.4, IRON_D, hi=0)                                      # clock bracket
+    a.ell(57, 63, 71, 77, (240, 236, 226), shade=.25, edge=.45)                          # clock face
+    a.line([(64, 70), (64, 66)], 1, IRON_D, hi=0)
+    a.line([(64, 70), (67, 71)], 1, IRON_D, hi=0)
+    a.line([(110, 102), (110, 76)], 3, IRON_D, shade=.2)                                 # lamp post at the open end
+    a.rect(105, 66, 115, 76, GLASS_LIT, r=1, shade=.2)
+    a.rect(103, 62, 117, 67, IRON_D, shade=.2)
     a.save(path("passenger-platform"), shadow=SHADOW)
     icon_of("passenger-platform")
 
@@ -441,6 +450,54 @@ def passenger_coach():
     a.ell(10, 42, 22, 54, IRON_D, shade=.3)                                                # wheels
     a.ell(42, 42, 54, 54, IRON_D, shade=.3)
     done(a, "icon-passenger-coach")
+
+
+@asset
+def cemetery():
+    """walled graveyard (#53) in the same 3/4 view: a grassy plot, a stone wall that shows its front face along
+    the bottom edge, a gate gap in the front wall between two pillars, two rows of headstones and a wooden cross"""
+    GRASS_D = (84, 118, 60)
+    EARTH = (142, 116, 84)
+    a = Art(128, 128)
+    a.ao(6, 102, 122, 128, .5, 4)
+    a.rect(16, 34, 112, 108, GRASS_D, tex=speckle(1.2, 50), shade=.2)                  # plot, top face
+    a.rect(56, 62, 72, 108, (176, 166, 146), tex=speckle(1.4, 40), shade=.12, edge=.2, hi=0)   # gravel path from the gate
+    a.rect(6, 24, 122, 34, STONE_L, tex=stone(9), shade=.1)                              # back wall: top cap
+    a.rect(6, 34, 122, 42, STONE, tex=stone(9), shade=.3)                                # back wall: face
+    for x0, x1 in ((6, 16), (112, 122)):
+        a.rect(x0, 34, x1, 108, STONE, tex=stone(9), shade=.3)                           # side walls
+        a.rect(x0, 34, x1, 38, STONE_L, shade=.1)                                        # side tops
+    for x0, x1 in ((6, 52), (76, 122)):
+        a.rect(x0, 104, x1, 110, STONE_L, shade=.1)                                      # front wall: top cap
+        a.rect(x0, 110, x1, 122, STONE, tex=stone(9), shade=.3)                          # front wall: face
+    for x0 in (50, 74):
+        a.rect(x0, 100, x0 + 8, 124, STONE_L, tex=stone(9), shade=.2)                    # gate pillars
+        a.rect(x0 - 1, 98, x0 + 9, 102, STONE_L, shade=.1)
+    for (x, y) in ((26, 58), (46, 58), (82, 58), (102, 58), (26, 84), (46, 84), (82, 84), (102, 84)):
+        a.ell(x - 7, y + 5, x + 7, y + 15, EARTH, shade=.3, grain=8)                    # grave mound
+        a.shade([(x - 5, y + 6), (x + 9, y + 6), (x + 12, y + 9), (x - 2, y + 9)], .3)   # shadow lower right
+        a.rect(x - 5, y - 2, x + 5, y + 6, (168, 164, 158), shade=.25)                  # stone body
+        a.ell(x - 5, y - 9, x + 5, y + 1, (182, 178, 172), shade=.25)                    # rounded top
+        a.rect(x - 5, y + 3, x + 5, y + 6, (112, 108, 102), shade=0, edge=0, hi=0)      # front face
+    a.ell(56, 54, 72, 64, EARTH, shade=.3, grain=8)                                      # wooden cross at the head of the path
+    a.line([(64, 36), (64, 60)], 4, WOOD_D, shade=.2)
+    a.line([(56, 44), (72, 44)], 4, WOOD_D, shade=.2)
+    a.save(path("cemetery"), shadow=SHADOW)
+    icon_of("cemetery")
+
+
+@asset
+def grave():
+    """single grave (#53): a grey headstone with a low mound of earth in front, same 3/4 view"""
+    a = Art(64, 64)
+    a.ao(14, 42, 52, 54, .5, 3)
+    a.shade([(26, 42), (44, 42), (48, 46), (30, 46)], .3)                                # shadow lower right
+    a.rect(24, 24, 40, 40, (168, 164, 158), shade=.25)                                   # stone body
+    a.ell(24, 15, 40, 31, (182, 178, 172), shade=.25)                                    # rounded top
+    a.rect(24, 36, 40, 40, (112, 108, 102), shade=0, edge=0, hi=0)                       # front face
+    a.ell(15, 36, 49, 52, (142, 116, 84), shade=.3, grain=8)                             # mound of earth
+    a.save(path("grave"), shadow=SHADOW)
+    icon_of("grave")
 
 
 @asset

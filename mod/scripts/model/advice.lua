@@ -106,6 +106,13 @@ function M.platform(f)
   return {level = "green", key = "platform-idle", args = {}}
 end
 
+-- A Cemetery's tooltip (#53). facts: graves, plots. Green with room; amber when full, because the next dead
+-- are then buried where they fall.
+function M.cemetery(f)
+  if (f.graves or 0) >= (f.plots or 0) then return {level = "amber", key = "cemetery-full", args = {f.graves or 0}} end
+  return {level = "green", key = "cemetery-room", args = {f.graves or 0, f.plots}}
+end
+
 -- State of one machine request row. have = in the machine, inflight = on a hauler, stock = colony stock.
 function M.request(f)
   if f.have >= f.count then return "stocked" end

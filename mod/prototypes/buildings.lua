@@ -141,6 +141,23 @@ local warehouse = chest_clone("steel-chest", "colony-warehouse", "warehouse", 48
 -- which is the input #44's farming slice spends.
 local compost_bin = chest_clone("iron-chest", "colony-compost-bin", "compost-bin", 12, 1)
 
+-- Cemetery (#53): a walled 2x2 plot that holds the colony's dead; the graves are a count in the colony registry
+-- (scripts/mortality.lua), the one-slot inventory is unused. A Grave is a plain entity the scripts place where a
+-- colonist died when no cemetery has room, with no item and no recipe.
+local cemetery = chest_clone("iron-chest", "colony-cemetery", "cemetery", 1, 1)
+local grave = {
+  type = "simple-entity-with-owner", name = "colony-grave",
+  localised_name = {"entity-name.colony-grave"}, localised_description = {"entity-description.colony-grave"},
+  icon = G .. "icon-grave.png", icon_size = 64,
+  flags = {"placeable-neutral", "player-creation", "not-blueprintable", "not-upgradable"},
+  minable = {mining_time = 0.5, result = "wood", count = 1},
+  max_health = 50,
+  collision_box = {{-0.3, -0.3}, {0.3, 0.3}}, selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
+  collision_mask = {layers = {}},   -- colonists walk through a grave
+  picture = with_shadow("grave", 64, 64, 0.5),
+  render_layer = "object",
+}
+
 -- Farm plot (#44 first slice): a 1x1 tilled tile the player places on farmland. Three graphics
 -- variations are the crop stages; the script switches graphics_variation as the crop grows.
 -- Custom collision layer prevents overlapping plots without blocking walking player or colonists.
@@ -234,7 +251,7 @@ end
 data:extend({
   hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, tavern, motorpool, platform, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
-  plot, bush, sink, marker,
+  plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
   item_of(cabin, "cabin", "z[colony]-c[housing-cabin]"),
@@ -260,6 +277,7 @@ data:extend({
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(warehouse, "warehouse", "z[colony]-l[warehouse]"),
   item_of(compost_bin, "compost-bin", "z[colony]-m[compost-bin]"),
+  item_of(cemetery, "cemetery", "z[colony]-l4[cemetery]"),
   {type = "item", name = "colony-fertilizer", icon = G .. "icon-fertilizer.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-c[fertilizer]", stack_size = 100,
    localised_name = {"item-name.colony-fertilizer"},
@@ -344,6 +362,7 @@ data:extend({
   recipe("colony-demand-crate", {wood = 10, ["iron-plate"] = 10}, 1, 1, false),
   recipe("colony-warehouse", {wood = 40, ["stone-brick"] = 20, ["iron-plate"] = 20}, 3, 1, false),
   recipe("colony-compost-bin", {wood = 12, ["iron-plate"] = 4}, 1, 1, false),
+  recipe("colony-cemetery", {stone = 20, wood = 10}, 3, 1, false),
   recipe("colony-basket", {wood = 4}, 1, 1, false),
   recipe("colony-logistics-marker", {wood = 2, ["iron-plate"] = 2}, 1, 1, false),
   tool("colony-basket", "icon-basket.png"), tool("colony-axe", "icon-axe.png"), tool("colony-pickaxe", "icon-pickaxe.png"),

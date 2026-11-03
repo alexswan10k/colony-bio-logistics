@@ -2,11 +2,10 @@
 -- house, hut and Town Hall gets a status line on its tooltip (custom_status), and anything that is costing
 -- the colony - a house about to starve, a hut that cannot get its tool, nothing left to harvest, no food at
 -- all - goes into the native alert bar, clickable to the building. Rules are in model/advice.lua; this file
--- only reads the world and writes statuses and alerts. The same short cadence drives the hall workshop.
+-- only reads the world and writes statuses and alerts.
 local scheduler = require("scripts.scheduler")
 local advice = require("scripts.model.advice")
 local housing = require("scripts.model.housing")
-local workshop = require("scripts.model.workshop")
 local jobs = require("scripts.model.jobs")
 local motor = require("scripts.model.motor")
 local recreation = require("scripts.model.recreation")
@@ -46,15 +45,6 @@ local function house_status(h)
   return r, {"colony-status." .. key, r.args[1], r.args[2]}
 end
 
--- A hut short of its tool, where the hall workshop could make one: which ingredient is missing, if any.
-local function craft_gap(colony, tool, stock)
-  if not (workshop.RECIPES[tool] and colony.hall.force.recipes[tool] and colony.hall.force.recipes[tool].enabled) then
-    return nil
-  end
-  local item_name, n = next(workshop.missing(tool, stock))
-  return {item = item_name, n = n}
-end
-
 local function hut_status(colony, h, stock, haul_rank)
   local def, tools, allowed, workers = work.hut_info(h)
   if h.job == "heal" then     -- a Clinic (#47) answers to the sick, not to sites
@@ -79,11 +69,11 @@ local function hut_status(colony, h, stock, haul_rank)
     return {level = "green"}, {"colony-status.hut-working", workers, allowed}
   end
   if reason == "no-tool-in-hall" then
-    local gap = craft_gap(colony, arg, stock)
-    if gap and not gap.item then
-      return {level = "amber"}, {"colony-status.hut-tool-crafting", item(arg)}
-    elseif gap then
-      return {level = "red"}, {"colony-status.hut-tool-ingredients", item(arg), gap.n, item(gap.item)}, arg
+    local kind, ingredient, n = work.tool_gap(colony, arg)
+    if kind == "making" then
+      return {level = "amber"}, {"colony-advice.hut-tool-crafting", item(arg)}
+    elseif kind == "short" then
+      return {level = "red"}, {"colony-advice.hut-tool-ingredients", item(arg), n, item(ingredient)}, arg
     end
     return {level = "red"}, {"colony-advice.hut-no-tool-in-hall", item(arg)}, arg
   end
@@ -205,7 +195,6 @@ function M.tick(data)
   if not (colony and colony.hall and colony.hall.valid) then return end
   colony.feedback_at = game.tick
   scheduler.after(M.TICKS, "feedback.tick", data)
-  colony_mod.workshop(colony)
   M.update(colony)
 end
 scheduler.register("feedback.tick", M.tick)

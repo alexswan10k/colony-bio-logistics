@@ -51,7 +51,8 @@ end
 
 data:extend({
   milestone("colony-settlement", "icon-town-hall.png", {}, {
-    "colony-housing-tent", "colony-forager-hut", "colony-woodcutter-hut", "colony-basket", "colony-axe"}),
+    "colony-housing-tent", "colony-forager-hut", "colony-woodcutter-hut", "colony-basket", "colony-axe",
+    "colony-toolsmith"}),
   milestone("colony-mining", "icon-miner-hut.png", {"colony-settlement"}, {
     "colony-miner-hut", "colony-pickaxe", "colony-housing-cabin", "colony-compost-bin",
     "colony-supply-crate", "colony-warehouse", "colony-cemetery"}),

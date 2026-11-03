@@ -20,6 +20,8 @@ local wildlife = require("scripts.wildlife")
 local fishing = require("scripts.model.fishing")
 local preserve = require("scripts.model.preserve")
 local kitchen = require("scripts.model.kitchen")
+local toolsmith = require("scripts.model.toolsmith")
+local workshop = require("scripts.model.workshop")
 local yields = require("scripts.model.yields")
 local salt = require("scripts.model.salt")
 local well = require("scripts.model.well")
@@ -33,6 +35,8 @@ local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
 
 M.WORK_TICKS = yields.WORK_TICKS
+-- Tools the Toolsmith has made since the game started. A diagnostic for the spikes, not game state: it is not saved.
+M.tools_made = 0
 M.RETRY_TICKS = 300
 M.RETRY_BACKOFF_MAX = 4     -- an idle colonist that keeps finding nothing waits up to this many retry periods (#22)
 M.RETRY_BACKOFF_POP = 100   -- ...but only in big towns: one extra retry period per this many colonists
@@ -309,6 +313,59 @@ end
 M.hut_resources = hut_resources
 M.hut_quota_met = hut_quota_met
 
+-- Toolsmith (model/toolsmith.lua) -----------------------------------------------------------------------
+-- Any built Toolsmith of the colony, or nil. Only its presence matters to the rest of the town.
+function M.toolsmith_of(colony)
+  for _, h in pairs(colony.huts) do
+    if h.entity.valid and h.entity.name == toolsmith.NAME then return h end
+  end
+  return nil
+end
+
+-- The tools the colony wants made right now, in order: what huts are short of, then one spare of each tool a built
+-- hut uses. Built from the same gap list the GUI shows (colony_mod.tool_gaps).
+local function toolsmith_wanted(colony)
+  local gap_tools, built, seen = {}, {}, {}
+  for _, g in ipairs(colony_mod.tool_gaps(colony)) do gap_tools[#gap_tools + 1] = g.tool end
+  for _, h in pairs(colony.huts) do
+    local def = h.entity.valid and labour.HUTS[h.entity.name]
+    if def and def.tool and not seen[def.tool] then
+      seen[def.tool] = true
+      built[#built + 1] = def.tool
+    end
+  end
+  table.sort(built)   -- pairs order is not stable
+  return toolsmith.wanted(gap_tools, built, colony_mod.stock_table(colony))
+end
+
+-- Which tool this Toolsmith makes next, and its recipe, or nil. Only recipes the force has researched count.
+local function toolsmith_pick(colony, hut)
+  local wanted = toolsmith_wanted(colony)
+  if #wanted == 0 then return nil end
+  local recipes, unlocked = hut.entity.force.recipes, {}
+  for _, tool in ipairs(wanted) do
+    if recipes[tool] and recipes[tool].enabled then unlocked[tool] = true end
+  end
+  return toolsmith.pick(wanted, chest_contents(hut.entity) or {}, unlocked)
+end
+
+-- A hut short of `tool` with none in colony stock: what the colony's Toolsmith means for it, as
+-- toolsmith.gap returns it ("craft", "making", or "short", item, n).
+function M.tool_gap(colony, tool)
+  local recipe = colony.hall.force.recipes[tool]
+  return toolsmith.gap{toolsmith = M.toolsmith_of(colony) ~= nil, unlocked = recipe ~= nil and recipe.enabled == true,
+    missing = workshop.missing(tool, colony_mod.stock_table(colony))}
+end
+
+-- A supply-gated preserve hut (Smokehouse, Kitchen, Toolsmith) can work only while it holds what it works on. Used
+-- by the job slots (so the chooser never sends a colonist to a hut with nothing to do) and by the site check.
+-- Returns the tool to make for a Toolsmith, or a truthy value for the others.
+local function preserve_ready(colony, hut)
+  if hut.entity.name == toolsmith.NAME then return toolsmith_pick(colony, hut) end
+  if hut.entity.name == "colony-kitchen" then return kitchen.recipe(chest_contents(hut.entity) or {}) end
+  return preserve.recipe(chest_contents(hut.entity) or {})
+end
+
 local function job_slots(colony)
   local list = {}
   local active = {}
@@ -316,6 +373,8 @@ local function job_slots(colony)
     local _, _, allowed, workers = M.hut_info(h)
     if hut_quota_met(colony, h) then allowed = 0 end
     if (colony.no_site[h.entity.unit_number] or 0) > game.tick or (colony.no_site[h.job] or 0) > game.tick then allowed = 0 end
+    -- A supply-gated hut is a slot only while it can work: otherwise a colonist is sent to it, finds no site and idles.
+    if h.job == "preserve" and not preserve_ready(colony, h) then allowed = 0 end
     if allowed > 0 then active[h.job] = (active[h.job] or 0) + 1 end
     list[#list + 1] = {id = h.entity.unit_number, job = h.job, allowed = allowed, workers = workers, hut = h}
   end
@@ -419,12 +478,9 @@ local function find_site(colony, e, hut)
     end
     return nil
   elseif hut.job == "preserve" then
-    -- The smokehouse or kitchen is its own workplace, and it can only work when it holds its inputs.
+    -- The smokehouse, kitchen or toolsmith is its own workplace, and it can only work when it holds its inputs.
     -- Returning nil leaves it unstaffed (and `no_site` stops the town from thrashing on it for a while).
-    if hut.entity.name == "colony-kitchen" then
-      return kitchen.recipe(chest_contents(hut.entity) or {}) and hut.entity
-    end
-    return preserve.recipe(chest_contents(hut.entity) or {}) and hut.entity
+    return preserve_ready(colony, hut) and hut.entity
   elseif hut.job == "fish" then
     if colony_mod.quota_met(colony, "colony-fish") then return nil, "colony-fish" end
     -- The dock is the workplace: there is no world entity to harvest, the water is the resource, and whether
@@ -607,6 +663,10 @@ local function hut_offer(h)
     demands = science.wants(h.entity.name, chest_contents(h.entity) or {}, h.inflight)
   elseif h.job == "heal" then
     demands = illness.wants(h.entity.get_item_count(illness.MEDICINE), h.inflight[illness.MEDICINE])
+  elseif h.entity.name == toolsmith.NAME then
+    -- Materials only while there is a tool to make: an idle Toolsmith does not hoard wood and iron.
+    local colony = storage.colonies[h.colony_id]
+    demands = (colony and #toolsmith_wanted(colony) > 0) and toolsmith.wants(chest_contents(h.entity) or {}, h.inflight) or {}
   elseif h.entity.name == "colony-kitchen" then
     demands = kitchen.wants(chest_contents(h.entity) or {}, h.inflight)
   else
@@ -1515,7 +1575,18 @@ scheduler.register("work.finish", function(d)
   elseif st.job == "preserve" then
     -- Curing or cooking happens here, in the hut, out of the hut's own inventory: the input offer keeps it stocked.
     -- The output is carried home like any other hut yield, so the processed food rides existing hauling.
-    if hut.entity.name == "colony-kitchen" then
+    if hut.entity.name == toolsmith.NAME then
+      -- A tool is made from the wood, iron and copper in the Toolsmith's own chest, then carried home like any yield.
+      local tool, recipe = toolsmith_pick(colony, hut)
+      if tool then
+        for ingredient, n in pairs(recipe) do hut.entity.remove_item{name = ingredient, count = n} end
+        item, n = tool, 1
+        M.tools_made = M.tools_made + 1
+        rendering.draw_text{text = {"colony-message.workshop-made", "[item=" .. tool .. "]"}, surface = hut.entity.surface,
+          target = {entity = hut.entity, offset = {0, -2.5}}, color = {0.8, 1, 0.8}, scale = 1, alignment = "center",
+          time_to_live = 120}
+      end
+    elseif hut.entity.name == "colony-kitchen" then
       local recipe = kitchen.recipe(chest_contents(hut.entity) or {})
       if recipe then
         hut.entity.remove_item{name = kitchen.PRODUCE, count = kitchen.PRODUCE_PER_BATCH}
@@ -1850,7 +1921,9 @@ events.on(defines.events.on_ai_command_completed, function(ev)
       update_lab_status(st.hut.entity, worker_count(st.hut), def and def.capacity or 2)
     end
     -- Inspired colonists (served by a Tavern, #48) finish each job sooner.
-    local ticks = recreation.work_ticks(M.WORK_TICKS, colony_mod.is_inspired(colony, ev.unit_number))
+    local base = M.WORK_TICKS
+    if st.hut and st.hut.entity.valid and st.hut.entity.name == toolsmith.NAME then base = toolsmith.work_ticks(base) end
+    local ticks = recreation.work_ticks(base, colony_mod.is_inspired(colony, ev.unit_number))
     ticks = illness.work_ticks(ticks, colony_mod.is_sick(ev.unit_number))   -- the sick work at half speed (#47)
     scheduler.after(ticks + (ev.unit_number * 23) % 240, "work.finish", {un = ev.unit_number})
   elseif st.state == "to_hut" then

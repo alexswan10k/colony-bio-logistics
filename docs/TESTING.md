@@ -23,7 +23,7 @@ Three headless gates cover the things the unit tests and the playable spike cann
   tick 18000: haulers walk to every pickup now, so the multi-hop chains - meat to smokehouse, spoilage to compost to
   fertilized plots - need the longer window). It includes the onboarding
   path: building a Town Hall completes the Settlement milestone, every house and hut gets a status line, the hall
-  workshop makes a missing tool from stock, and an untooled hut says so on its tooltip. The milestone techs are
+  Toolsmith makes a tool from wood and iron, and an untooled hut says so on its tooltip. The milestone techs are
   granted before the research queue check, so that check tests research, not onboarding.
 - `scripts/headless-spike.sh m1_desirability` - the desirability inputs and leaving (19 checks): migrants
   arrive on a fed/housed site, scenic rises when trees are planted in the sampled box, `pollute()` at the

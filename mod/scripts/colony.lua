@@ -24,7 +24,6 @@ local ledger = require("scripts.model.ledger")
 local quota = require("scripts.model.quota")
 local headcount = require("scripts.model.headcount")
 local milestones = require("scripts.model.milestones")
-local workshop = require("scripts.model.workshop")
 local work = require("scripts.work")
 local gui = require("scripts.gui")
 local feedback = require("scripts.feedback")
@@ -1602,30 +1601,6 @@ function M.tool_gaps(colony)
     if last and last.tool == g.tool then last.short = last.short + g.short else merged[#merged + 1] = g end
   end
   return merged
-end
-
--- Town Hall workshop (model/workshop.lua): at most one tool per WORKSHOP_TICKS, made from colony stock for a
--- hut that is waiting on it, and only from recipes the force has unlocked. Shown over the hall as it happens.
-M.WORKSHOP_TICKS = 600
-function M.workshop(colony)
-  if game.tick < (colony.workshop_at or 0) then return end
-  local gaps = M.tool_gaps(colony)
-  if #gaps == 0 then return end
-  local recipes, unlocked = colony.hall.force.recipes, {}
-  for _, g in ipairs(gaps) do
-    if recipes[g.tool] and recipes[g.tool].enabled then unlocked[g.tool] = true end
-  end
-  local tool, recipe = workshop.pick(gaps, M.stock_table(colony), unlocked)
-  if not tool then return end
-  local items = {}
-  for item in pairs(recipe) do items[#items + 1] = item end
-  table.sort(items)
-  for _, item in ipairs(items) do M.take_stock(colony, item, recipe[item]) end
-  M.put_stock(colony, tool, 1)
-  colony.workshop_at = game.tick + M.WORKSHOP_TICKS
-  rendering.draw_text{text = {"colony-message.workshop-made", "[item=" .. tool .. "]"}, surface = colony.hall.surface,
-    target = {entity = colony.hall, offset = {0, -2.5}}, color = {0.8, 1, 0.8}, scale = 1, alignment = "center",
-    time_to_live = 120}
 end
 
 function M.stats(colony)

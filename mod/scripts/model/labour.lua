@@ -16,6 +16,8 @@ M.HUTS = {
     keep = {"colony-salt", "colony-meat", "colony-fish"}},
   ["colony-kitchen"] = {job = "preserve", capacity = 2,
     keep = {"colony-produce", "colony-water"}},
+  -- Toolsmith: the one hut that makes tools, from the wood, iron and copper haulers bring (model/toolsmith.lua).
+  ["colony-toolsmith"] = {job = "preserve", capacity = 1, keep = {"wood", "iron-plate", "copper-plate"}},
   -- Research buildings (#42): Town Archive & University. Staffed by scholars, supplied with science packs.
   ["colony-town-archive"] = {job = "research", capacity = 2,
     keep = {"colony-frontier-pack"}, inputs = {{item = "colony-frontier-pack", count = 10}}},

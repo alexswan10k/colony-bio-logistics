@@ -10,7 +10,7 @@ local colony_mod = require("scripts.colony")
 local KIT = {
   ["colony-town-hall"] = 1, ["colony-housing-tent"] = 3, ["colony-housing-cabin"] = 2,
   ["colony-forager-hut"] = 1, ["colony-woodcutter-hut"] = 1, ["colony-miner-hut"] = 1,
-  ["colony-hunting-lodge"] = 1, ["colony-fishing-dock"] = 1, ["colony-compost-bin"] = 1,
+  ["colony-hunting-lodge"] = 1, ["colony-fishing-dock"] = 1, ["colony-compost-bin"] = 1, ["colony-toolsmith"] = 1,
   ["colony-basket"] = 5, ["colony-axe"] = 10, ["colony-pickaxe"] = 10, ["colony-rifle"] = 5, ["colony-rod"] = 5,
   ["colony-debug-generator"] = 1,
   ["wood"] = 200, ["iron-plate"] = 200, ["stone-brick"] = 50,

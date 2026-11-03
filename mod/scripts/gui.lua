@@ -169,7 +169,10 @@ local function draw_hut_range(h)
     radius = colony_mod.HUT_RADIUS, target = h.entity, surface = h.entity.surface, time_to_live = 60}
 end
 
--- Why this hut is short of workers (model/advice.lua), as a locale key under colony-advice.
+local function item(name) return {"item-name." .. name} end
+
+-- Why this hut is short of workers (model/advice.lua): a locale key under colony-advice, its arguments, and the
+-- level it is shown at. A hut short of a tool is told what the colony's Toolsmith makes of it (work.tool_gap).
 function M.hut_reason(h, def, tools, workers)
   local colony = storage.colonies[h.colony_id]
   local sites
@@ -187,17 +190,24 @@ function M.hut_reason(h, def, tools, workers)
     limit = h.limit, workers = workers, inflight = def.tool and (h.inflight[def.tool] or 0) or 0,
     hall_stock = def.tool and colony and colony_mod.stock_count(colony, def.tool) or 0, sites = sites,
     inputs_missing = inputs_missing, haul_rank = colony and jobs.effective(colony.priority).haul or 1}
-  return reason and ("hut-" .. reason), arg
+  if not reason then return nil end
+  if reason == "no-tool-in-hall" then
+    local kind, ingredient, n
+    if colony then kind, ingredient, n = work.tool_gap(colony, arg) end
+    if kind == "making" then return "hut-tool-crafting", {item(arg)}, "amber" end
+    if kind == "short" then return "hut-tool-ingredients", {item(arg), n, item(ingredient)}, "red" end
+    return "hut-no-tool-in-hall", {item(arg)}, "red"
+  end
+  return "hut-" .. reason, {}, reason == "haul-off" and "red" or "amber"
 end
 
 local function fill_hut(frame, h)
   frame.clear()
   local def, tools, allowed, workers = work.hut_info(h)
   frame.add{type = "label", caption = {"colony-gui-hut.workers", workers, allowed}}
-  local reason, arg = M.hut_reason(h, def, tools, workers)
+  local reason, args, level = M.hut_reason(h, def, tools, workers)
   if reason then
-    local level = (reason == "hut-no-tool-in-hall" or reason == "hut-haul-off") and "red" or "amber"
-    add_advice_line(frame, level, reason, arg and {"item-name." .. arg} or nil)
+    add_advice_line(frame, level, reason, args[1], args[2], args[3])
   end
   local limit = h.limit or def.capacity
   local row = frame.add{type = "flow", direction = "horizontal"}

@@ -57,6 +57,10 @@ core.register("m1_colony", {
       kitchen_ent.insert{name = "colony-produce", count = 2}
       kitchen_ent.insert{name = "colony-water", count = 2}
     end
+    -- Toolsmith (model/toolsmith.lua): the staffed hut that makes the tools huts are short of, from the wood, iron and
+    -- copper haulers bring it. Built with no inputs, so the whole chain runs: a hut asks for a tool, the colony has none,
+    -- the Toolsmith is supplied, a colonist works it and the tool is carried home.
+    local smith = build("colony-toolsmith", {p.x - 10, p.y + 22})
 
     -- Colony Science (#42): Town Archive staffed by scholars studying Frontier Charters.
     local archive_pos = {p.x - 12, p.y + 14}
@@ -117,6 +121,9 @@ core.register("m1_colony", {
       fh.ores = {stone = 0}
     end
     farmhut.insert{name = "colony-hoe", count = 3}
+    -- Two fertilizer by hand, so the first planting is a fertilized one: whether the Toolsmith's wood and iron delay the
+    -- fertilizer haul is a timing question the fertilized-plot check should not depend on.
+    farmhut.insert{name = "colony-fertilizer", count = 2}
     local plots = {}
     for i = 0, 5 do plots[#plots + 1] = build("colony-farm-plot", {p.x + 4 + i, p.y - 12}) end
     local plot_count = 0
@@ -151,6 +158,8 @@ core.register("m1_colony", {
       and c.huts[smokehouse.unit_number] ~= nil and c.huts[smokehouse.unit_number].job == "preserve")
     ctx.check("kitchen registered with the colony", kitchen_ent and kitchen_ent.valid
       and c.huts[kitchen_ent.unit_number] ~= nil and c.huts[kitchen_ent.unit_number].job == "preserve")
+    ctx.check("toolsmith registered with the colony", smith and smith.valid
+      and c.huts[smith.unit_number] ~= nil and c.huts[smith.unit_number].job == "preserve")
     ctx.check("town archive registered with the colony", archive and archive.valid
       and c.huts[archive.unit_number] ~= nil and c.huts[archive.unit_number].job == "research")
     hall.insert{name = "spoilage", count = 10}
@@ -482,7 +491,8 @@ core.register("m1_colony", {
         reason = gui.hut_reason(ph, def, tools, workers)
       end
       ctx.check("an unequipped hut explains itself", reason == "hut-no-tool-in-hall" or reason == "hut-tool-coming"
-        or reason == "hut-tool-waiting", tostring(reason) .. " tools=" .. tostring(tools))
+        or reason == "hut-tool-waiting" or reason == "hut-tool-crafting" or reason == "hut-tool-ingredients",
+        tostring(reason) .. " tools=" .. tostring(tools))
       local problems = gui.colony_advice(c, colony.stats(c), work.job_counts(c))
       local asm = s.create_entity{name = "assembling-machine-1", position = {p.x - 12, p.y + 12}, force = "player"}
       asm.set_recipe("iron-gear-wheel")
@@ -498,21 +508,18 @@ core.register("m1_colony", {
       for _, h in pairs(c.houses) do if h.entity.valid and not h.entity.custom_status then unlabelled = unlabelled + 1 end end
       for _, h in pairs(c.huts) do if h.entity.valid and not h.entity.custom_status then unlabelled = unlabelled + 1 end end
       ctx.check("every house and hut has a status line", unlabelled == 0, unlabelled .. " without")
-      -- Hall workshop: a hut short of its tool, none in stock, wood + iron in stock -> the hall makes one.
+      -- Toolsmith: a hut short of its tool with none in stock. The Toolsmith makes tools from the wood and iron haulers
+      -- bring it, so the run as a whole must have produced at least one (work.tools_made counts them).
       local lumber = build("colony-woodcutter-hut", {p.x - 20, p.y + 20})
       if lumber and lumber.valid then
         local axes = colony.stock_count(c, "colony-axe")
         if axes > 0 then colony.take_stock(c, "colony-axe", axes) end
-        hall.insert{name = "wood", count = 10}; hall.insert{name = "iron-plate", count = 10}
-        c.workshop_at = 0
-        colony.workshop(c)
-        ctx.check("the hall workshop makes a missing tool from stock", colony.stock_count(c, "colony-axe") == 1,
-          colony.stock_count(c, "colony-axe"))
         feedback.update(c)
         local cs = lumber.custom_status
         ctx.check("an untooled hut says so on its tooltip", cs and cs.diode ~= defines.entity_status_diode.green,
           cs and serpent.line(cs.label) or "none")
       end
+      ctx.check("the toolsmith made tools from wood and iron", work.tools_made > 0, "made " .. tostring(work.tools_made))
       ctx.finish()
     end)
   end,

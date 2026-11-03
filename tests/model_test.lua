@@ -1027,18 +1027,60 @@ describe("milestones", function()
   end)
 end)
 
-describe("workshop", function()
-  local workshop = require("scripts.model.workshop")
-  local gaps = {{tool = "colony-axe", short = 2}, {tool = "colony-basket", short = 1}}
-  it("makes the first missing tool it has the stock and the recipe for", function()
-    eq(workshop.pick(gaps, {wood = 10}, {["colony-axe"] = true, ["colony-basket"] = true}), "colony-basket")
-    eq(workshop.pick(gaps, {wood = 10, ["iron-plate"] = 5}, {["colony-axe"] = true}), "colony-axe")
-    eq(workshop.pick(gaps, {wood = 10, ["iron-plate"] = 5}, {}), nil)
-    eq(workshop.pick(gaps, {wood = 10, ["iron-plate"] = 5, ["colony-axe"] = 1}, {["colony-axe"] = true}), nil)
-  end)
+describe("toolsmith (tool recipes and the Toolsmith hut)", function()
+  local w = require("scripts.model.workshop")
+  local t = require("scripts.model.toolsmith")
   it("names the missing ingredient", function()
-    eq(workshop.missing("colony-axe", {wood = 5})["iron-plate"], 3)
-    eq(next(workshop.missing("colony-basket", {wood = 4})), nil)
+    eq(w.missing("colony-axe", {wood = 5})["iron-plate"], 3)
+    eq(next(w.missing("colony-basket", {wood = 4})), nil)
+  end)
+  it("makes the first wanted tool it has the stock and the recipe for", function()
+    local wanted = {"colony-axe", "colony-basket"}
+    eq(t.pick(wanted, {wood = 10}, {["colony-axe"] = true, ["colony-basket"] = true}), "colony-basket")
+    eq(t.pick(wanted, {wood = 10, ["iron-plate"] = 5}, {["colony-axe"] = true}), "colony-axe")
+    eq(t.pick(wanted, {wood = 10, ["iron-plate"] = 5}, {}), nil)
+    eq(t.pick({}, {wood = 10}, {["colony-basket"] = true}), nil)
+  end)
+  it("returns the recipe of the tool it picks", function()
+    local tool, recipe = t.pick({"colony-axe"}, {wood = 2, ["iron-plate"] = 3}, {["colony-axe"] = true})
+    eq(tool, "colony-axe")
+    eq(recipe["iron-plate"], 3)
+  end)
+  it("asks for wood, iron and copper up to its buffer, counting what is there and on the way", function()
+    local by = {}
+    for _, item in ipairs(t.wants({wood = 3}, {["iron-plate"] = 5})) do by[item.item] = item.count end
+    eq(by.wood, 5)
+    eq(by["iron-plate"], 7)
+    eq(by["copper-plate"], 4)
+    eq(#t.wants({wood = 8, ["iron-plate"] = 12, ["copper-plate"] = 4}, {}), 0)
+  end)
+  it("keeps one spare of each tool a hut uses, once the colony has none of it", function()
+    local gaps = {"colony-rod", "colony-axe"}
+    local built = {"colony-axe", "colony-basket"}
+    local stock = {wood = 20, ["iron-plate"] = 20}
+    eq(table.concat(t.wanted(gaps, built, stock), ","), "colony-rod,colony-axe,colony-basket")
+    stock["colony-axe"] = 1
+    eq(table.concat(t.wanted(gaps, built, stock), ","), "colony-rod,colony-basket")
+    eq(#t.wanted({}, built, {wood = 20, ["iron-plate"] = 20, ["colony-axe"] = 1, ["colony-basket"] = 2}), 0)
+  end)
+  it("does not want a tool the colony has no ingredients for", function()
+    -- A rifle needs copper: with none in colony stock it is not wanted, so the Toolsmith does not idle on it.
+    eq(table.concat(t.wanted({"colony-rifle"}, {"colony-rifle", "colony-rod"}, {wood = 20, ["iron-plate"] = 20}), ","),
+      "colony-rod")
+    eq(table.concat(t.wanted({"colony-rifle"}, {}, {wood = 20, ["iron-plate"] = 20, ["copper-plate"] = 2}), ","),
+      "colony-rifle")
+  end)
+  it("takes three work spells per tool", function()
+    eq(t.work_ticks(480), 1440)
+  end)
+  it("says what a short hut is told", function()
+    eq(t.gap{toolsmith = false, unlocked = true, missing = {}}, "craft")
+    eq(t.gap{toolsmith = true, unlocked = false, missing = {}}, "craft")
+    eq(t.gap{toolsmith = true, unlocked = true, missing = {}}, "making")
+    local kind, item, n = t.gap{toolsmith = true, unlocked = true, missing = {["iron-plate"] = 3}}
+    eq(kind, "short")
+    eq(item, "iron-plate")
+    eq(n, 3)
   end)
 end)
 

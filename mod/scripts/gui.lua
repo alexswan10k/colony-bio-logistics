@@ -11,6 +11,7 @@ local crates = require("scripts.model.crates")
 local haul_plan = require("scripts.model.haul_plan")
 local farm = require("scripts.model.farm")
 local advice = require("scripts.model.advice")
+local desirability = require("scripts.model.desirability")
 local milestones = require("scripts.model.milestones")
 local work = require("scripts.work")
 local M = {}

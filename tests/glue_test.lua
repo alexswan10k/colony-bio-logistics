@@ -514,4 +514,121 @@ describe("colony logistics network", function()
     eq(storages[2].key, 200)
     eq(storages[2].available["colony-forage"], 10)
   end)
+
+  it("calls site.deplete() when mining exhausts a deposit", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    local sched = require("scripts.scheduler")
+
+    local depleted = false
+    local ore_site = {
+      valid = true, name = "iron-ore", position = {x = 5, y = 5}, surface = {index = 1}, amount = 5,
+      deplete = function() depleted = true end,
+      destroy = function() error("should call deplete instead of destroy") end,
+    }
+
+    local hall_inv = make_chest({})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1, pollute = function() end}, force = {},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+    }
+
+    local miner_inv = make_chest({["colony-pickaxe"] = 1})
+    local miner_ent = {
+      valid = true, name = "colony-miner-hut", unit_number = 200, position = {x = 2, y = 2},
+      surface = hall_ent.surface, force = hall_ent.force,
+      get_item_count = function(item) return miner_inv.get_item_count(item) end,
+      get_inventory = function() return miner_inv end,
+    }
+    local miner_hut = {entity = miner_ent, job = "mine", wear = 0, limit = 2, workers = {[500] = true}, inflight = {}, ores = {}, colony_id = 1}
+
+    local colonist_ent = {
+      valid = true, name = "colony-colonist", unit_number = 500, position = {x = 5, y = 5},
+      surface = hall_ent.surface, force = hall_ent.force,
+      commandable = {set_command = function() end},
+    }
+
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {[200] = miner_hut},
+      houses = {}, machines = {}, towers = {}, plots = {}, crates = {},
+      bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {},
+      cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0,
+      locks = {}, quotas = {}, job_targets = {}, colonists = {[500] = colonist_ent}, deaths = {},
+      claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, animals = {},
+    }
+    storage.colonies = {[1] = c}
+    storage.unit_state = {[500] = {colony_id = 1, job = "mine", state = "working", site = ore_site, hut = miner_hut}}
+
+    sched.after(1, "work.finish", {un = 500})
+    env.tick(2)
+    eq(depleted, true, "site.deplete() called on mine completion")
+  end)
+
+  it("switches a solitary woodcutter to food gathering when the colony is starving", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+
+    local hall_inv = make_chest({})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1, pollute = function() end, find_entities_filtered = function() return {} end}, force = {},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+    }
+
+    local wood_inv = make_chest({["colony-axe"] = 1})
+    local wood_ent = {
+      valid = true, name = "colony-woodcutter-hut", unit_number = 200, position = {x = 2, y = 2},
+      surface = hall_ent.surface, force = hall_ent.force,
+      get_item_count = function(item) return wood_inv.get_item_count(item) end,
+      get_inventory = function() return wood_inv end,
+    }
+    local wood_hut = {entity = wood_ent, job = "chop", wear = 0, limit = 2, workers = {[500] = true}, inflight = {}, ores = {}, colony_id = 1}
+
+    local forage_inv = make_chest({["colony-basket"] = 1})
+    local forage_ent = {
+      valid = true, name = "colony-forager-hut", unit_number = 201, position = {x = 4, y = 4},
+      surface = hall_ent.surface, force = hall_ent.force,
+      get_item_count = function(item) return forage_inv.get_item_count(item) end,
+      get_inventory = function() return forage_inv end,
+    }
+    local forage_hut = {entity = forage_ent, job = "forage", wear = 0, limit = 2, workers = {}, inflight = {}, ores = {}, colony_id = 1}
+
+    local forage_patch = {valid = true, name = "colony-forage-patch", position = {x = 5, y = 5}, surface = hall_ent.surface}
+
+    hall_ent.surface.find_entities_filtered = function(filter)
+      if filter.name == "colony-forage-patch" then return {forage_patch} end
+      return {}
+    end
+
+    local colonist_ent = {
+      valid = true, name = "colony-colonist", unit_number = 500, position = {x = 2, y = 2},
+      surface = hall_ent.surface, force = hall_ent.force,
+      commandable = {set_command = function() end},
+    }
+
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {[200] = wood_hut, [201] = forage_hut},
+      houses = {}, machines = {}, towers = {}, plots = {}, crates = {},
+      bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {},
+      cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0,
+      locks = {}, quotas = {}, job_targets = {}, colonists = {[500] = colonist_ent}, deaths = {},
+      claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, animals = {},
+      priority = {},
+    }
+    storage.colonies = {[1] = c}
+    storage.next_colony_id = 2
+    storage.unit_state = {[500] = {colony_id = 1, job = "chop", state = "idle", hut = wood_hut}}
+
+    work.assign(c, 500)
+    local st = storage.unit_state[500]
+    truthy(st)
+    eq(st.job, "forage", "solitary woodcutter switched to forage when starving")
+  end)
 end)

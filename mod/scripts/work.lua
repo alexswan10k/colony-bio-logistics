@@ -406,6 +406,8 @@ end
 -- Completely empty resources (stock == 0) take strict precedence; otherwise jobs below target quota.
 local HARVEST_JOB = {}
 for _, j in ipairs(work_plan.HARVEST) do HARVEST_JOB[j] = true end
+local FOOD_JOB = {}
+for _, j in ipairs(work_plan.FOOD) do FOOD_JOB[j] = true end
 
 local function colony_missing_jobs(colony)
   local led = colony_mod.ledger_snapshot(colony)
@@ -1654,7 +1656,12 @@ function M.assign(colony, un)
       local mates = 0
       for _ in pairs(prev_hut.workers or {}) do mates = mates + 1 end
       -- Never strip a hut of its last worker for another resource (see work_plan.choose).
-      if next(missing) and not missing[prev_hut.job] and mates >= 2 then
+      -- Hunger priority (#expectation): if there is no food in the colony, food roles come first.
+      -- A harvester on a non-food job (wood/ore) switches to food if the town is starving.
+      local starving = colony_mod.total_food(colony) == 0
+      if starving and not FOOD_JOB[prev_hut.job] then
+        should_switch = true
+      elseif next(missing) and not missing[prev_hut.job] and mates >= 2 then
         should_switch = true
       elseif pop < M.SMALL_TOWN then
         local task, backlog = find_haul_task(colony, nil, e.position)
@@ -1878,7 +1885,13 @@ scheduler.register("work.finish", function(d)
   elseif st.job == "mine" then
     n = math.min(M.MINE_PER_TRIP, site.amount or 0)
     if n > 0 then
-      if site.amount > n then site.amount = site.amount - n else site.destroy() end   -- 0 is not a legal amount
+      if site.amount > n then
+        site.amount = site.amount - n
+      elseif site.deplete then
+        site.deplete()
+      else
+        site.destroy()
+      end   -- 0 is not a legal amount (#10, #54)
       e.surface.pollute(pos, M.MINE_POLLUTION)       -- 1:1 depletion, zero electricity, but not zero pollution
     end
   elseif st.job == "heal" then

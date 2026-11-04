@@ -130,7 +130,8 @@ core.register("m1_persist_load", {
     local labels_ok = true
     for un in pairs(storage.unit_state or {}) do
       local lbl = storage.unit_labels[un]
-      if lbl and not lbl.valid then labels_ok = false end
+      local obj = lbl and (type(lbl) == "table" and lbl.obj or lbl)   -- labels are {mode, obj} since schema 28
+      if obj and not obj.valid then labels_ok = false end
     end
     ctx.check("job labels survived", labels_ok)
     ctx.check("hall stock survived", c.hall.get_item_count("raw-fish") <= exp.hall_fish,

@@ -12,6 +12,7 @@ local haul_plan = require("scripts.model.haul_plan")
 local farm = require("scripts.model.farm")
 local advice = require("scripts.model.advice")
 local desirability = require("scripts.model.desirability")
+local breeding = require("scripts.model.breeding")
 local milestones = require("scripts.model.milestones")
 local work = require("scripts.work")
 local M = {}
@@ -70,9 +71,11 @@ local function fill_roster(pane, colony, ids)
   for i, un in ipairs(ids) do
     local st = storage.unit_state[un]
     local job = st and st.job or "idle"
+    local rec = storage.age and storage.age[un]
+    local mark = rec and rec.stage == "child" and "🧒" or (breeding.sex_of(un) == "female" and "♀" or "♂")
     local row = pane.add{type = "flow", direction = "horizontal"}
     row.style.vertical_align = "center"
-    local name = row.add{type = "label", caption = {"colony-gui-info.colonist", i, {"colony-gui-info.job-" .. job}}}
+    local name = row.add{type = "label", caption = {"colony-gui-info.colonist-marked", mark, i, {"colony-gui-info.job-" .. job}}}
     name.style.width = 150
     local items, selected = {}, 1
     local lock = colony.locks[un] or "auto"
@@ -408,7 +411,9 @@ local function fill_info(frame, colony)
     string.format("%.2f", parts.food or 0), string.format("%.2f", parts.housing or 0),
     string.format("%.2f", parts.scenic or 0), string.format("%.2f", parts.leisure or 0),
     string.format("%.2f", parts.pollution or 0), string.format("%.2f", parts.deaths or 0),
-    string.format("%.2f", parts.recreation or 0), string.format("%.2f", parts.sickness or 0)}}
+    string.format("%.2f", parts.recreation or 0), string.format("%.2f", parts.sickness or 0),
+    string.format("%.2f", parts.tents or 0), string.format("%.2f", parts.jobs or 0),
+    string.format("%.2f", parts.privacy or 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.desirability-inputs",
     string.format("%.2f", st.scenic or 0), string.format("%.2f", st.pollution or 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.jobs",

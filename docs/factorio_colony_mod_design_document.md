@@ -26,8 +26,9 @@ Colony boundaries work like a mix of **Factorio Roboports** and **The Settlers**
 ### 2.2 Housing Tiers (Age of Empires Meets City Builder)
 Houses must be placed within a colony's territory radius. They act as both the population cap increaser and the hub where colonists rest and consume goods.
 Implemented tiers (`model/housing.lua`; each need is met by its first workable option, and haulers bring what the hall has):
-* **Tier 1: Tent (4 colonists) and Cabin (6 colonists)**, available from the start (Tent) and the Mining Camp milestone (Cabin).
+* **Tier 1: Tent (1 colonist) and Cabin (6 colonists)**, available from the start (Tent) and the Mining Camp milestone (Cabin).
   * **Upkeep:** Food (forage, fish, meat, produce, then bread, with preserved food eaten last) + heat (wood; a Cabin also takes power).
+  * **Tents are the bootstrap home, not a settlement type:** each tent drags desirability down (`w_tents`, stops growing at `tent_cap` = 8 tents), so a tent town plateaus and the player is pushed towards Cabins, then Homesteads.
 * **Tier 2: Homestead (8 colonists, 3x3)**, unlocked by Water Infrastructure. Cabins upgrade into it.
   * **Upkeep:** Food + Water (`colony-water`, 0.5 per colonist per interval, from a Colony Well or bottling) + heat (power, coal or wood).
 * **Tier 3: Apartment (16 colonists, 4x4)**, unlocked by Civic Governance.
@@ -38,20 +39,20 @@ Implemented tiers (`model/housing.lua`; each need is met by its first workable o
 ### 2.3 Desirability, Migration & Natural Reproduction
 Population grows through two mechanisms depending on the environment:
 
-$$D = (W_{\text{food}} \cdot S_{\text{food}}) + (W_{\text{housing}} \cdot S_{\text{housing}}) + (W_{\text{scenic}} \cdot S_{\text{scenic}}) + (W_{\text{leisure}} \cdot S_{\text{leisure}}) - P_{\text{pollution}} - P_{\text{deaths}}$$
+$$D = (W_{\text{food}} \cdot S_{\text{food}}) + (W_{\text{housing}} \cdot S_{\text{housing}}) + (W_{\text{scenic}} \cdot S_{\text{scenic}}) + (W_{\text{leisure}} \cdot S_{\text{leisure}}) + W_{\text{recreation}} \cdot S_{\text{recreation}} + W_{\text{jobs}} \cdot S_{\text{jobs}} + W_{\text{privacy}} \cdot S_{\text{privacy}} - W_{\text{tents}} \cdot \min(T, T_{\max}) - P_{\text{pollution}} - P_{\text{deaths}} - P_{\text{sickness}}$$
 
-1. **Organic Migration (Life-Friendly Worlds - Nauvis & Gleba):**
-   * When your colony's **Desirability Rating ($D$)** is positive and housing is available, wild migrants periodically arrive at your Town Hall.
+1. **Migration (the bootstrap mechanism, §2.3.1):** When your colony's **Desirability Rating ($D$)** is positive and housing is available, wild migrants periodically arrive at your Town Hall.
+   * **Bootstrap pacing:** arrivals are brisk while the colony is small (below `BOOTSTRAP_SETTLERS` = 4 colonists, one per evaluation so a fresh hall fills), then five times slower (`next_migrant`, 5 evaluations between arrivals). The first settler at an empty hall arrives regardless of $D$. Migration is intentionally good at *starting out* and poor at growth beyond it; breeding is the long-term rate.
    * If $D$ drops into the negative (starvation, heavy factory pollution, frequent deaths), migration stops and existing colonists eventually pack up and leave.
    * **Leaving (implemented, #29):** below `leave_below` ($-0.10$) the newest arrivals start walking out, one per evaluation interval at minimum, rising with how far below the line $D$ has fallen and capped at `leave_rate` (10%) of the town per interval. A colonist that leaves returns whatever it was carrying to the Town Hall, frees its hut seat and its job lock, and is gone - it is not a death, so it does not feed the death penalty. The rule lives in `model/colony_model.leave_count` so the sim harness and the game agree.
-   * **The five inputs are real, not placeholders (implemented, #29):**
+   * **The inputs are real, not placeholders (implemented, #29/#47/#48/#88):**
      * *Food / housing / leisure* come from the evaluation loop (stock ratio, free beds, powered-house score).
      * *Scenic* (`model/scenic.lua`) is read from the world in a fixed 40-tile box around the Town Hall, once every 4 evaluations: tree cover (from one filtered find), water tiles and paving on a 1-in-16 tile sample. A forest scores full marks at 35% tree cover, a lake at 15% water, and paving subtracts up to 0.6 - so the player's own concrete works against them, which is the point.
      * *Pollution* is `surface.get_pollution` at the Town Hall, normalised against 300 units (`MINE_POLLUTION` is 2 per mining trip, so a concentrated mining outpost is felt while a clean town is not).
-     * The hall panel shows $D$, its six components, and the two raw inputs (scenic, pollution) so the number is explainable without a debug build.
-2. **Natural Reproduction / Breeding (Advanced, Off-World & Orbital Colonies):**
-   * On barren worlds (Vulcanus, Fulgora, Aquilo) and Space Platforms, wild migrants cannot spawn.
-   * Once a colony reaches a **Critical Mass** (e.g., $\ge 10$ colonists) inside Tier 2+ Housing or Habitat Domes with high Desirability and a **Maternity Clinic / Nursery**, the colony generates new colonists organically via natural reproduction.
+     * *Recreation* is the share of the town served by a stocked Tavern (#48); *Sickness* is the share that is ill (#47); *Jobs* is the number of unfilled hut slots (a big pull factor, so a town with work to offer grows); *Privacy* is the share of houses that are empty or single-occupancy (houses are most desirable empty or with one resident); *Tents* penalises tent count (see §2.2).
+2. **Natural Reproduction / Breeding (implemented, #88):** An opposite-sex pair of adults in one house, with that house's critical provisions met and a free bed, can have a child. Children count toward occupancy, eat half portions, never receive jobs, and grow into adults after `CHILD_TICKS` (one in-game day). This is the long-term growth path that takes over once the colony is fed and housed properly; migration only bootstraps the colony.
+   * **M/F colonists:** sex is assigned deterministically from the unit number, so no storage is required; the house panel marks each colonist with ♂/♀ or 🧒.
+   * **Future (planned, #65):** a Nursery/Maternity building to raise fertility, and off-world colonies that cannot receive migrants at all.
 
 ### 2.4 Permanent Death, Illness & Hospitals
 * **Permanent Death:** Combat and starvation are lethal ($0\text{ HP} = \text{permanent death}$). Every death applies a temporary stacking penalty ($P_{\text{deaths}}$) to Desirability.

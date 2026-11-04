@@ -91,8 +91,10 @@ function M.depart(colony, leaving, homeless)
   -- Newest arrivals go first, as when colonists leave on foot (colony.leave_one).
   local ids = {}
   for un, c in pairs(colony.colonists) do
+    local rec = storage.age and storage.age[un]   -- never send a child to its death on a bench seat
     local st = storage.unit_state[un]
     if c.valid and not (st and (st.state == "waiting_train" or st.state == "to_platform" or st.state == "driving"))
+        and not (rec and rec.stage == "child")
         and not commute.is_commuter(un) then
       ids[#ids + 1] = un
     end

@@ -5,6 +5,7 @@
 local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local territory = require("scripts.territory")
+local stats = require("scripts.stats")
 local work_plan = require("scripts.model.work_plan")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
@@ -53,11 +54,25 @@ M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "far
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
 
+-- How close a harvester stands to its site: right at the edge of the thing being worked, not somewhere near it.
+-- The radius is measured from the entity's centre, so it must clear the collision box or the command never
+-- completes (and the colonist gets stuck). A 2x2 rock needs ~1.5, a tree ~1.
+local function site_radius(site)
+  local proto = prototypes and prototypes.entity and prototypes.entity[site.name]
+  local box = proto and proto.selection_box
+  local half = 0.5
+  if box then
+    half = math.max(math.abs(box.left_top.x), math.abs(box.right_bottom.x),
+      math.abs(box.left_top.y), math.abs(box.right_bottom.y))
+  end
+  return half + 0.45
+end
+
 function M.job_counts(colony)
   local counts = {}
   for un, c in pairs(colony.colonists) do
     local st = storage.unit_state[un]
-    if c.valid and st and st.job then counts[st.job] = (counts[st.job] or 0) + 1 end
+    if c.valid and st and st.job and st.job ~= "child" then counts[st.job] = (counts[st.job] or 0) + 1 end
   end
   return counts
 end
@@ -72,11 +87,20 @@ local function unit_entity(colony, un)
   return t and t.entity
 end
 
-local function set_label(e, text)
-  local obj = storage.unit_labels[e.unit_number]
-  if obj and obj.valid then obj.text = text; return end
-  storage.unit_labels[e.unit_number] = rendering.draw_text{text = text, surface = e.surface, target = {entity = e, offset = {0, -1.4}},
-    color = {1, 1, 1}, scale = 0.7, alignment = "center", only_in_alt_mode = true}
+local function set_label(e, text, always)
+  local want = always and "always" or "alt"
+  local rec = storage.unit_labels[e.unit_number]
+  if rec then
+    local obj = type(rec) == "table" and rec.obj or rec   -- tolerate pre-schema-28 bare render objects
+    if obj and obj.valid and (type(rec) == "table" and rec.mode == want or type(rec) ~= "table") then
+      obj.text = text
+      return
+    end
+    if obj and obj.valid then obj.destroy() end
+    storage.unit_labels[e.unit_number] = nil
+  end
+  storage.unit_labels[e.unit_number] = {mode = want, obj = rendering.draw_text{text = text, surface = e.surface, target = {entity = e, offset = {0, -1.4}},
+    color = {1, 1, 1}, scale = 0.7, alignment = "center", only_in_alt_mode = not always}}
 end
 
 local function popup(surface, pos, text)
@@ -84,10 +108,33 @@ local function popup(surface, pos, text)
     scale = 0.8, time_to_live = 90, alignment = "center"}
 end
 
+-- A standable spot right next to a building: units cannot stand inside them. The old sleep command aimed at
+-- the house's centre from 3.5 tiles away, so it completed instantly and colonists bedded down in a field.
+local function door_point(surface, house)
+  if not (house and house.valid) then return nil end
+  local p = surface.find_non_colliding_position("colony-colonist", house.position, 4, 0.3)
+  return p or house.position
+end
+
+local function clear_carry_sprite(un)
+  local sprites = storage.carry_sprites
+  local cur = sprites and sprites[un]
+  if cur then
+    if cur.obj and cur.obj.valid then cur.obj.destroy() end
+    sprites[un] = nil
+  end
+end
+
+-- Is this colonist a child? Children (#88) are never assigned jobs; they stay at the house and grow up.
+local function is_child(un)
+  local rec = storage.age and storage.age[un]
+  return rec ~= nil and rec.stage == "child"
+end
+
 -- A ring that lives exactly as long as the work: you can see WHICH tree/patch/ore tile is being worked.
-local function work_ring(e, pos)
-  rendering.draw_circle{surface = e.surface, target = pos, radius = 0.9, color = {1, 0.85, 0.3, 0.8},
-    width = 2, filled = false, time_to_live = M.WORK_TICKS}
+local function work_ring(e, pos, radius)
+  rendering.draw_circle{surface = e.surface, target = pos, radius = radius or 0.9, color = {1, 0.85, 0.3, 0.8},
+    width = 3, filled = false, time_to_live = M.WORK_TICKS}
 end
 
 local function item_name(item)
@@ -132,6 +179,8 @@ local function use_tool(hut)
   local broke
   hut.wear, broke = labour.wear(hut.wear or 0)
   if broke and hut.entity.remove_item{name = def.tool, count = 1} > 0 then
+    local colony = hut.colony_id and storage.colonies and storage.colonies[hut.colony_id]
+    if colony then stats.consumed(colony, def.tool, 1) end
     popup(hut.entity.surface, hut.entity.position, {"", "Tool broke: ", item_name(def.tool)})
   end
 end
@@ -762,7 +811,7 @@ end
 -- House demand: critical (already unmet / never evaluated) beats buffering a well-stocked house.
 local function house_offer(colony, h)
   local tier = housing.TIERS[h.kind]
-  local occupants = h.occupants or 0
+  local occupants = h.mouths or h.occupants or 0   -- children eat half (#88)
   local stock = colony_mod.house_stock_cached(h)
   local demands = housing.demand(tier, stock, h.inflight, colony_mod.is_powered(h), occupants)
   if #demands == 0 then return nil end
@@ -1290,7 +1339,7 @@ local function start_trip(colony, un, hut)
     site_key = key(site), ore = target_ore}
   set_label(e, M.LABELS[hut.job] .. (colony_mod.is_inspired(colony, un) and " ★" or "")
     .. (colony_mod.is_sick(un) and " 🤒" or ""))
-  go(e, site, 1.5)
+  go(e, site, site_radius(site))
   return true
 end
 
@@ -1623,19 +1672,26 @@ function M.assign(colony, un)
   if st and st.state == "sheltered" then e.destructible = true end   -- its alarm is gone: out and back to work
   local lock = colony.locks and colony.locks[un]
 
-  -- Night time: colonists return to their house to sleep
+  -- Night time: colonists return to their house to sleep. Children (#88) sleep with the household too.
   if M.is_sleep_time(e.surface) then
     if st and st.hut then
       if st.hut.workers then st.hut.workers[un] = nil end
       st.hut = nil
     end
+    -- Going to bed never evaporates the load being hauled: it lands in the hall like any completed trip home.
+    if st and st.carry and #st.carry > 0 then return_to_hall(colony, st.carry) end
     local house = colony_mod.house_of_colonist(colony, un)
     if house and house.valid then
-      storage.unit_state[un] = {colony_id = colony.id, job = (st and st.job) or lock or "idle", state = "to_bed", house = house}
-      set_label(e, "sleeping 💤")
-      go(e, house.position, 3.5)
+      storage.unit_state[un] = {colony_id = colony.id, job = is_child(un) and "child" or (st and st.job) or lock or "idle", state = "to_bed", house = house}
+      set_label(e, "sleeping 💤", true)
+      go(e, door_point(e.surface, house) or house.position, 0.5)
       return
     end
+  elseif is_child(un) then
+    -- A child is not part of the workforce: it stays by the house until grown, so no job, no retry timer.
+    storage.unit_state[un] = {colony_id = colony.id, job = "child", state = "child"}
+    set_label(e, "child", true)
+    return
   end
 
   local pop = math.max(colony_mod.live_colonists(colony) - 1, 0)
@@ -1845,6 +1901,7 @@ scheduler.register("work.finish", function(d)
       local tool, recipe = toolsmith_pick(colony, hut)
       if tool then
         for ingredient, n in pairs(recipe) do hut.entity.remove_item{name = ingredient, count = n} end
+        for ingredient, n in pairs(recipe) do stats.consumed(colony, ingredient, n) end
         item, n = tool, 1
         M.tools_made = M.tools_made + 1
         rendering.draw_text{text = {"colony-message.workshop-made", "[item=" .. tool .. "]"}, surface = hut.entity.surface,
@@ -1856,6 +1913,8 @@ scheduler.register("work.finish", function(d)
       if recipe then
         hut.entity.remove_item{name = kitchen.PRODUCE, count = kitchen.PRODUCE_PER_BATCH}
         hut.entity.remove_item{name = kitchen.WATER, count = kitchen.WATER_PER_BATCH}
+        stats.consumed(colony, kitchen.PRODUCE, kitchen.PRODUCE_PER_BATCH)
+        stats.consumed(colony, kitchen.WATER, kitchen.WATER_PER_BATCH)
         item, n = recipe.product, kitchen.PRODUCT_PER_BATCH
       end
     else
@@ -1863,6 +1922,8 @@ scheduler.register("work.finish", function(d)
       if recipe then
         hut.entity.remove_item{name = preserve.SALT, count = preserve.SALT_PER_BATCH}
         hut.entity.remove_item{name = recipe.raw, count = preserve.RAW_PER_BATCH}
+        stats.consumed(colony, preserve.SALT, preserve.SALT_PER_BATCH)
+        stats.consumed(colony, recipe.raw, preserve.RAW_PER_BATCH)
         item, n = recipe.product, preserve.PRODUCT_PER_BATCH
       end
     end
@@ -1941,6 +2002,7 @@ scheduler.register("work.finish", function(d)
     return
   end
   popup(e.surface, pos, {"", "+" .. n .. " ", item_name(item)})
+  stats.produced(colony, item, n)
   -- Yield goes into the hut that employed the colonist: the hut is the forward stockpile, and a hauler
   -- carries it inward (hut_collect_offer) instead of every worker walking each load to the Town Hall.
   st.carry = {{item = item, count = n}}
@@ -1989,6 +2051,7 @@ scheduler.register("construct.finish", function(d)
     -- registered again (#36).
     local built = site and site.valid and site.type == "entity-ghost" and select(2, site.revive{raise_revive = true})
     if built then
+      for _, s in ipairs(st.carry or {}) do stats.consumed(colony, s.item, s.count) end
       st.carry = nil                            -- the ghost consumed the materials
       if colony.ghosts then colony.ghosts[st.site_key] = nil end
       popup(e.surface, pos or e.position, {"", "Built ", item_name(ghost_name)})
@@ -2017,6 +2080,7 @@ scheduler.register("construct.finish", function(d)
       site.health = health
       if used then
         packs = packs - 1
+        stats.consumed(colony, construct.REPAIR_PACK, 1)
         popup(e.surface, site.position, {"", "Repaired ", item_name(site.name)})
       end
     end
@@ -2099,7 +2163,8 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     local e = unit_entity(colony, ev.unit_number)
     if e and e.valid then
       e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
-      set_label(e, "sleeping 💤")
+      set_label(e, "sleeping 💤", true)
+      clear_carry_sprite(ev.unit_number)   -- a sleeping colonist shows no load
       popup(e.surface, e.position, "💤")
       scheduler.after(180 + (ev.unit_number * 13) % 120, "work.sleep_check", {un = ev.unit_number})
     end
@@ -2192,7 +2257,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   elseif st.state == "to_site" then
     st.state = "working"
     local e = unit_entity(colony, ev.unit_number)
-    if e and e.valid and st.site.valid then work_ring(e, st.site.position) end
+    if e and e.valid and st.site.valid then work_ring(e, st.site.position, site_radius(st.site) * 0.75) end
     if st.hut and st.hut.job == "research" and st.hut.entity.valid then
       local def = labour.HUTS[st.hut.entity.name]
       update_lab_status(st.hut.entity, worker_count(st.hut), def and def.capacity or 2)
@@ -2273,6 +2338,12 @@ end)
 
 events.on(defines.events.on_object_destroyed, function(ev)
   local un = ev.useful_id
+  if un and storage.unit_state and storage.unit_state[un]
+      and settings and settings.global and settings.global["colony-debug-log"] and settings.global["colony-debug-log"].value then
+    local st = storage.unit_state[un]
+    log(string.format("[colony-destroyed] tick=%d colonist %s destroyed (job=%s state=%s colony=%s)",
+      game.tick, tostring(un), tostring(st.job), tostring(st.state), tostring(st.colony_id)))
+  end
   local st = un and storage.unit_state[un]
   if st then
     if st.hut and st.hut.workers then st.hut.workers[un] = nil end
@@ -2280,6 +2351,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
     storage.unit_state[un] = nil
   end
   if un and storage.sick then storage.sick[un] = nil end
+  if un and storage.age then storage.age[un] = nil end
   -- A truck destroyed on the road (a parked one is already gone from storage.trucks): the car is lost, the
   -- driver climbs out at the pool.
   local t = un and storage.trucks and storage.trucks[un]
@@ -2293,7 +2365,8 @@ events.on(defines.events.on_object_destroyed, function(ev)
   end
   if un and storage.unit_labels and storage.unit_labels[un] then
     local lbl = storage.unit_labels[un]
-    if lbl and lbl.valid then lbl.destroy() end
+    local obj = type(lbl) == "table" and lbl.obj or lbl   -- labels are {mode, obj} since schema 28
+    if obj and obj.valid then obj.destroy() end
     storage.unit_labels[un] = nil
   end
   local carried = un and storage.carry_sprites and storage.carry_sprites[un]

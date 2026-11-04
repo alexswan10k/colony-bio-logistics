@@ -52,6 +52,20 @@ events.on(defines.events.on_entity_died, function(ev)
   local e = ev.entity
   if e.name ~= M.COLONIST then return end
   local un = e.unit_number
+  if settings and settings.global and settings.global["colony-debug-log"] and settings.global["colony-debug-log"].value then
+    log("[colony-death-ev] " .. serpent.line({
+      cause = ev.cause and ev.cause.valid and ev.cause.name, cause_type = ev.cause and ev.cause.valid and ev.cause.type,
+      force = ev.force and ev.force.name, damage_type = ev.damage_type and ev.damage_type.name,
+      entity = e.name, tick = game.tick, pos = {e.position.x, e.position.y},
+    }))
+  end
+  if settings and settings.global and settings.global["colony-debug-log"] and settings.global["colony-debug-log"].value then
+    log(string.format("[colony-death] tick=%d colonist %s died: cause=%s type=%s damage=%s force=%s pos=%.1f,%.1f",
+      game.tick, tostring(un),
+      tostring(ev.cause and ev.cause.valid and ev.cause.name), tostring(ev.cause and ev.cause.valid and ev.cause.type),
+      tostring(ev.damage_type and ev.damage_type.name), tostring(ev.force and ev.force.name),
+      e.position.x, e.position.y))
+  end
   local colony = un and owner_of(un)
   if not colony then return end
   colony.colonists[un] = nil

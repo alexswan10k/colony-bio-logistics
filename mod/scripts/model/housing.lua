@@ -14,7 +14,7 @@ M.WATER = {{item = "colony-water", per = 0.5}}
 
 M.TIERS = {
   tent = {
-    capacity = 4, buffer_intervals = 6,
+    capacity = 1, buffer_intervals = 6,
     needs = {
       {id = "food", critical = true, options = M.FOOD},
       {id = "heat", options = {{item = "wood", per = 0.5}}},

@@ -184,7 +184,7 @@ core.register("m1_colony", {
     warehouse.insert{name = "stone", count = 100}
     ctx.check("houses registered", tent and cabin and homestead and c.houses[tent.unit_number] and c.houses[cabin.unit_number] and c.houses[homestead.unit_number] ~= nil)
     ctx.check("well registered", well_ent and well_ent.valid and c.wells[well_ent.unit_number] ~= nil)
-    ctx.check("homestead increases capacity to 18", colony.capacity(c) == 18, colony.capacity(c))
+    ctx.check("homestead increases capacity to 15", colony.capacity(c) == 15, colony.capacity(c))
     ctx.check("cabin has fast_replaceable_group", cabin.prototype.fast_replaceable_group == "colony-housing")
     ctx.check("homestead has fast_replaceable_group", homestead.prototype.fast_replaceable_group == "colony-housing")
     ctx.check("cabin upgrades to homestead", cabin.prototype.next_upgrade and cabin.prototype.next_upgrade.name == "colony-housing-homestead")
@@ -205,13 +205,13 @@ core.register("m1_colony", {
     ctx.check("shifting job target decrements", colony.shift_job_target(c, "mine", -1) == 3)
     colony.set_job_target(c, "mine", nil)
     ctx.check("resetting job target restores auto", colony.job_target(c, "mine") == nil)
-    ctx.check("capacity 18", colony.capacity(c) == 18, colony.capacity(c))
+    ctx.check("capacity 15", colony.capacity(c) == 15, colony.capacity(c))
     ctx.check("hut does not spawn forage patches",
       #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30} == patches_pre, patches_pre)
     ctx.check("logistics marker item and recipe exist",
       prototypes.item["colony-logistics-marker"] ~= nil and prototypes.recipe["colony-logistics-marker"] ~= nil)
     local st = colony.stats(c)
-    ctx.check("colony stats: capacity 18", st.capacity == 18, st.capacity)
+    ctx.check("colony stats: capacity 15", st.capacity == 15, st.capacity)
     -- watchtower (design §2.1): built inside territory, claims the chunks around itself; removing it gives them back
     local outside = build("colony-watchtower", {p.x + 70, p.y})
     ctx.check("watchtower outside territory rejected", not (outside and outside.valid))
@@ -256,6 +256,9 @@ core.register("m1_colony", {
     hall.insert{name = "colony-basket", count = 3}
     hall.insert{name = "colony-axe", count = 3}
     hall.insert{name = "colony-pickaxe", count = 3}
+    -- The work loop wants a full town, not six; migrants trickle in slowly since #88 (bootstrap fills the town,
+    -- then five times slower), so seed it directly.
+    for _ = 1, 15 do colony.spawn_colonist(c) end
     for i = 1, 12 do s.create_entity{name = "tree-01", position = {p.x + 12 + i * 2, p.y + 8}} end
     local ore1 = s.create_entity{name = "iron-ore", position = {p.x - 14, p.y - 6}, amount = 500}
     local ore2 = s.create_entity{name = "iron-ore", position = {p.x - 15, p.y - 6}, amount = 500}
@@ -306,7 +309,10 @@ core.register("m1_colony", {
           local st_u = storage.unit_state and storage.unit_state[un]
           if st_u and (st_u.state == "sleeping" or st_u.state == "to_bed") then saw.sleeping = true end
         end
-        if hall.get_item_count("colony-fish") > 0 then saw.fish = true end
+        local total_fish = hall.get_item_count("colony-fish")
+        for _, h in pairs(c.huts) do if h.entity.valid then total_fish = total_fish + h.entity.get_item_count("colony-fish") end end
+        for _, h in pairs(c.houses) do if h.entity.valid then total_fish = total_fish + h.entity.get_item_count("colony-fish") end end
+        if total_fish > 0 then saw.fish = true end
         -- Salt is made, not harvested: a pan holding any means evaporation ran, and salt in the hall means a
         -- hauler emptied the pan.
         if hall.get_item_count("colony-salt") > 0 then saw.salt = true end
@@ -385,6 +391,20 @@ core.register("m1_colony", {
       ctx.log(string.format("pop=%d D=%.2f tent: fish=%d wood=%d score=%s | cabin: fish=%d wood=%d score=%s powered=%s",
         colony.live_colonists(c), c.d or 0, tcnt(tent, "raw-fish"), tcnt(tent, "wood"), tostring(th.score),
         tcnt(cabin, "raw-fish"), tcnt(cabin, "wood"), tostring(ch.score), tostring(colony.is_powered(ch))))
+      if c.huts[dock.unit_number] then
+        local locked_fish = 0
+        local fish_un
+        for _, un in ipairs(colony.colonist_ids(c)) do if c.locks[un] == "fish" then locked_fish = locked_fish + 1; fish_un = un end end
+        local ust = fish_un and storage.unit_state[fish_un]
+        local total_fish = hall.get_item_count("colony-fish")
+        for _, h in pairs(c.huts) do if h.entity.valid then total_fish = total_fish + h.entity.get_item_count("colony-fish") end end
+        for _, h in pairs(c.houses) do if h.entity.valid then total_fish = total_fish + h.entity.get_item_count("colony-fish") end end
+        ctx.log(string.format("dock: colony-fish=%d colony-rod=%d workers=%d fish-locked=%d locked-un=%s job=%s state=%s total-fish=%d preserved-fish=%d",
+          dock.get_item_count("colony-fish"), dock.get_item_count("colony-rod"),
+          (function(h) local n = 0; for _ in pairs(h.workers or {}) do n = n + 1 end; return n end)(c.huts[dock.unit_number]),
+          locked_fish, tostring(fish_un), tostring(ust and ust.job), tostring(ust and ust.state),
+          total_fish, hall.get_item_count("colony-preserved-fish")))
+      end
       ctx.log("hall: fish=" .. hall.get_item_count("raw-fish") .. " forage=" .. hall.get_item_count("colony-forage") .. " wood=" .. hall.get_item_count("wood") ..
         " iron-ore=" .. hall.get_item_count("iron-ore") .. " produce=" .. produce_total() .. " axes=" .. hall.get_item_count("colony-axe") ..
         " picks=" .. hall.get_item_count("colony-pickaxe"))

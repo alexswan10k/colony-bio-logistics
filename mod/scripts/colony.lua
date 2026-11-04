@@ -33,6 +33,8 @@ local shelter = require("scripts.shelter")
 local commute = require("scripts.commute")
 local illness = require("scripts.illness")
 local mortality_model = require("scripts.model.mortality")
+local breeding = require("scripts.model.breeding")
+local stats = require("scripts.stats")
 local M = {}
 
 M.HALL = "colony-town-hall"
@@ -70,6 +72,7 @@ M.COMPOST_BIN = "colony-compost-bin"
 M.SALT_PAN = "colony-salt-pan"
 M.COMPOST_TICKS = 600           -- conversion pass cadence; a bin is a building, not a per-tick machine
 M.STARVE_AFTER = 4              -- consecutive evaluations with unmet critical need before a colonist dies
+M.BOOTSTRAP_SETTLERS = 4        -- migrants arrive briskly while the colony is below this, then five times slower
 M.SCENIC_RADIUS = 40            -- tiles around the hall that scenic reads (fixed: cost must not grow with the town)
 M.SCENIC_STRIDE = 4             -- tile sample stride: 1/16 of the area is actually read
 M.SCENIC_EVERY = 4              -- evaluations between scenic samples (surroundings change slowly)
@@ -214,8 +217,14 @@ function M.live_colonists(colony)
   local n = 0
   for id, c in pairs(colony.colonists) do
     if c.valid then n = n + 1 else
-      colony.colonists[id] = nil
-      if colony.locks then colony.locks[id] = nil end
+      local un = id
+      if settings and settings.global and settings.global["colony-debug-log"] and settings.global["colony-debug-log"].value then
+        local st = storage.unit_state and storage.unit_state[un]
+        log(string.format("[colony-prune] tick=%d colonist %s became invalid (job=%s state=%s)",
+          game.tick, tostring(un), tostring(st and st.job), tostring(st and st.state)))
+      end
+      colony.colonists[un] = nil
+      if colony.locks then colony.locks[un] = nil end
     end
   end
   colony.pop_cache, colony.pop_tick = n, game.tick
@@ -723,6 +732,10 @@ local function kill_one(colony, h, need_id)
     local id = members[i]
     local c = colony.colonists[id]
     if c and c.valid then
+      if settings and settings.global and settings.global["colony-debug-log"] and settings.global["colony-debug-log"].value then
+        log(string.format("[colony-kill-one] tick=%d colonist %s in %s lacks %s (starvation) shelf:%s",
+          game.tick, tostring(id), h.entity.name, tostring(need_id), tostring(h.entity.get_item_count("raw-fish") or "?")))
+      end
       -- Struck off before it dies, so mortality's on_entity_died handler does not count it twice.
       colony.colonists[id] = nil
       if colony.locks then colony.locks[id] = nil end
@@ -739,8 +752,9 @@ end
 -- A migrant arrives at the Town Hall: right in town, so it can always path to its job (spawning out at the
 -- edge stranded colonists behind lakes and cliffs). The arrival is shown over the hall and announced with a
 -- map link, so a new face is never a silent surprise.
--- A new colonist at the hall, or at `at` (a Passenger Platform, #49) when it arrived by train.
-local function spawn_colonist(colony, at)
+-- A new colonist at the hall, or at `at` (a house for a newborn, #88, or a Passenger Platform, #49).
+-- `birth` swaps the arrival messaging for a birth and registers the child separately (storage.age).
+local function spawn_colonist(colony, at, birth)
   local hall = colony.hall
   local pos = hall.surface.find_non_colliding_position("colony-colonist", at or hall.position, 10, 0.5)
   if not pos then return false end
@@ -749,10 +763,21 @@ local function spawn_colonist(colony, at)
   colony.colonists[c.unit_number] = c
   colony.pop_cache, colony.pop_tick = nil, nil
   script.register_on_object_destroyed(c)
+  if birth then   -- registered before the job assignment, so the newborn is never given work
+    storage.age = storage.age or {}
+    storage.age[c.unit_number] = {stage = "child", born = game.tick}
+  end
   work.assign(colony, c.unit_number)
-  rendering.draw_text{text = {"colony-message.arrival-popup"}, surface = hall.surface,
-    target = {entity = c, offset = {0, -2}}, color = {0.8, 1, 0.8}, scale = 0.9, alignment = "center",
-    time_to_live = 180}
+  if birth then
+    colony.hall.force.print({"colony-message.child-born", gps(c)})
+    rendering.draw_text{text = {"colony-message.child-born-popup"}, surface = c.surface,
+      target = {entity = c, offset = {0, -2}}, color = {1, 0.85, 0.9}, scale = 0.9, alignment = "center",
+      time_to_live = 180}
+  else
+    rendering.draw_text{text = {"colony-message.arrival-popup"}, surface = hall.surface,
+      target = {entity = c, offset = {0, -2}}, color = {0.8, 1, 0.8}, scale = 0.9, alignment = "center",
+      time_to_live = 180}
+  end
   return c
 end
 
@@ -789,13 +814,14 @@ local function sample_scenic(colony)
   }
 end
 
--- A colonist packs up and walks away (#29). The newest arrival goes first. Unlike starvation this leaves no
--- body: destroying the entity is enough, because work's on_object_destroyed handler returns whatever the
--- colonist was carrying, frees its hut seat and drops its job label.
+-- A colonist packs up and walks away (#29). The newest arrival goes first; children stay (#88). Unlike starvation
+-- this leaves no body: destroying the entity is enough, because work's on_object_destroyed handler returns whatever
+-- the colonist was carrying, frees its hut seat and drops its job label.
 local function leave_one(colony)
   local un
   for id, c in pairs(colony.colonists) do
-    if c.valid and (not un or id > un) and not commute.is_commuter(id) then un = id end   -- commuters are not ours to lose
+    local child = storage.age and storage.age[id] and storage.age[id].stage == "child"
+    if c.valid and (not un or id > un) and not commute.is_commuter(id) and not child then un = id end   -- commuters and children are not ours to lose
   end
   if not un then return false end
   local c = colony.colonists[un]
@@ -821,6 +847,7 @@ function M.evaluate(data)
       pan.next_at = game.tick + salt.TICKS_PER_SALT
       if not salt.full(pan.entity.get_item_count(salt.ITEM)) then
         pan.entity.insert{name = salt.ITEM, count = 1}
+        stats.produced(colony, salt.ITEM, 1)
       end
     end
   end
@@ -834,6 +861,7 @@ function M.evaluate(data)
       well_rec.next_at = game.tick + well.TICKS_PER_WATER
       if not well.full(well_rec.entity.get_item_count(well.ITEM)) then
         well_rec.entity.insert{name = well.ITEM, count = 1}
+        stats.produced(colony, well.ITEM, 1)
       end
     end
   end
@@ -846,7 +874,19 @@ function M.evaluate(data)
   local houses = M.house_list(colony)
   local caps = {}
   for i, h in ipairs(houses) do caps[i] = housing.TIERS[h.kind].capacity end
-  local occ = housing.distribute(pop, caps)
+  local split = housing.assign(M.colonist_ids(colony), caps)   -- who lives where, sorted; the same fill as distribute()
+  local occ, mouths = {}, {}
+  for i, h in ipairs(houses) do
+    local list = split[i] or {}
+    occ[i] = #list
+    local adults = 0
+    for _, un in ipairs(list) do
+      local rec = storage.age and storage.age[un]
+      if not (rec and rec.stage == "child") then adults = adults + 1 end
+    end
+    mouths[i] = adults + (occ[i] - adults) * breeding.CHILD_RATE   -- children eat half (#88)
+    h.mouths = mouths[i]
+  end
 
   -- per-house consumption (items come out of the house's own inventory)
   local score_sum, rated = 0, 0
@@ -856,10 +896,11 @@ function M.evaluate(data)
     local stock, inv = M.house_stock(h)
     local before = {}
     for k, v in pairs(stock) do before[k] = v end
-    local consumed, sat, score, crit = housing.step(tier, occ[i], stock, M.is_powered(h), h.acc)
+    local consumed, sat, score, crit = housing.step(tier, mouths[i], stock, M.is_powered(h), h.acc)
     h.stock_tick = nil   -- the shelves just changed: status lines must not read the old snapshot
+    h.crit_unmet = crit
     if occ[i] > 0 and illness.rotten_meal(inv, consumed, MEAL_SET) then rotten[h.entity.unit_number] = true end
-    for item, n in pairs(consumed) do if n > 0 then inv.remove{name = item, count = n} end end
+    for item, n in pairs(consumed) do if n > 0 then inv.remove{name = item, count = n}; stats.consumed(colony, item, n) end end
     h.score, h.sat, h.occupants = score, sat, occ[i]
     if occ[i] > 0 then
       score_sum = score_sum + score; rated = rated + 1
@@ -874,6 +915,39 @@ function M.evaluate(data)
           h.hungry = 0
         end
       else h.hungry = 0 end
+    end
+  end
+  -- Natural reproduction (#88): an opposite-sex pair in one house, provisions met, a free bed, birth cooldown.
+  for i, h in ipairs(houses) do
+    local members = split[i]
+    if members and #members > 0 then
+      local tier = housing.TIERS[h.kind]
+      local tick = game.tick
+      local states = {}
+      for _, un in ipairs(members) do
+        local rec = storage.age and storage.age[un]
+        states[#states + 1] = {sex = breeding.sex_of(un), stage = (rec and rec.stage) or "adult"}
+      end
+      local ok = breeding.eligible(states, h.crit_unmet, tier.capacity - occ[i], tick, h.breed_ready)
+      if ok and breeding.roll_birth(h.entity.unit_number, tick, 3) then
+        local child = spawn_colonist(colony, h.entity.position, true)
+        if child then h.breed_ready = tick + breeding.COOLDOWN_TICKS end
+      end
+    end
+  end
+  -- Children grow up (#88): at CHILD_TICKS they become ordinary colonists and join the workforce.
+  if storage.age then
+    for un, rec in pairs(storage.age) do
+      if rec.stage == "child" and game.tick >= (rec.born or 0) + breeding.CHILD_TICKS then
+        rec.stage = "adult"
+        local g = colony.colonists and colony.colonists[un]
+        if g and g.valid then
+          rendering.draw_text{text = {"colony-message.grew-up"}, surface = g.surface,
+            target = {entity = g, offset = {0, -2}}, color = {1, 1, 0.8}, scale = 0.9,
+            alignment = "center", time_to_live = 150}
+          work.assign(colony, un)
+        end
+      end
     end
   end
   colony.recreation = M.serve_taverns(colony, houses, occ)
@@ -891,19 +965,41 @@ function M.evaluate(data)
   local target = math.max(pop * M.FOOD_PER_COLONIST * M.TARGET_STOCK_INTERVALS, 1)
   local pollution = scenic.pollution_ratio(colony.hall.surface.get_pollution(colony.hall.position))
   colony.pollution = pollution
+  local tents = 0
+  for _, h in ipairs(houses) do if h.kind == "tent" then tents = tents + 1 end end
+  local open_jobs = 0
+  for _, hut in pairs(colony.huts or {}) do
+    if hut.entity and hut.entity.valid then
+      local _, _, allowed, workers = work.hut_info(hut)
+      open_jobs = open_jobs + math.max((allowed or 0) - (workers or 0), 0)
+    end
+  end
+  local privacy = 1           -- houses want to be empty or hold a single colonist (#88)
+  if #houses > 0 then
+    local sum = 0
+    for i = 1, #houses do sum = sum + (occ[i] == 0 and 1 or 1 / occ[i]) end
+    privacy = sum / #houses
+  end
   local d, parts = desirability.compute({
     food_ratio = M.total_food(colony) / target,
     free_housing_ratio = capacity > 0 and math.max(capacity - pop - (colony.away or 0), 0) / capacity or 0,
     scenic = colony.scenic or 0, leisure = rated > 0 and score_sum / rated or 0, recreation = colony.recreation or 0,
     pollution = pollution, deaths = colony.deaths,
     sickness = pop > 0 and (colony.sick_count or 0) / pop or 0,
+    tents = tents, open_jobs = open_jobs, privacy = privacy,
     death_halflife = mortality_model.halflife(desirability.defaults.death_halflife, #M.cemetery_list(colony) > 0),
   })
   colony.d, colony.d_parts = d, parts
+  -- Migrants are the bootstrap mechanism: brisk arrivals while the colony is small, then five times slower
+  -- once it can sustain itself. (One lone settler cannot keep a house stocked for long, and a colony that can
+  -- never refill starves: migration is for starting out, breeding is the long-term growth, #88.)
+  local bootstrap = pop < M.BOOTSTRAP_SETTLERS
   if colony.accept_migrants ~= false and d > desirability.defaults.migrate_in and pop + (colony.away or 0) < capacity
-      and (M.total_food(colony) > 0 or pop == 0) then   -- the first settler forages for itself
+      and (M.total_food(colony) > 0 or pop == 0)
+      and (bootstrap or game.tick >= (colony.next_migrant or 0)) then
     local c = spawn_colonist(colony)
     if c then
+      colony.next_migrant = game.tick + M.interval() * 5
       colony.hall.force.print({"colony-message.migrant-arrived", gps(c)})
       if settings.global["colony-debug-log"].value then
         game.print("[colony " .. colony.id .. "] migrant arrived, D=" .. string.format("%.2f", d))
@@ -1513,9 +1609,12 @@ scheduler.register("colony.compost", function(d)
     if made > 0 then
       b.entity.remove_item{name = compost.SOURCE, count = made * compost.SPOILAGE_PER_FERTILIZER}
       local left = made - b.entity.insert{name = compost.PRODUCT, count = made}
-      if left > 0 then                      -- bin full: the fertilizer is not lost, it waits in the bin's place
+      local batched = made - left            -- fertilizer that actually landed (bin full: the spoilage stays in the bin)
+      if left > 0 then
         b.entity.insert{name = compost.SOURCE, count = left * compost.SPOILAGE_PER_FERTILIZER}
       end
+      stats.consumed(colony, compost.SOURCE, batched * compost.SPOILAGE_PER_FERTILIZER)
+      stats.produced(colony, compost.PRODUCT, batched)
     end
   end
   scheduler.after(M.COMPOST_TICKS, "colony.compost", d)

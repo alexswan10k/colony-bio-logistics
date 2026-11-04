@@ -30,11 +30,12 @@ core.register("m1_desirability", {
     ctx.check("food stocked", hall.get_item_count("raw-fish") >= 400)
 
     -- Phase 1: a fed, housed colony migrates (#28 already covers this; here it just populates the town).
+    -- Migrants are 5x slower since #88 (one per five evaluations), so by this window only two have arrived.
     local migrated
     ctx.after(1500, function()
       local pop = colony.live_colonists(c)
       migrated = pop
-      ctx.check("migrants arrived on a desirable site", pop >= 3, pop)
+      ctx.check("migrants arrived on a desirable site", pop >= 2, pop)
       ctx.check("D is above the migration line", (c.d or -1) > desirability.defaults.migrate_in,
         string.format("%.2f", c.d or 0))
       ctx.check("nobody leaves a desirable colony", #c.deaths == 0, #c.deaths)
@@ -87,6 +88,13 @@ core.register("m1_desirability", {
       deaths_before = #c.deaths
       local inv = hall.get_inventory(defines.inventory.chest)
       for _, st in ipairs(inv.get_contents()) do inv.remove{name = st.name, count = st.count} end
+      -- The houses hold their own buffers; drain them too, so this really is a foodless colony.
+      for _, h in pairs(c.houses or {}) do
+        if h.entity.valid then
+          local hinv = h.entity.get_inventory(defines.inventory.chest)
+          if hinv then for _, st in ipairs(hinv.get_contents()) do hinv.remove{name = st.name, count = st.count} end end
+        end
+      end
       ctx.check("hall emptied of food", colony.food_in(c) == 0)
     end)
     ctx.after(3300, function()

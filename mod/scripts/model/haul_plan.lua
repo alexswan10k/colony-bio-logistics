@@ -250,7 +250,7 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
             target = best_s,
             load = load,
             demands = demands,
-            deficit = M.total(load),
+            deficit = M.deficit(p),
             key = p.key,
             dist = d,
             machine = p.machine,

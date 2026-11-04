@@ -19,7 +19,7 @@
 ## Regression gates (#39)
 Three headless gates cover the things the unit tests and the playable spike cannot:
 
-- `TICKS=19500 scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (108 checks, final checks at
+- `TICKS=19500 scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (109 checks, final checks at
   tick 18000: haulers walk to every pickup now, so the multi-hop chains - meat to smokehouse, spoilage to compost to
   fertilized plots - need the longer window). It includes the onboarding
   path: building a Town Hall completes the Settlement milestone, every house and hut gets a status line, the hall
@@ -72,6 +72,14 @@ Three headless gates cover the things the unit tests and the playable spike cann
   out for a full hand-load with more wanted, the `colony-truck` carries 100 in one trip at 2.5x colonist speed,
   the driver waits under its stop order, the truck parks when its fuel is spent, the car goes back to the pool,
   coal is burnt by the trip count, and the driver is released off the pool afterwards.
+- `scripts/headless-spike.sh m1_stats` - the #89 production statistics spike: `LuaFlowStatistics:on_flow` takes a
+  plain prototype name as id, positive count feeds the input (production) counter, negative the output
+  (consumption) counter, and the merged counts appear a tick later. The spike nets everything back to baseline.
+- `scripts/headless-spike.sh m1_breed` - the #88 breeding spike: an opposite-sex pair in one house, provisions
+  met and a free bed, has a child (the whole pipeline is deterministic-hash rolled); the child is never assigned
+  work, counts toward occupancy, and grows into an adult after `CHILD_TICKS`.
+- `scripts/headless-spike.sh m1_migrant` - the #88 migration pacing probe: fast fill to `BOOTSTRAP_SETTLERS`
+  colonists, then five times slower; logs pop/D/next_migrant per evaluation.
 - `scripts/save-load.sh` - builds a live colony on a headless server, saves it with `game.server_save`, then
   reloads that save in a **new process** (`--test-save ... --test-arg m1_persist_load`) and asserts every
   registry, scheduler entry, rendering and job lock came back (25 checks). Anything stored in

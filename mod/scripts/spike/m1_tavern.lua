@@ -55,7 +55,10 @@ core.register("m1_tavern", {
     hall.insert{name = recreation.ITEM, count = 40}
     hall.insert{name = "colony-basket", count = 3}
     ctx.check("hall holds 40 ale and food", hall.get_item_count(recreation.ITEM) == 40
-      and hall.get_item_count("raw-fish") >= 200)
+      and hall.get_item_count("raw-fish") >= 200,
+      string.format("ale=%d raw-fish=%d", hall.get_item_count(recreation.ITEM), hall.get_item_count("raw-fish")))
+    -- The tavern only pours when haulers are free to carry ale; seed a work crew (migrants trickle in slowly).
+    for _ = 1, 8 do colony.spawn_colonist(c) end
 
     local t0 = game.tick
     local st = {tav_max = 0, a_inspired = false, b_inspired = false, b_has = false, a_has = false,

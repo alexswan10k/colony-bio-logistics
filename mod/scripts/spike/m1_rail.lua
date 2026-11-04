@@ -63,7 +63,7 @@ core.register("m1_rail", {
     hallB.insert{name = "raw-fish", count = 200}
     -- B's houses hold their own food (its colonists would otherwise wait on haulers to starve-proof the test).
 
-    -- Housing: A gets ONE tent (4 beds); B gets three (12 free beds).
+    -- Housing: A gets ONE tent (1 bed); B gets three tents (3 free beds).
     -- Town (hall, houses) sits north at y <= 2 and the rail row is 17 tiles south: a passing train runs over anyone
     -- on the track, and idle colonists wander onto it when it runs through town (colonist 174 at y=6 was killed).
     local tentA = build("colony-housing-tent", {8, 2})

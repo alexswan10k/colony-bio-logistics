@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 27
+local SCHEMA = 28
 
 local migrations = {
   [1] = function()
@@ -145,6 +145,15 @@ local migrations = {
     -- Illness (#47): storage.sick [unit_number] = {kind = "lung"|"poison", age}; colonies gain sick_count /
     -- sick_lung / sick_poison on their next evaluation; "heal" joins the job matrix at its default rank.
     storage.sick = storage.sick or {}
+  end,
+  [28] = function()
+    -- Natural reproduction (#88): storage.age [unit_number] = {stage = "adult"|"child", born = tick}; children
+    -- count toward occupancy but never receive jobs. Colony labels are now {mode, obj} records (the mode says
+    -- whether the label is only shown in alt-mode, as sleeping colonists are labelled outside it).
+    storage.age = storage.age or {}
+    for un, rec in pairs(storage.unit_labels or {}) do
+      if type(rec) ~= "table" then storage.unit_labels[un] = {mode = "alt", obj = rec} end
+    end
   end,
 }
 

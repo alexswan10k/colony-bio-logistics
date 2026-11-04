@@ -46,9 +46,12 @@ core.register("m1_commute", {
     if not (cA and cB) then return ctx.finish() end
     cA.accept_migrants, cB.accept_migrants = false, false
     hallA.insert{name = "raw-fish", count = 2000}   -- evaluations every 150 ticks eat fast
-    for _, x in ipairs({-8, 8, -16}) do
-      local t = build("colony-housing-tent", {x, 4})
-      if t then t.insert{name = "raw-fish", count = 30} end
+    for _, x in ipairs({-8, 8}) do
+      local cab = build("colony-housing-cabin", {x, 4})   -- two cabins = 12 beds for the 8 colonists
+      if cab then cab.insert{name = "raw-fish", count = 30} end
+    end
+    for _, col in pairs({cA, cB}) do
+      for _, h in pairs(col.houses) do h.breed_ready = 2 ^ 31 end   -- no babies: this tests commuting, not reproduction
     end
 
     -- The outpost: a forager hut with patches, baskets in the hall, a canteen with food. No houses.

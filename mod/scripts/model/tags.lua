@@ -54,7 +54,8 @@ end
 -- colony.crates[un] -> payload. Only a demand crate uses filters, and an empty filter list still travels so
 -- a copied crate is cleared rather than inheriting the pasted-over crate's demands.
 function M.crate(c)
-  return {crate = true, filters = encode_rows(c.filters, crates.FILTER_ROWS)}
+  return {crate = true, filters = encode_rows(c.filters, crates.FILTER_ROWS),
+    accept_all = c.accept_all ~= false, priority = c.priority}
 end
 
 -- Whole tag dictionary for `tags.set_blueprint_entity_tags`, or nil when the colony does not serve the
@@ -72,7 +73,12 @@ function M.decode(dict)
   if t.machine then
     return {machine = {collect = t.collect ~= false, requests = decode_rows(t.requests, M.MAX_REQUESTS)}}
   elseif t.crate then
-    return {crate = {filters = decode_rows(t.filters, crates.FILTER_ROWS)}}
+    local p = t.priority and tonumber(t.priority)
+    return {crate = {
+      filters = decode_rows(t.filters, crates.FILTER_ROWS),
+      accept_all = t.accept_all ~= false,
+      priority = p and math.max(1, math.min(5, math.floor(p))) or nil,
+    }}
   end
   return nil
 end

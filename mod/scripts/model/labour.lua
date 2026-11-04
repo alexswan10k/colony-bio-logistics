@@ -8,7 +8,10 @@ M.HUTS = {
   ["colony-miner-hut"] = {job = "mine", tool = "colony-pickaxe", capacity = 3},
   ["colony-farm-hut"] = {job = "farm", tool = "colony-hoe", capacity = 3,
     keep = {"colony-fertilizer"}, inputs = {{item = "colony-fertilizer", count = 6}}},
-  ["colony-hunting-lodge"] = {job = "hunt", tool = "colony-rifle", capacity = 3},
+  ["colony-hunting-lodge"] = {job = "hunt", tool = "colony-bow",
+    tools = {"pistol", "submachine-gun", "colony-bow", "colony-rifle"},
+    keep = {"colony-arrow", "firearm-magazine", "piercing-rounds-magazine"},
+    capacity = 3},
   ["colony-fishing-dock"] = {job = "fish", tool = "colony-rod", capacity = 3},
   -- No `tool`: a Smokehouse or Kitchen is gated by its inputs, not by equipment (#81, #44). `keep` lists the
   -- items that are *inputs*, so haulers do not treat them as hut output and cart them straight back to the hall.
@@ -26,10 +29,13 @@ M.HUTS = {
     inputs = {{item = "colony-frontier-pack", count = 10}, {item = "colony-civic-pack", count = 10}}},
   -- Clinic (#47): doctors staff it while it holds medicine and someone is sick.
   ["colony-clinic"] = {job = "heal", capacity = 2, keep = {"colony-herbal-medicine"}, inputs = {{item = "colony-herbal-medicine", count = 10}}},
-  -- Garrisoned Watchtower (#56): a guard post. The tower's stock room is the armory: every rifle inside it
-  -- opens one post. Rifles wear out one step per engagement (a hunter's trip pays for a kill the same way).
+  -- Garrisoned Watchtower (#56): a guard post. The tower's stock room is the armory: bows and rifles/guns inside it
+  -- open posts. Weapons wear out (or consume ammo) per engagement.
   -- Registered as a hut with limit = 0 by default, so an unmanned tower never nags; the player mans it.
-  ["colony-watchtower"] = {job = "guard", tool = "colony-rifle", capacity = 4},
+  ["colony-watchtower"] = {job = "guard", tool = "colony-bow",
+    tools = {"pistol", "submachine-gun", "colony-bow", "colony-rifle"},
+    keep = {"colony-arrow", "firearm-magazine", "piercing-rounds-magazine"},
+    capacity = 4},
 }
 -- Worker trips before one tool in the hut wears out. A trip is ~10s of walking + 8s of work, so a hut
 -- with three workers loses a tool roughly every 1-2 minutes: fast enough to see, slow enough to be logistics.
@@ -72,6 +78,9 @@ function M.spread(slots)
     if sl.allowed > sl.workers then out[#out + 1] = sl end
   end
   table.sort(out, function(a, b)
+    local pa = a.priority or (a.hut and a.hut.priority) or 3
+    local pb = b.priority or (b.hut and b.hut.priority) or 3
+    if pa ~= pb then return pa < pb end
     if a.workers ~= b.workers then return a.workers < b.workers end
     return (a.id or 0) < (b.id or 0)
   end)

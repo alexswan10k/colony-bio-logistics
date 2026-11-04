@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 29
+local SCHEMA = 30
 
 local migrations = {
   [1] = function()
@@ -166,6 +166,28 @@ local migrations = {
           c.huts[un] = {entity = e, job = "guard", colony_id = c.id,
             workers = {}, inflight = {}, wear = 0, limit = 0}
         end
+      end
+    end
+  end,
+  [30] = function()
+    -- Building priority & logistics toggle on all colony buildings, warehouse whitelist & storage priority
+    for _, c in pairs(storage.colonies or {}) do
+      c.storage_priority = c.storage_priority or 3
+      for _, h in pairs(c.huts or {}) do
+        if h.logistics_enabled == nil then h.logistics_enabled = true end
+        h.priority = h.priority or 3
+      end
+      for _, h in pairs(c.houses or {}) do
+        if h.logistics_enabled == nil then h.logistics_enabled = true end
+        h.priority = h.priority or 3
+      end
+      for _, cr in pairs(c.crates or {}) do
+        if cr.logistics_enabled == nil then cr.logistics_enabled = true end
+        cr.priority = cr.priority or 3
+        if cr.kind == "warehouse" and cr.accept_all == nil then cr.accept_all = true end
+      end
+      for _, m in pairs(c.machines or {}) do
+        m.priority = m.priority or 4
       end
     end
   end,

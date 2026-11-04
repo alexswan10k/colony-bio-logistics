@@ -45,10 +45,10 @@ colonist.attack_parameters = {
   ammo_type = {
     target_type = "entity",
     action = {type = "direct", action_delivery = {type = "instant",
-      target_effects = {type = "damage", damage = {amount = 20, type = "physical"}}}},
+      target_effects = {type = "damage", damage = {amount = 10, type = "physical"}}}},
   },
   animation = table.deepcopy(person),
-  sound = {filename = "__base__/sound/fight/defender-gunshot-1.ogg", volume = 0.35},
+  sound = {filename = "__base__/sound/fight/defender-gunshot-1.ogg", volume = 0.25},
 }
 colonist.icon = "__colony-bio-logistics__/graphics/colonist.png"; colonist.icon_size = 64; colonist.icons = nil
 colonist.selection_box = {{-0.4, -0.7}, {0.4, 0.4}}

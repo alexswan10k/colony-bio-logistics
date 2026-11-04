@@ -59,8 +59,9 @@ local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.
 -- The radius is measured from the entity's centre, so it must clear the collision box or the command never
 -- completes (and the colonist gets stuck). A 2x2 rock needs ~1.5, a tree ~1.
 local function site_radius(site)
-  local proto = prototypes and prototypes.entity and prototypes.entity[site.name]
-  local box = proto and proto.selection_box
+  local proto = (site.type == "entity-ghost" and site.ghost_prototype)
+    or (prototypes and prototypes.entity and prototypes.entity[site.name])
+  local box = proto and (proto.collision_box or proto.selection_box)
   local half = 0.5
   if box then
     half = math.max(math.abs(box.left_top.x), math.abs(box.right_bottom.x),
@@ -175,14 +176,61 @@ M.update_lab_status = update_lab_status
 -- One completed trip = one use of the hut's tool. Shared by `work.finish` (harvest) and the hunter, which
 -- completes its trip the moment the animal dies rather than after a work animation.
 local function use_tool(hut)
-  local def = labour.HUTS[hut.entity.name]
-  if not (def and def.tool) then return end
+  local def = hut and hut.entity and hut.entity.valid and labour.HUTS[hut.entity.name]
+  if not (def and (def.tools or def.tool)) then return end
   local broke
   hut.wear, broke = labour.wear(hut.wear or 0)
-  if broke and hut.entity.remove_item{name = def.tool, count = 1} > 0 then
-    local colony = hut.colony_id and storage.colonies and storage.colonies[hut.colony_id]
-    if colony then stats.consumed(colony, def.tool, 1) end
-    popup(hut.entity.surface, hut.entity.position, {"", "Tool broke: ", item_name(def.tool)})
+  if broke then
+    local tool_item = def.tool
+    if def.tools then
+      for _, t in ipairs(def.tools) do
+        if hut.entity.get_item_count(t) > 0 then tool_item = t; break end
+      end
+    end
+    if tool_item and hut.entity.remove_item{name = tool_item, count = 1} > 0 then
+      local colony = hut.colony_id and storage.colonies and storage.colonies[hut.colony_id]
+      if colony then stats.consumed(colony, tool_item, 1) end
+      popup(hut.entity.surface, hut.entity.position, {"", "Tool broke: ", item_name(tool_item)})
+    end
+  end
+end
+
+local function hut_weapon(hut)
+  local inv = hut and hut.entity and hut.entity.valid and (
+    hut.entity.type == "lab" and hut.entity.get_inventory(defines.inventory.lab_input)
+    or hut.entity.get_inventory(defines.inventory.chest)
+  )
+  if not inv then return "bow" end
+  local has_gun = inv.get_item_count("submachine-gun") > 0 or inv.get_item_count("pistol") > 0 or inv.get_item_count("colony-rifle") > 0
+  local has_ammo = inv.get_item_count("firearm-magazine") > 0 or inv.get_item_count("piercing-rounds-magazine") > 0
+  if has_gun and (has_ammo or inv.get_item_count("colony-rifle") > 0) then
+    return "gun"
+  end
+  return "bow"
+end
+
+local function use_weapon(hut)
+  local inv = hut and hut.entity and hut.entity.valid and hut.entity.get_inventory(defines.inventory.chest)
+  if not inv then return use_tool(hut) end
+  local w = hut_weapon(hut)
+  if w == "gun" then
+    hut.ammo_count = (hut.ammo_count or 0) + 1
+    if hut.ammo_count >= 10 then
+      hut.ammo_count = 0
+      if inv.get_item_count("piercing-rounds-magazine") > 0 then
+        inv.remove_item{name = "piercing-rounds-magazine", count = 1}
+      elseif inv.get_item_count("firearm-magazine") > 0 then
+        inv.remove_item{name = "firearm-magazine", count = 1}
+      end
+    end
+    if inv.get_item_count("colony-rifle") > 0 then
+      use_tool(hut)
+    end
+  else
+    if inv.get_item_count("colony-arrow") > 0 then
+      inv.remove_item{name = "colony-arrow", count = 1}
+    end
+    use_tool(hut)
   end
 end
 
@@ -240,7 +288,17 @@ function M.hut_info(h)
   local def = labour.HUTS[h.entity.name]
   -- A hut with no `tool` is gated by its inputs instead (#81): report its capacity as the allowance, and let
   -- the job itself refuse to start when there is nothing to work on.
-  local tools = def.tool and h.entity.get_item_count(def.tool) or def.capacity
+  local tools
+  if def.tools then
+    tools = 0
+    for _, t in ipairs(def.tools) do
+      tools = tools + (h.entity.valid and h.entity.get_item_count(t) or 0)
+    end
+  elseif def.tool then
+    tools = h.entity.valid and h.entity.get_item_count(def.tool) or 0
+  else
+    tools = def.capacity
+  end
   return def, tools, labour.allowed(def.capacity, tools, h.limit), worker_count(h)
 end
 
@@ -817,6 +875,7 @@ end
 -- Haul planning ----------------------------------------------------------------------------------
 -- House demand: critical (already unmet / never evaluated) beats buffering a well-stocked house.
 local function house_offer(colony, h)
+  if h.logistics_enabled == false then return nil end
   local tier = housing.TIERS[h.kind]
   local occupants = h.mouths or h.occupants or 0   -- children eat half (#88)
   local stock = colony_mod.house_stock_cached(h)
@@ -831,30 +890,71 @@ local function house_offer(colony, h)
   end
   return {kind = "supply", house = h, entity = h.entity, pos = h.entity.position,
     priority = critical and haul_plan.PRIORITY.critical or haul_plan.PRIORITY.buffer,
+    building_priority = h.priority or 3,
     key = h.entity.unit_number, demands = demands}
 end
 
 local function hut_offer(h)
+  if h.logistics_enabled == false then return nil end
   local def, tools = M.hut_info(h)
-  if def.tool then
-    -- A hut the player has closed (limit 0) asks for nothing: an unmanned Watchtower must not pull rifles out
-    -- of the hall (#56). Rifles already in the tower stay there, ready for the player to man it.
+  if def.tools or def.tool then
+    -- A hut the player has closed (limit 0) asks for nothing: an unmanned Watchtower must not pull rifles/weapons out
+    -- of the hall (#56). Weapons already in the tower stay there, ready for the player to man it.
     if (h.limit or def.capacity) <= 0 then return nil end
-    local inflight = h.inflight[def.tool] or 0
+    local primary_tool = def.tool
+    local colony = storage.colonies[h.colony_id]
+    if def.tools and colony then
+      if colony_mod.stock_count(colony, primary_tool) == 0 then
+        for _, t in ipairs(def.tools) do
+          if colony_mod.stock_count(colony, t) > 0 then
+            primary_tool = t
+            break
+          end
+        end
+      end
+      local force = h.entity.valid and h.entity.force
+      local has_guns = force and force.technologies["colony-firearms"] and force.technologies["colony-firearms"].researched
+      if has_guns then
+        if colony_mod.stock_count(colony, "colony-rifle") > 0 then primary_tool = "colony-rifle"
+        elseif colony_mod.stock_count(colony, "submachine-gun") > 0 then primary_tool = "submachine-gun"
+        elseif colony_mod.stock_count(colony, "pistol") > 0 then primary_tool = "pistol"
+        end
+      end
+    end
+    local inflight = 0
+    if def.tools then
+      for _, t in ipairs(def.tools) do inflight = inflight + (h.inflight[t] or 0) end
+    elseif primary_tool then
+      inflight = h.inflight[primary_tool] or 0
+    end
     if tools == 0 then
       -- A hut with no tool cannot work at all, so it asks for exactly one before any hut tops up. Without
       -- this an older hut's full-capacity request ate a scarce supply and a newer hut (often the one built
       -- further out) never got its first tool. Once one is on the way, wait for it rather than pile up.
       if inflight > 0 then return nil end
       return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
-        priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
-        deficit = def.capacity * 10 + 1, demands = {{item = def.tool, count = 1}}}
+        priority = haul_plan.PRIORITY.tools, building_priority = h.priority or 3, key = h.entity.unit_number,
+        deficit = def.capacity * 10 + 1, demands = {{item = primary_tool, count = 1}}}
     end
     local want = math.min(def.capacity, h.limit or def.capacity) - tools - inflight
     if want >= 1 then
       return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
-        priority = haul_plan.PRIORITY.tools, key = h.entity.unit_number,
-        demands = {{item = def.tool, count = want}}}
+        priority = haul_plan.PRIORITY.tools, building_priority = h.priority or 3, key = h.entity.unit_number,
+        demands = {{item = primary_tool, count = want}}}
+    end
+    if def.tools then
+      local inv = h.entity.valid and (h.entity.type == "lab" and h.entity.get_inventory(defines.inventory.lab_input) or h.entity.get_inventory(defines.inventory.chest))
+      local is_gun = hut_weapon(h) == "gun"
+      local ammo_item = is_gun and "firearm-magazine" or "colony-arrow"
+      local ammo_target = is_gun and 5 or 20
+      local have_ammo = inv and inv.get_item_count(ammo_item) or 0
+      local inflight_ammo = h.inflight[ammo_item] or 0
+      local ammo_deficit = ammo_target - have_ammo - inflight_ammo
+      if ammo_deficit > 0 and colony and colony_mod.stock_count(colony, ammo_item) > 0 then
+        return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
+          priority = haul_plan.PRIORITY.request, building_priority = h.priority or 3, key = h.entity.unit_number,
+          demands = {{item = ammo_item, count = ammo_deficit}}}
+      end
     end
     if def.inputs then
       local demands = {}
@@ -865,7 +965,7 @@ local function hut_offer(h)
       end
       if #demands > 0 then
         return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
-          priority = haul_plan.PRIORITY.request, key = h.entity.unit_number,
+          priority = haul_plan.PRIORITY.request, building_priority = h.priority or 3, key = h.entity.unit_number,
           demands = demands}
       end
     end
@@ -889,7 +989,7 @@ local function hut_offer(h)
   end
   if #demands == 0 then return nil end
   return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
-    priority = haul_plan.PRIORITY.request, key = h.entity.unit_number,
+    priority = haul_plan.PRIORITY.request, building_priority = h.priority or 3, key = h.entity.unit_number,
     demands = demands}
 end
 
@@ -897,6 +997,7 @@ end
 -- colonist never walks every load home. Everything except the hut's own tool is fair game.
 -- For lab entities, collects from defines.inventory.lab_trash so spoilage is composted (#42).
 local function hut_collect_offer(h)
+  if h.logistics_enabled == false then return nil end
   local def = labour.HUTS[h.entity.name]
   if h.job == "guard" then return nil end   -- a garrison produces nothing; its rifles are not output
   local inv = h.entity.type == "lab"
@@ -907,14 +1008,18 @@ local function hut_collect_offer(h)
   for _, item in ipairs(def.keep or {}) do keep[item] = true end
   for _, c in ipairs(inv.get_contents()) do
     -- Inputs stay put: a Smokehouse's salt and raw food are not output to be hauled away (#81).
-    if c.name ~= def.tool and not keep[c.name] then
+    local is_tool = (c.name == def.tool)
+    if def.tools then
+      for _, t in ipairs(def.tools) do if c.name == t then is_tool = true; break end end
+    end
+    if not is_tool and not keep[c.name] then
       demands[#demands + 1] = {item = c.name, count = c.count}
       available[c.name] = c.count
     end
   end
   if #demands == 0 then return nil end
   return {kind = "collect", hut = h, entity = h.entity, pos = h.entity.position,
-    priority = haul_plan.PRIORITY.hut_output, key = h.entity.unit_number,
+    priority = haul_plan.PRIORITY.hut_output, building_priority = h.priority or 3, key = h.entity.unit_number,
     demands = demands, available = available}
 end
 
@@ -928,7 +1033,7 @@ local function bin_offer(b)
   local n = b.entity.get_item_count(compost.PRODUCT)
   if n < 1 then return nil end
   return {kind = "collect", bin = b, entity = b.entity, pos = b.entity.position,
-    priority = haul_plan.PRIORITY.collect, key = b.entity.unit_number,
+    priority = haul_plan.PRIORITY.collect, building_priority = 3, key = b.entity.unit_number,
     demands = {{item = compost.PRODUCT, count = n}}, available = {[compost.PRODUCT] = n}}
 end
 
@@ -938,7 +1043,7 @@ local function salt_offer(pan)
   local n = pan.entity.get_item_count(salt.ITEM)
   if n < 1 then return nil end
   return {kind = "collect", pan = pan, entity = pan.entity, pos = pan.entity.position,
-    priority = haul_plan.PRIORITY.collect, key = pan.entity.unit_number,
+    priority = haul_plan.PRIORITY.collect, building_priority = 3, key = pan.entity.unit_number,
     demands = {{item = salt.ITEM, count = n}}, available = {[salt.ITEM] = n}}
 end
 
@@ -948,26 +1053,28 @@ local function well_offer(w)
   local n = w.entity.get_item_count(well.ITEM)
   if n < 1 then return nil end
   return {kind = "collect", well = w, entity = w.entity, pos = w.entity.position,
-    priority = haul_plan.PRIORITY.collect, key = w.entity.unit_number,
+    priority = haul_plan.PRIORITY.collect, building_priority = 3, key = w.entity.unit_number,
     demands = {{item = well.ITEM, count = n}}, available = {[well.ITEM] = n}}
 end
 
 local function crate_supply_offer(c)
+  if c.logistics_enabled == false then return nil end
   local contents = crate_contents(c)
   if not contents then return nil end
   local demands = crates.supply(contents)
   if #demands == 0 then return nil end
   return {kind = "collect", crate = c, entity = c.entity, pos = c.entity.position,
-    priority = haul_plan.PRIORITY.collect, key = c.entity.unit_number,
+    priority = haul_plan.PRIORITY.collect, building_priority = c.priority or 3, key = c.entity.unit_number,
     demands = demands, available = contents}
 end
 
 local function crate_demand_offer(c)
+  if c.logistics_enabled == false then return nil end
   local contents = crate_contents(c) or {}
   local demands = crates.demands(c.filters, contents, c.inflight)
   if #demands == 0 then return nil end
   return {kind = "supply", crate = c, entity = c.entity, pos = c.entity.position,
-    priority = haul_plan.PRIORITY.request, key = c.entity.unit_number,
+    priority = haul_plan.PRIORITY.request, building_priority = c.priority or 3, key = c.entity.unit_number,
     demands = demands}
 end
 
@@ -994,7 +1101,7 @@ local function machine_offer(m)
   end
   if not any then return nil end
   return {kind = "supply", machine = m, entity = m.entity, pos = m.entity.position,
-    priority = haul_plan.PRIORITY.request, key = m.entity.unit_number, demands = demands}
+    priority = haul_plan.PRIORITY.request, building_priority = m.priority or 4, key = m.entity.unit_number, demands = demands}
 end
 
 -- Finished products leave the machine now; the load is filled from the machine, not the hall.
@@ -1011,7 +1118,7 @@ local function collect_offer(colony, m)
     available[c.name] = (available[c.name] or 0) + c.count
   end
   return {kind = "collect", machine = m, entity = m.entity, pos = m.entity.position,
-    priority = haul_plan.PRIORITY.collect, key = m.entity.unit_number,
+    priority = haul_plan.PRIORITY.collect, building_priority = m.priority or 4, key = m.entity.unit_number,
     demands = demands, available = available}
 end
 
@@ -1084,7 +1191,7 @@ local function pool_offer(colony, p)
     {[motor.CAR] = colony_mod.stock_count(colony, motor.CAR)}, trucks_out(p))
   if #demands == 0 then return nil end
   return {kind = "supply", pool = p, entity = p.entity, pos = p.entity.position,
-    priority = haul_plan.PRIORITY.request, key = p.entity.unit_number,
+    priority = haul_plan.PRIORITY.request, building_priority = 3, key = p.entity.unit_number,
     demands = demands}
 end
 
@@ -1093,7 +1200,7 @@ local function tavern_offer(t)
   local demands = recreation.wants(t.entity.get_item_count(recreation.ITEM), t.inflight[recreation.ITEM])
   if #demands == 0 then return nil end
   return {kind = "supply", tavern = t, entity = t.entity, pos = t.entity.position,
-    priority = haul_plan.PRIORITY.request, key = t.entity.unit_number,
+    priority = haul_plan.PRIORITY.request, building_priority = 3, key = t.entity.unit_number,
     demands = demands}
 end
 
@@ -1106,7 +1213,7 @@ local function canteen_offer(colony, c)
   local demands = commute.wants(colony_mod.MEAL_ITEMS, have, inflight)
   if #demands == 0 then return nil end
   return {kind = "supply", canteen = c, entity = c.entity, pos = c.entity.position,
-    priority = haul_plan.PRIORITY.request, key = c.entity.unit_number,
+    priority = haul_plan.PRIORITY.request, building_priority = 3, key = c.entity.unit_number,
     demands = demands}
 end
 
@@ -1243,9 +1350,21 @@ local function return_to_hall(colony, stacks)
   local hall = colony.hall
   if not (hall and hall.valid) then return end
   for _, s in ipairs(stacks) do
-    local n = colony_mod.put_stock(colony, s.item, s.count)   -- hall first, then warehouses
-    if n < s.count then
-      hall.surface.spill_item_stack{position = hall.position, stack = {name = s.item, count = s.count - n}, allow_belts = false}
+    if s.item == compost.SOURCE then
+      local bin = colony_mod.nearest_bin(colony, hall.position)
+      local n = bin and bin.entity.valid and bin.entity.insert{name = s.item, count = s.count} or 0
+      local left = s.count - n
+      if left > 0 then
+        local put = colony_mod.put_stock(colony, s.item, left)
+        if put < left then
+          hall.surface.spill_item_stack{position = hall.position, stack = {name = s.item, count = left - put}, allow_belts = false}
+        end
+      end
+    else
+      local n = colony_mod.put_stock(colony, s.item, s.count)   -- hall first, then warehouses
+      if n < s.count then
+        hall.surface.spill_item_stack{position = hall.position, stack = {name = s.item, count = s.count - n}, allow_belts = false}
+      end
     end
   end
 end
@@ -1315,7 +1434,7 @@ local function start_construct(colony, un, e)
   storage.unit_state[un] = {colony_id = colony.id, job = "construct", state = "to_construct",
     kind = site.kind, site = site.target, site_key = site.key, carry = carry}
   set_label(e, M.LABELS.construct)
-  go(e, site.target.position, 2)
+  go(e, site.target, 2)
   return true
 end
 
@@ -2012,6 +2131,7 @@ scheduler.register("work.finish", function(d)
     -- the colony evaluation (scripts/illness.lua), which counts the doctors working here.
     local lock = colony.locks and colony.locks[d.un]
     if not M.is_sleep_time(e.surface) and (colony.sick_count or 0) > 0 and hut.entity.get_item_count(illness.MEDICINE) > 0 and (not lock or lock == "heal") then
+      e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
       scheduler.after(M.WORK_TICKS + (d.un * 23) % 240, "work.finish", {un = d.un})
       return
     end
@@ -2034,6 +2154,7 @@ scheduler.register("work.finish", function(d)
     if not M.is_sleep_time(e.surface) and have and (not lock or lock == "research") then
       local e = colony.colonists[d.un]
       if e and e.valid and hut.entity.valid then
+        e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
         work_ring(e, hut.entity.position)
       end
       scheduler.after(M.WORK_TICKS + (d.un * 23) % 240, "work.finish", {un = d.un})
@@ -2094,6 +2215,12 @@ scheduler.register("construct.finish", function(d)
   if st.site_key then colony.claimed[st.site_key] = nil end
   local site = st.site
   if st.kind == "build" then
+    -- Clear colliding trees and rocks on the ghost footprint before reviving!
+    if site and site.valid and site.type == "entity-ghost" then
+      for _, blocker in ipairs(site.surface.find_entities_filtered{area = site.bounding_box, type = {"tree", "simple-entity"}}) do
+        if blocker.valid then blocker.destroy() end
+      end
+    end
     -- `revive` consumes the ghost, so capture what we need for the message first.
     local pos = site and site.valid and {x = site.position.x, y = site.position.y}
     local ghost_name = site and site.valid and site.ghost_name
@@ -2108,11 +2235,10 @@ scheduler.register("construct.finish", function(d)
       if colony.ghosts then colony.ghosts[st.site_key] = nil end
       popup(e.surface, pos or e.position, {"", "Built ", item_name(ghost_name)})
     else
-      -- The builder is the blocker: step it off the footprint and come back, instead of backing off for an
-      -- hour and leaving the ghost standing. Any other blocker (tree, biter, someone else's building) earns
-      -- the long back-off, because nothing about it changes just by waiting a few ticks.
+      local attempts = st.attempts or 0
       local blocker = site and site.valid and unit_blocking(site)
-      if blocker and blocker.unit_number == d.un then
+      if attempts < 2 and (blocker or (site and site.valid)) then
+        st.attempts = attempts + 1
         colony.claimed[st.site_key] = true       -- the site is still ours, just not reachable yet
         st.state = "to_construct"                -- arriving again re-arms the work timer and retries
         go(e, aside_from(site, e.position), 0.5)
@@ -2222,8 +2348,8 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     return
   end
   if st.job == "guard" and st.state == "guarding-fight" then
-    -- One engagement just finished (kill or done trying): the rifle pays (a hunter's kill works the same).
-    use_tool(st.hut)
+    -- One engagement just finished (kill or done trying): weapon wear or ammo pays.
+    use_weapon(st.hut)
     local e2 = unit_entity(colony, ev.unit_number)
     if ev.result ~= defines.behavior_result.success and st.site and st.site.valid
         and (st.attempts or 1) < garrison.MAX_ATTEMPTS then
@@ -2263,7 +2389,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     st.site = nil
     local e = unit_entity(colony, ev.unit_number)
     if st.carry and st.hut and st.hut.entity.valid and e and e.valid then
-      use_tool(st.hut)                          -- a kill is a completed trip: the rifle wears once
+      use_weapon(st.hut)                          -- a kill is a completed trip: weapon wear or ammo pays
       st.state = "to_hut"
       go(e, st.hut.entity.position, 3)
       return
@@ -2275,7 +2401,10 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   if st.state == "to_construct" then
     st.state = st.kind == "build" and "building" or "repairing"
     local e = unit_entity(colony, ev.unit_number)
-    if e and e.valid and st.site and st.site.valid then work_ring(e, st.site.position) end
+    if e and e.valid then
+      e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
+      if st.site and st.site.valid then work_ring(e, st.site.position) end
+    end
     scheduler.after(construct.WORK_TICKS, "construct.finish", {un = ev.unit_number})
     return
   end
@@ -2336,7 +2465,10 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   elseif st.state == "to_site" then
     st.state = "working"
     local e = unit_entity(colony, ev.unit_number)
-    if e and e.valid and st.site.valid then work_ring(e, st.site.position, site_radius(st.site) * 0.75) end
+    if e and e.valid then
+      e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
+      if st.site and st.site.valid then work_ring(e, st.site.position, site_radius(st.site) * 0.75) end
+    end
     if st.hut and st.hut.job == "research" and st.hut.entity.valid then
       local def = labour.HUTS[st.hut.entity.name]
       update_lab_status(st.hut.entity, worker_count(st.hut), def and def.capacity or 2)
@@ -2452,6 +2584,22 @@ events.on(defines.events.on_object_destroyed, function(ev)
   if carried then
     if carried.obj.valid then carried.obj.destroy() end
     storage.carry_sprites[un] = nil
+  end
+end)
+
+local in_damage_bonus = false
+events.on(defines.events.on_entity_damaged, function(ev)
+  if in_damage_bonus then return end
+  local attacker = ev.cause
+  if not (attacker and attacker.valid and attacker.name == "colony-colonist") then return end
+  local st = storage.unit_state and storage.unit_state[attacker.unit_number]
+  local hut = st and st.hut
+  if hut and hut_weapon(hut) == "gun" then
+    if ev.entity and ev.entity.valid and ev.entity.health > 0 then
+      in_damage_bonus = true
+      ev.entity.damage(15, attacker.force, "physical", attacker)
+      in_damage_bonus = false
+    end
   end
 end)
 

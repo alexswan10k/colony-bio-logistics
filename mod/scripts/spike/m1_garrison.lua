@@ -48,7 +48,7 @@ core.register("m1_garrison", {
     ctx.check("an unmanned tower posts nobody (limit 0 by default)", h ~= nil and h.limit == 0)
     ctx.check("territory still derived from the tower", c.towers[tower.unit_number] == tower)
     local def = labour.HUTS["colony-watchtower"]
-    ctx.check("guard post holds four rifles, one post each", def and def.tool == "colony-rifle" and def.capacity == 4)
+    ctx.check("guard post holds four weapons, one post each", def and (def.tool == "colony-bow" or def.tool == "colony-rifle") and def.capacity == 4)
 
     -- Player mans the tower: two posts, still no rifles inside (they are in the hall, haulers must bring them).
     h.limit = 2

@@ -73,10 +73,13 @@ function M.deficit(offer)
   return n
 end
 
--- Stable order: priority, then largest deficit, then `key` (caller supplies a stable id).
+-- Stable order: priority, then building priority, then largest deficit, then `key` (caller supplies a stable id).
 function M.order(offers)
   table.sort(offers, function(a, b)
     if a.priority ~= b.priority then return a.priority < b.priority end
+    local bpa = a.building_priority or 3
+    local bpb = b.building_priority or 3
+    if bpa ~= bpb then return bpa < bpb end
     local da, db = a.deficit or M.deficit(a), b.deficit or M.deficit(b)
     if da ~= db then return da > db end
     return (a.key or 0) < (b.key or 0)
@@ -146,6 +149,7 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
           candidates[#candidates + 1] = {
             kind = "direct",
             priority = math.min(r.priority, p.priority),
+            building_priority = math.min(r.building_priority or 3, p.building_priority or 3),
             is_direct = true,
             source = p,
             target = r,
@@ -182,6 +186,9 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
     end
     if #avail_storages > 0 then
       table.sort(avail_storages, function(a, b)
+        local spa = a.storage_priority or 3
+        local spb = b.storage_priority or 3
+        if spa ~= spb then return spa < spb end
         local sa = a.pos or (a.entity and a.entity.position) or {x = 0, y = 0}
         local sb = b.pos or (b.entity and b.entity.position) or {x = 0, y = 0}
         local da, db = dist2(sa, r_pos), dist2(sb, r_pos)
@@ -196,6 +203,7 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
           candidates[#candidates + 1] = {
             kind = "supply",
             priority = r.priority,
+            building_priority = r.building_priority or 3,
             is_direct = false,
             source = s,
             target = r,
@@ -218,50 +226,71 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
     end
   end
 
-  -- 2. Active providers: push finished output to nearest storage with space
+  -- 2. Active providers: push finished output to nearest storage with space that accepts the items
   for _, p in ipairs(providers) do
     local p_pos = p.pos or (p.entity and p.entity.position) or {x = 0, y = 0}
-    local open_storages = {}
-    for _, s in ipairs(storages) do
-      if s.has_space ~= false then open_storages[#open_storages + 1] = s end
+    local p_items = {}
+    for item, count in pairs(p.available or {}) do
+      if count > 0 then p_items[#p_items + 1] = item end
     end
-    if #open_storages > 0 then
-      table.sort(open_storages, function(a, b)
-        local sa = a.pos or (a.entity and a.entity.position) or {x = 0, y = 0}
-        local sb = b.pos or (b.entity and b.entity.position) or {x = 0, y = 0}
-        local da, db = dist2(sa, p_pos), dist2(sb, p_pos)
-        if da ~= db then return da < db end
-        return (a.key or 0) < (b.key or 0)
-      end)
-      local best_s = open_storages[1]
-      local s_pos = best_s.pos or (best_s.entity and best_s.entity.position) or {x = 0, y = 0}
-      local demands = {}
-      for item, count in pairs(p.available or {}) do
-        if count > 0 then demands[#demands + 1] = {item = item, count = count} end
+    if #p_items > 0 then
+      local open_storages = {}
+      for _, s in ipairs(storages) do
+        if s.has_space ~= false then
+          local accepts_any = false
+          for _, item in ipairs(p_items) do
+            if not s.accepts_item or s.accepts_item(item) then
+              accepts_any = true
+              break
+            end
+          end
+          if accepts_any then open_storages[#open_storages + 1] = s end
+        end
       end
-      table.sort(demands, function(a, b) return a.item < b.item end)
-      if #demands > 0 then
-        local load = M.load(demands, p.available or {}, cap)
-        if #load > 0 then
-          local d = dist2(hauler_pos or p_pos, p_pos) + dist2(p_pos, s_pos)
-          candidates[#candidates + 1] = {
-            kind = "collect",
-            priority = p.priority,
-            is_direct = false,
-            source = p,
-            target = best_s,
-            load = load,
-            demands = demands,
-            deficit = M.deficit(p),
-            key = p.key,
-            dist = d,
-            machine = p.machine,
-            crate = p.crate,
-            hut = p.hut,
-            bin = p.bin,
-            pan = p.pan,
-            well = p.well,
-          }
+      if #open_storages > 0 then
+        table.sort(open_storages, function(a, b)
+          local spa = a.storage_priority or 3
+          local spb = b.storage_priority or 3
+          if spa ~= spb then return spa < spb end
+          local sa = a.pos or (a.entity and a.entity.position) or {x = 0, y = 0}
+          local sb = b.pos or (b.entity and b.entity.position) or {x = 0, y = 0}
+          local da, db = dist2(sa, p_pos), dist2(sb, p_pos)
+          if da ~= db then return da < db end
+          return (a.key or 0) < (b.key or 0)
+        end)
+        local best_s = open_storages[1]
+        local s_pos = best_s.pos or (best_s.entity and best_s.entity.position) or {x = 0, y = 0}
+        local demands = {}
+        for item, count in pairs(p.available or {}) do
+          if count > 0 and (not best_s.accepts_item or best_s.accepts_item(item)) then
+            demands[#demands + 1] = {item = item, count = count}
+          end
+        end
+        table.sort(demands, function(a, b) return a.item < b.item end)
+        if #demands > 0 then
+          local load = M.load(demands, p.available or {}, cap)
+          if #load > 0 then
+            local d = dist2(hauler_pos or p_pos, p_pos) + dist2(p_pos, s_pos)
+            candidates[#candidates + 1] = {
+              kind = "collect",
+              priority = p.priority,
+              building_priority = p.building_priority or 3,
+              is_direct = false,
+              source = p,
+              target = best_s,
+              load = load,
+              demands = demands,
+              deficit = M.deficit(p),
+              key = p.key,
+              dist = d,
+              machine = p.machine,
+              crate = p.crate,
+              hut = p.hut,
+              bin = p.bin,
+              pan = p.pan,
+              well = p.well,
+            }
+          end
         end
       end
     end
@@ -277,6 +306,7 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
       candidates[#candidates + 1] = {
         kind = "compost",
         priority = c.priority,
+        building_priority = c.building_priority or 3,
         is_direct = false,
         source = c.source or c.storage,
         target = c.bin,
@@ -305,6 +335,9 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
 
   table.sort(candidates, function(a, b)
     if a.priority ~= b.priority then return a.priority < b.priority end
+    local bpa = a.building_priority or 3
+    local bpb = b.building_priority or 3
+    if bpa ~= bpb then return bpa < bpb end
     if a.is_direct ~= b.is_direct then return a.is_direct end
     if a.deficit ~= b.deficit then return a.deficit > b.deficit end
     if a.dist ~= b.dist then return a.dist < b.dist end

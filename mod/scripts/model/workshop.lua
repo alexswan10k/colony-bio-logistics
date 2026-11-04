@@ -9,6 +9,8 @@ M.RECIPES = {
   ["colony-pickaxe"] = {wood = 2, ["iron-plate"] = 3},
   ["colony-hoe"] = {wood = 2, ["iron-plate"] = 3},
   ["colony-rod"] = {wood = 3, ["iron-plate"] = 2},
+  ["colony-bow"] = {wood = 4},
+  ["colony-arrow"] = {wood = 1},
   ["colony-rifle"] = {wood = 4, ["iron-plate"] = 6, ["copper-plate"] = 2},
 }
 

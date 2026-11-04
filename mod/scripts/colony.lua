@@ -397,6 +397,9 @@ function M.storage_list(colony)
       available = contents,
       has_space = inv and not inv.is_full(),
       key = hall.unit_number,
+      storage_priority = colony.storage_priority or 3,
+      accept_all = true,
+      accepts_item = function(item) return true end,
     }
   end
   for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
@@ -404,6 +407,13 @@ function M.storage_list(colony)
       local inv = c.entity.get_inventory(defines.inventory.chest)
       local contents = {}
       if inv then for _, s in ipairs(inv.get_contents()) do contents[s.name] = s.count end end
+      local accept_all = c.accept_all ~= false
+      local allowed_items = {}
+      if not accept_all and c.filters then
+        for _, f in pairs(c.filters) do
+          if f and f.item then allowed_items[f.item] = true end
+        end
+      end
       list[#list + 1] = {
         kind = "warehouse",
         entity = c.entity,
@@ -411,6 +421,14 @@ function M.storage_list(colony)
         available = contents,
         has_space = inv and not inv.is_full(),
         key = c.entity.unit_number,
+        storage_priority = c.priority or 2,
+        crate = c,
+        accept_all = accept_all,
+        allowed_items = allowed_items,
+        accepts_item = function(item)
+          if accept_all then return true end
+          return allowed_items[item] == true
+        end,
       }
     end
   end
@@ -426,6 +444,9 @@ function M.storage_list(colony)
         available = contents,
         has_space = inv and not inv.is_full(),
         key = un,
+        storage_priority = 4,
+        accept_all = true,
+        accepts_item = function(item) return true end,
       }
     else
       colony.towers[un] = nil
@@ -604,18 +625,17 @@ end
 function M.take_stock(colony, item, count)
   colony.stock_cache = nil   -- stock moved: the cached snapshot is stale
   local taken = 0
-  local hall = colony.hall
-  if hall and hall.valid then taken = hall.remove_item{name = item, count = count} end
-  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
+  local storages = M.storage_list(colony)
+  table.sort(storages, function(a, b)
+    local spa = a.storage_priority or 3
+    local spb = b.storage_priority or 3
+    if spa ~= spb then return spa < spb end
+    return (a.key or 0) < (b.key or 0)
+  end)
+  for _, s in ipairs(storages) do
     if taken >= count then break end
-    taken = taken + c.entity.remove_item{name = item, count = count - taken}
-  end
-  for un, tower in pairs(colony.towers or {}) do
-    if taken >= count then break end
-    if tower.valid then
-      taken = taken + tower.remove_item{name = item, count = count - taken}
-    else
-      colony.towers[un] = nil
+    if s.entity and s.entity.valid then
+      taken = taken + s.entity.remove_item{name = item, count = count - taken}
     end
   end
   return taken
@@ -624,18 +644,17 @@ end
 function M.put_stock(colony, item, count)
   colony.stock_cache = nil   -- stock moved: the cached snapshot is stale
   local left = count
-  local hall = colony.hall
-  if hall and hall.valid then left = left - hall.insert{name = item, count = left} end
-  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
+  local storages = M.storage_list(colony)
+  table.sort(storages, function(a, b)
+    local spa = a.storage_priority or 3
+    local spb = b.storage_priority or 3
+    if spa ~= spb then return spa < spb end
+    return (a.key or 0) < (b.key or 0)
+  end)
+  for _, s in ipairs(storages) do
     if left <= 0 then break end
-    left = left - c.entity.insert{name = item, count = left}
-  end
-  for un, tower in pairs(colony.towers or {}) do
-    if left <= 0 then break end
-    if tower.valid then
-      left = left - tower.insert{name = item, count = left}
-    else
-      colony.towers[un] = nil
+    if s.entity and s.entity.valid and (not s.accepts_item or s.accepts_item(item)) then
+      left = left - s.entity.insert{name = item, count = left}
     end
   end
   return count - left
@@ -1185,7 +1204,7 @@ local function on_built(ev)
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
       towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {},
-      colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}}
+      colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, storage_priority = 3}
     storage.colonies[id] = colony
     M.seed_forage(colony)   -- the claimed land already has berries on it
     local founder = ev.player_index and game.get_player(ev.player_index)
@@ -1232,7 +1251,7 @@ local function on_built(ev)
     -- registered unmanned (limit 0) until the player mans it; labour.HUTS makes the limit buttons work as-is.
     if not colony.huts[e.unit_number] then
       colony.huts[e.unit_number] = {entity = e, job = "guard", colony_id = colony.id,
-        workers = {}, inflight = {}, wear = 0, limit = 0}
+        workers = {}, inflight = {}, wear = 0, limit = 0, logistics_enabled = true, priority = 3}
     end
     local p = ev.player_index and game.get_player(ev.player_index)
     if p then
@@ -1247,8 +1266,11 @@ local function on_built(ev)
     if not owner then refund(ev, e, name); e.destroy(); return end
     local colony = storage.colonies[owner]
     colony.crates = colony.crates or {}
-    colony.crates[e.unit_number] = {entity = e, kind = M.CRATES[name], colony_id = colony.id,
-      filters = {}, inflight = {}}
+    local kind = M.CRATES[name]
+    colony.crates[e.unit_number] = {entity = e, kind = kind, colony_id = colony.id,
+      filters = {}, inflight = {}, logistics_enabled = true,
+      priority = 3,
+      accept_all = (kind == crates.WAREHOUSE and true or nil)}
     script.register_on_object_destroyed(e)
     if dict then M.apply_tags(colony, e, dict) end
   elseif name == M.COMPOST_BIN then
@@ -1338,7 +1360,8 @@ local function on_built(ev)
           return
         end
       end
-      local hut = {entity = e, job = labour.HUTS[name].job, colony_id = colony.id, workers = {}, inflight = {}, wear = 0}
+      local hut = {entity = e, job = labour.HUTS[name].job, colony_id = colony.id, workers = {}, inflight = {}, wear = 0,
+        logistics_enabled = true, priority = 3}
       if hut.job == "research" then
         e.custom_status = {
           diode = defines.entity_status_diode.red,
@@ -1351,7 +1374,7 @@ local function on_built(ev)
         target = e, surface = e.surface, only_in_alt_mode = true}
       return
     end
-    local h = {entity = e, kind = M.HOUSES[name], acc = {}, inflight = {}}
+    local h = {entity = e, kind = M.HOUSES[name], acc = {}, inflight = {}, logistics_enabled = true, priority = 3}
     if housing.needs_power(housing.TIERS[h.kind]) then
       h.sink = e.surface.create_entity{name = "colony-power-sink", position = e.position, force = e.force}
     end
@@ -1576,7 +1599,7 @@ end
 function M.set_machine(colony, e, enabled)
   local m = colony.machines[e.unit_number]
   if enabled then
-    m = m or {entity = e, requests = {}, collect = true, inflight = {}, need = nil, has_output = nil}
+    m = m or {entity = e, requests = {}, collect = true, inflight = {}, need = nil, has_output = nil, priority = 4}
     m.entity = e
     m.enabled = true
     m.need, m.has_output = nil, nil      -- the sweep rediscovers both within a pass
@@ -1674,6 +1697,8 @@ function M.apply_tags(colony, e, dict)
     local c = colony.crates and colony.crates[e.unit_number]
     if not c then return false end
     c.filters = payload.crate.filters
+    if payload.crate.accept_all ~= nil then c.accept_all = payload.crate.accept_all end
+    if payload.crate.priority then c.priority = payload.crate.priority end
     return true
   end
   return false
@@ -1710,6 +1735,10 @@ function M.copy_settings(src, dst)
   local c = colony.crates and colony.crates[dst.unit_number]
   if c then
     c.filters = kind == "crate" and copy_rows(rec.filters) or {}
+    if kind == "crate" then
+      if rec.accept_all ~= nil then c.accept_all = rec.accept_all end
+      if rec.priority ~= nil then c.priority = rec.priority end
+    end
     return true
   end
   return false
@@ -1794,7 +1823,13 @@ function M.tool_gaps(colony)
     if h.entity.valid then
       local def, tools = work.hut_info(h)
       if def.tool then
-        local short = math.min(def.capacity, h.limit or def.capacity) - tools - (h.inflight[def.tool] or 0)
+        local inflight = 0
+        if def.tools then
+          for _, t in ipairs(def.tools) do inflight = inflight + (h.inflight[t] or 0) end
+        else
+          inflight = h.inflight[def.tool] or 0
+        end
+        local short = math.min(def.capacity, h.limit or def.capacity) - tools - inflight
         if short > 0 then gaps[#gaps + 1] = {tool = def.tool, short = short} end
       end
     end

@@ -57,7 +57,7 @@ data:extend({
     "colony-miner-hut", "colony-pickaxe", "colony-housing-cabin", "colony-compost-bin",
     "colony-supply-crate", "colony-warehouse", "colony-cemetery"}),
   milestone("colony-hunting-fishing", "icon-hunting-lodge.png", {"colony-mining"}, {
-    "colony-hunting-lodge", "colony-rifle", "colony-fishing-dock", "colony-rod"}),
+    "colony-hunting-lodge", "colony-bow", "colony-arrow", "colony-fishing-dock", "colony-rod"}),
   milestone("colony-logistics", "icon-watchtower.png", {"colony-hunting-fishing"}, {
     "colony-watchtower", "colony-demand-crate", "colony-logistics-marker"}),
   milestone("colony-food-preservation", "icon-smokehouse.png", {"colony-logistics"}, {
@@ -65,6 +65,10 @@ data:extend({
   tech("colony-frontier-charter", "icon-frontier-pack.png", 15, {"colony-frontier-pack"}, 10,
     {"colony-food-preservation"}, {
     unlock("colony-frontier-pack-fish"),
+  }),
+  tech("colony-firearms", "icon-rifle.png", 20, {"colony-frontier-pack"}, 15,
+    {"colony-frontier-charter"}, {
+    unlock("colony-rifle"),
   }),
   tech("colony-water-infrastructure", "icon-well.png", 30, {"colony-frontier-pack"}, 15,
     {"colony-frontier-charter"}, {

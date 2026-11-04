@@ -30,7 +30,7 @@ local MACHINE_GUIS = {
 M.MACHINE_GUIS = MACHINE_GUIS   -- selection tool (#35) opts in exactly the machines that have a panel
 
 local function colony_at(e) return colony_mod.colony_of(e) end
-local fill_crate, crate_ctx   -- defined with the crate panel below; the click handler above needs them
+local fill_crate, crate_ctx, fill_machine   -- defined with crate/machine panels below; click handler needs them
 
 
 -- ---------- "what is holding it back" (model/advice.lua) ----------
@@ -92,6 +92,19 @@ end
 
 local function fill_house(frame, h, colony)
   frame.clear()
+  frame.add{type = "checkbox", name = "colony_house_logistics", state = h.logistics_enabled ~= false,
+    caption = {"colony-gui.logistics-enable"}, tooltip = {"colony-gui.logistics-enable-tt"}}
+  local p_row = frame.add{type = "flow", direction = "horizontal"}
+  p_row.style.vertical_align = "center"
+  p_row.add{type = "label", caption = {"colony-gui.priority-label"}, tooltip = {"colony-gui.building-priority-tt"}, style = "bold_label"}
+  local p_less = p_row.add{type = "button", name = "colony_house_prio_less", caption = "-", tooltip = {"colony-gui.priority-less-tt"}}
+  p_less.style.width = 24
+  local p_val = p_row.add{type = "label", caption = tostring(h.priority or 3), tooltip = {"colony-gui.building-priority-tt"}}
+  p_val.style.width = 24
+  p_val.style.horizontal_align = "center"
+  local p_more = p_row.add{type = "button", name = "colony_house_prio_more", caption = "+", tooltip = {"colony-gui.priority-more-tt"}}
+  p_more.style.width = 24
+  frame.add{type = "line"}
   local tier = housing.TIERS[h.kind]
   local stock = colony_mod.house_stock(h)
   local powered = colony_mod.is_powered(h)
@@ -160,7 +173,7 @@ scheduler.register("gui.refresh_house", function(d)
     local st = storage.unit_state[un]
     roster[#roster + 1] = {un, st and st.job, colony.locks and colony.locks[un]}
   end
-  if not unchanged(frame, {colony_mod.house_stock(h), h.sat, h.occupants, h.inflight, colony_mod.is_powered(h), roster}) then
+  if not unchanged(frame, {colony_mod.house_stock(h), h.sat, h.occupants, h.inflight, colony_mod.is_powered(h), roster, h.logistics_enabled, h.priority}) then
     fill_house(frame.body, h, colony)
   end
   scheduler.after(30, "gui.refresh_house", d)
@@ -231,6 +244,19 @@ end
 
 local function fill_hut(frame, h)
   frame.clear()
+  frame.add{type = "checkbox", name = "colony_hut_logistics", state = h.logistics_enabled ~= false,
+    caption = {"colony-gui.logistics-enable"}, tooltip = {"colony-gui.logistics-enable-tt"}}
+  local p_row = frame.add{type = "flow", direction = "horizontal"}
+  p_row.style.vertical_align = "center"
+  p_row.add{type = "label", caption = {"colony-gui.priority-label"}, tooltip = {"colony-gui.building-priority-tt"}, style = "bold_label"}
+  local p_less = p_row.add{type = "button", name = "colony_hut_prio_less", caption = "-", tooltip = {"colony-gui.priority-less-tt"}}
+  p_less.style.width = 24
+  local p_val = p_row.add{type = "label", caption = tostring(h.priority or 3), tooltip = {"colony-gui.building-priority-tt"}}
+  p_val.style.width = 24
+  p_val.style.horizontal_align = "center"
+  local p_more = p_row.add{type = "button", name = "colony_hut_prio_more", caption = "+", tooltip = {"colony-gui.priority-more-tt"}}
+  p_more.style.width = 24
+  frame.add{type = "line"}
   local def, tools, allowed, workers = work.hut_info(h)
   frame.add{type = "label", caption = {"colony-gui-hut.workers", workers, allowed}}
   local reason, args, level = M.hut_reason(h, def, tools, workers)
@@ -263,6 +289,16 @@ local function fill_hut(frame, h)
       if want > 0 then
         frame.add{type = "label", caption = {"colony-gui-hut.delivering", def.tool, want}}
       end
+    end
+    if def.keep and #def.keep > 0 then
+      local inv = h.entity.type == "lab"
+        and h.entity.get_inventory(defines.inventory.lab_input)
+        or h.entity.get_inventory(defines.inventory.chest)
+      local parts = {}
+      for _, item in ipairs(def.keep) do
+        parts[#parts + 1] = string.format("[item=%s] %d", item, inv and inv.get_item_count(item) or 0)
+      end
+      frame.add{type = "label", caption = {"colony-gui-hut.inputs", table.concat(parts, "  ")}}
     end
   else
     local inv = h.entity.type == "lab"
@@ -362,7 +398,7 @@ scheduler.register("gui.refresh_hut", function(d)
   local _, tools, allowed, workers = work.hut_info(h)
   local reason = M.hut_reason(h, labour.HUTS[h.entity.name], tools, workers)
   if not unchanged(frame, {tools, allowed, workers, h.limit, h.wear, h.inflight, h.ores, reason, work.site_count(h),
-      h.entity.get_item_count("colony-fertilizer")}) then
+      h.entity.get_item_count("colony-fertilizer"), h.logistics_enabled, h.priority}) then
     fill_hut(frame.body, h)
   end
   draw_hut_range(h)
@@ -490,6 +526,16 @@ local function fill_info(frame, colony)
   frame.add{type = "line"}
   frame.add{type = "checkbox", name = "colony_accept_migrants", state = colony.accept_migrants ~= false,
     caption = {"colony-gui-info.accept-migrants"}, tooltip = {"colony-gui-info.accept-migrants-tt"}}
+  local sp_row = frame.add{type = "flow", direction = "horizontal"}
+  sp_row.style.vertical_align = "center"
+  sp_row.add{type = "label", caption = {"colony-gui-info.storage-priority"}, style = "bold_label"}
+  local sp_less = sp_row.add{type = "button", name = "colony_hall_sprio_less", caption = "-", tooltip = {"colony-gui.priority-less-tt"}}
+  sp_less.style.width = 24
+  local sp_val = sp_row.add{type = "label", caption = tostring(colony.storage_priority or 3), tooltip = {"colony-gui-crate.storage-priority-tt"}}
+  sp_val.style.width = 24
+  sp_val.style.horizontal_align = "center"
+  local sp_more = sp_row.add{type = "button", name = "colony_hall_sprio_more", caption = "+", tooltip = {"colony-gui.priority-more-tt"}}
+  sp_more.style.width = 24
 
   frame.add{type = "line"}
   frame.add{type = "label", caption = {"colony-gui-info.workforce-title"}, style = "bold_label"}
@@ -574,7 +620,7 @@ scheduler.register("gui.refresh_info", function(d)
   local counts = work.job_counts(colony)
   local ledger = colony_mod.ledger_snapshot(colony)
   if not unchanged(frame, {st, counts, ledger and ledger.items, M.colony_advice(colony, st, counts), colony.priority,
-      colony.job_targets, colony.accept_migrants}) then
+      colony.job_targets, colony.accept_migrants, colony.storage_priority}) then
     fill_info(frame.body, colony)
   end
   scheduler.after(30, "gui.refresh_info", d)
@@ -582,6 +628,63 @@ end)
 
 events.on(defines.events.on_gui_click, function(ev)
   local name = ev.element.name
+  local prio_type, prio_dir = name:match("^colony_(%a+)_prio_(%a+)$")
+  if prio_type and (prio_dir == "more" or prio_dir == "less") then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid) then return end
+    local colony = colony_at(e)
+    if not colony then return end
+    local delta = prio_dir == "more" and -1 or 1
+    if prio_type == "house" and colony.houses then
+      local h = colony.houses[e.unit_number]
+      if h then
+        local cur = h.priority or 3
+        h.priority = math.max(1, math.min(5, cur + delta))
+        local frame = player.gui.relative[HOUSE_FRAME]
+        if frame and frame.body then fill_house(frame.body, h, colony) end
+      end
+    elseif prio_type == "hut" and colony.huts then
+      local h = colony.huts[e.unit_number]
+      if h then
+        local cur = h.priority or 3
+        h.priority = math.max(1, math.min(5, cur + delta))
+        colony_mod.reassign_workforce(colony)
+        local frame = player.gui.relative[HUT_FRAME]
+        if frame and frame.body then fill_hut(frame.body, h) end
+      end
+    elseif prio_type == "crate" and colony.crates then
+      local c = colony.crates[e.unit_number]
+      if c then
+        local cur = c.priority or 3
+        c.priority = math.max(1, math.min(5, cur + delta))
+        local frame = player.gui.relative[CRATE_FRAME]
+        if frame and frame.body then fill_crate(frame.body, c) end
+      end
+    elseif prio_type == "machine" and colony.machines then
+      local m = colony.machines[e.unit_number]
+      if m then
+        local cur = m.priority or 4
+        m.priority = math.max(1, math.min(5, cur + delta))
+        local frame = player.gui.relative[MACHINE_FRAME]
+        if frame and frame.body then fill_machine(frame.body, m, e) end
+      end
+    end
+    return
+  end
+  if name == "colony_hall_sprio_less" or name == "colony_hall_sprio_more" then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid and e.name == colony_mod.HALL) then return end
+    local colony = colony_at(e)
+    if not colony then return end
+    local delta = name == "colony_hall_sprio_more" and -1 or 1
+    local cur = colony.storage_priority or 3
+    colony.storage_priority = math.max(1, math.min(5, cur + delta))
+    local frame = player.gui.relative[INFO_FRAME]
+    if frame and frame.body then fill_info(frame.body, colony) end
+    return
+  end
   local clear_row = tonumber(name:match("^colony_crate_clear_(%d+)$"))
   if clear_row then
     local _, c, _, body = crate_ctx(ev)
@@ -706,6 +809,22 @@ end
 
 function fill_crate(frame, c)
   frame.clear()
+  frame.add{type = "checkbox", name = "colony_crate_logistics", state = c.logistics_enabled ~= false,
+    caption = {"colony-gui.logistics-enable"}, tooltip = {"colony-gui.logistics-enable-tt"}}
+  local is_wh = c.kind == crates.WAREHOUSE
+  local p_lbl = is_wh and {"colony-gui-crate.storage-priority"} or {"colony-gui.priority-label"}
+  local p_tt = is_wh and {"colony-gui-crate.storage-priority-tt"} or {"colony-gui.building-priority-tt"}
+  local p_row = frame.add{type = "flow", direction = "horizontal"}
+  p_row.style.vertical_align = "center"
+  p_row.add{type = "label", caption = p_lbl, tooltip = p_tt, style = "bold_label"}
+  local p_less = p_row.add{type = "button", name = "colony_crate_prio_less", caption = "-", tooltip = {"colony-gui.priority-less-tt"}}
+  p_less.style.width = 24
+  local p_val = p_row.add{type = "label", caption = tostring(c.priority or (is_wh and 2 or 3)), tooltip = p_tt}
+  p_val.style.width = 24
+  p_val.style.horizontal_align = "center"
+  local p_more = p_row.add{type = "button", name = "colony_crate_prio_more", caption = "+", tooltip = {"colony-gui.priority-more-tt"}}
+  p_more.style.width = 24
+  frame.add{type = "line"}
   local contents, map = crate_contents(c)
   if c.kind == crates.DEMAND then
     frame.add{type = "label", caption = {"colony-gui-crate.filters"}}
@@ -725,9 +844,25 @@ function fill_crate(frame, c)
     end
     local n, target = crates.filled(c.filters, map)
     frame.add{type = "label", caption = {"colony-gui-crate.filled", n, target}}
+  elseif is_wh then
+    frame.add{type = "label", caption = {"colony-gui-crate.warehouse-hint"}}
+    frame.add{type = "checkbox", name = "colony_warehouse_all", state = c.accept_all ~= false,
+      caption = {"colony-gui-crate.accept-all"}, tooltip = {"colony-gui-crate.accept-all-tt"}}
+    if c.accept_all == false then
+      frame.add{type = "label", caption = {"colony-gui-crate.whitelist-label"}, style = "bold_label"}
+      c.filters = c.filters or {}
+      for i = 1, crates.FILTER_ROWS do
+        local f = c.filters[i]
+        local row = frame.add{type = "flow", direction = "horizontal"}
+        row.style.vertical_align = "center"
+        row.add{type = "choose-elem-button", name = "colony_crate_item_" .. i, elem_type = "item", item = f and f.item}
+        local clear = row.add{type = "button", name = "colony_crate_clear_" .. i, caption = "x",
+          tooltip = {"colony-gui-crate.clear-tt"}}
+        clear.style.width = 24
+      end
+    end
   else
-    frame.add{type = "label",
-      caption = c.kind == crates.SUPPLY and {"colony-gui-crate.supply-hint"} or {"colony-gui-crate.warehouse-hint"}}
+    frame.add{type = "label", caption = {"colony-gui-crate.supply-hint"}}
   end
   frame.add{type = "line"}
   frame.add{type = "label", caption = {"colony-gui-crate.contents"}, style = "bold_label"}
@@ -771,11 +906,21 @@ local function req_status(e, m, req)
   return {"", "[color=" .. lvl .. "]", {"colony-advice.req-" .. state}, "[/color]"}
 end
 
-local function fill_machine(frame, m, e)
+function fill_machine(frame, m, e)
   frame.clear()
   frame.add{type = "checkbox", name = "colony_supply_enabled", state = m ~= nil and m.enabled or false,
     caption = {"colony-gui.supply-enable"}, tooltip = {"colony-gui.supply-enable-tt"}}
   if not (m and m.enabled) then return end
+  local p_row = frame.add{type = "flow", direction = "horizontal"}
+  p_row.style.vertical_align = "center"
+  p_row.add{type = "label", caption = {"colony-gui.priority-label"}, tooltip = {"colony-gui.building-priority-tt"}, style = "bold_label"}
+  local p_less = p_row.add{type = "button", name = "colony_machine_prio_less", caption = "-", tooltip = {"colony-gui.priority-less-tt"}}
+  p_less.style.width = 24
+  local p_val = p_row.add{type = "label", caption = tostring(m.priority or 4), tooltip = {"colony-gui.building-priority-tt"}}
+  p_val.style.width = 24
+  p_val.style.horizontal_align = "center"
+  local p_more = p_row.add{type = "button", name = "colony_machine_prio_more", caption = "+", tooltip = {"colony-gui.priority-more-tt"}}
+  p_more.style.width = 24
   frame.add{type = "label", caption = {"colony-gui.supply-rows"}}
   for i = 1, M.REQUEST_ROWS do
     local req = m.requests[i]
@@ -847,6 +992,40 @@ end
 
 events.on(defines.events.on_gui_checked_state_changed, function(ev)
   local name = ev.element.name
+  if name == "colony_house_logistics" then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid and colony_mod.HOUSES[e.name]) then return end
+    local colony = colony_at(e)
+    local h = colony and colony.houses[e.unit_number]
+    if h then h.logistics_enabled = ev.element.state end
+    return
+  end
+  if name == "colony_hut_logistics" then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid and labour.HUTS[e.name]) then return end
+    local colony = colony_at(e)
+    local h = colony and colony.huts[e.unit_number]
+    if h then
+      h.logistics_enabled = ev.element.state
+      colony_mod.reassign_workforce(colony)
+    end
+    return
+  end
+  if name == "colony_crate_logistics" then
+    local _, c = crate_ctx(ev)
+    if c then c.logistics_enabled = ev.element.state end
+    return
+  end
+  if name == "colony_warehouse_all" then
+    local _, c, _, body = crate_ctx(ev)
+    if c then
+      c.accept_all = ev.element.state
+      if body then fill_crate(body, c) end
+    end
+    return
+  end
   if name == "colony_accept_migrants" then
     local player = game.get_player(ev.player_index)
     local e = player and player.opened

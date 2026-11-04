@@ -3,7 +3,7 @@
 -- so a ghost of any entity costs exactly what placing that entity costs (mods included).
 local M = {}
 
-M.WORK_TICKS = 180        -- build/repair time once the colonist is on site
+M.WORK_TICKS = 30         -- build/repair time once the colonist is on site (fast/snappy placement)
 M.REPAIR_PACK = "repair-pack"
 M.REPAIR_PER_PACK = 200   -- health restored by one repair pack
 M.SHARE = 0.25            -- at most this share of the colony builds, so the town keeps eating

@@ -84,6 +84,12 @@ describe("entity tags (#36)", function()
     truthy(back.crate ~= nil)
     eq(next(back.crate.filters), nil)
   end)
+  it("carries crate priority and accept_all flag", function()
+    local back = tags.decode(tags.dictionary(tags.crate({filters = {}, accept_all = false, priority = 1})))
+    truthy(back.crate)
+    eq(back.crate.accept_all, false)
+    eq(back.crate.priority, 1)
+  end)
   it("says nothing for a dictionary that is not ours", function()
     eq(tags.decode(nil), nil); eq(tags.decode("nope"), nil)
     eq(tags.decode({}), nil); eq(tags.decode({other = {machine = true}}), nil)
@@ -221,8 +227,8 @@ describe("garrison (#56)", function()  local garrison = require("scripts.model.g
   local labour = require("scripts.model.labour")
   it("the Watchtower is a tooled guard post: one post per rifle, capped by the player's limit", function()
     local def = labour.HUTS["colony-watchtower"]
-    eq(def.job, "guard"); eq(def.tool, "colony-rifle"); eq(def.capacity, 4)
-    eq(labour.allowed(def.capacity, 0, nil), 0)   -- no rifles, nobody posted
+    eq(def.job, "guard"); eq(def.tool, "colony-bow"); eq(def.capacity, 4)
+    eq(labour.allowed(def.capacity, 0, nil), 0)   -- no weapons, nobody posted
     eq(labour.allowed(def.capacity, 2, nil), 2)
     eq(labour.allowed(def.capacity, 4, 1), 1)     -- the limit still caps the garrison
   end)
@@ -547,6 +553,15 @@ describe("haul_plan", function()
     local pick = hp.choose(offers, {["iron-ore"] = 9, coal = 9, wood = 9}, 20)
     eq(pick.key, 3)
   end)
+  it("sorts by building_priority within the same priority band", function()
+    local offers = {
+      {priority = hp.PRIORITY.request, building_priority = 4, key = 1, demands = {{item = "wood", count = 10}}},
+      {priority = hp.PRIORITY.request, building_priority = 2, key = 2, demands = {{item = "wood", count = 10}}},
+      {priority = hp.PRIORITY.request, building_priority = 3, key = 3, demands = {{item = "wood", count = 10}}},
+    }
+    hp.order(offers)
+    eq(offers[1].key, 2); eq(offers[2].key, 3); eq(offers[3].key, 1)
+  end)
   it("matches active provider directly to requester when item is available", function()
     local house = {key = 1, priority = hp.PRIORITY.critical, pos = {x = 10, y = 10}, demands = {{item = "colony-forage", count = 8}}}
     local forager = {key = 2, priority = hp.PRIORITY.hut_output, pos = {x = 15, y = 10}, available = {["colony-forage"] = 15}}
@@ -595,6 +610,28 @@ describe("haul_plan", function()
     eq(task.source.key, 2)
     eq(task.target.key, 3) -- picks nearest warehouse over far hall
     eq(task.load[1].item, "copper-ore")
+  end)
+  it("pushes active provider output to higher storage_priority over closer storage", function()
+    local miner = {key = 2, priority = hp.PRIORITY.hut_output, pos = {x = 10, y = 10}, available = {["copper-ore"] = 30}}
+    local hall = {key = 3, pos = {x = 12, y = 10}, available = {}, has_space = true, storage_priority = 3}
+    local warehouse = {key = 4, pos = {x = 25, y = 10}, available = {}, has_space = true, storage_priority = 2}
+
+    local task = hp.match({}, {miner}, {hall, warehouse}, nil, 20)
+    truthy(task)
+    eq(task.kind, "collect")
+    eq(task.target.key, 4) -- picks higher priority warehouse (priority 2) over closer hall (priority 3)
+  end)
+  it("respects storage whitelist: skips storage that does not accept the item", function()
+    local miner = {key = 2, priority = hp.PRIORITY.hut_output, pos = {x = 10, y = 10}, available = {["copper-ore"] = 30}}
+    local iron_warehouse = {key = 3, pos = {x = 12, y = 10}, available = {}, has_space = true, storage_priority = 1,
+      accepts_item = function(item) return item == "iron-ore" end}
+    local general_warehouse = {key = 4, pos = {x = 30, y = 10}, available = {}, has_space = true, storage_priority = 2,
+      accepts_item = function(item) return true end}
+
+    local task = hp.match({}, {miner}, {iron_warehouse, general_warehouse}, nil, 20)
+    truthy(task)
+    eq(task.kind, "collect")
+    eq(task.target.key, 4) -- iron_warehouse refused copper-ore; general_warehouse accepted it
   end)
   it("serves production chain directly (woodcutter to toolsmith)", function()
     local toolsmith = {key = 10, priority = hp.PRIORITY.request, pos = {x = 20, y = 20}, demands = {{item = "wood", count = 10}}}
@@ -909,6 +946,15 @@ describe("labour", function()
     local slots = l.spread({{id = 9, job = "chop", allowed = 2, workers = 0},
       {id = 4, job = "chop", allowed = 2, workers = 0}, {id = 7, job = "chop", allowed = 2, workers = 2}})
     eq(#slots, 2); eq(slots[1].id, 4); eq(slots[2].id, 9)
+  end)
+  it("spread prioritizes huts with lower building_priority number", function()
+    local slots = l.spread({
+      {id = 10, job = "mine", allowed = 3, workers = 0, priority = 4},
+      {id = 11, job = "mine", allowed = 3, workers = 0, priority = 2},
+      {id = 12, job = "mine", allowed = 3, workers = 0, priority = 3},
+    })
+    eq(#slots, 3)
+    eq(slots[1].id, 11); eq(slots[2].id, 12); eq(slots[3].id, 10)
   end)
 end)
 
@@ -1265,6 +1311,8 @@ describe("toolsmith (tool recipes and the Toolsmith hut)", function()
   it("names the missing ingredient", function()
     eq(w.missing("colony-axe", {wood = 5})["iron-plate"], 3)
     eq(next(w.missing("colony-basket", {wood = 4})), nil)
+    eq(w.RECIPES["colony-bow"].wood, 4)
+    eq(w.RECIPES["colony-arrow"].wood, 1)
   end)
   it("makes the first wanted tool it has the stock and the recipe for", function()
     local wanted = {"colony-axe", "colony-basket"}

@@ -14,9 +14,11 @@ M.CLEAR_TICKS = 600    -- quiet time before an alarm clears
 M.CHECK_TICKS = 60     -- alarm upkeep period while any alarm is up
 M.HOLD_TICKS = 3600    -- enemies merely nearby (biters idling by their nest) hold an alarm this long after the last hit
 
--- States a colonist is never pulled out of: it is already sheltering, or another system owns it (a driver waiting
--- in a Motor Pool, a passenger bound for or waiting at a platform).
-M.EXEMPT = {to_shelter = true, sheltered = true, driving = true, to_platform = true, waiting_train = true}
+-- States a colonist is never pulled out of: it is already sheltering, another system owns it (a driver waiting
+-- in a Motor Pool, a passenger bound for or waiting at a platform), or it is a posted guard (tower duty is
+-- exactly the thing that must NOT run indoors (#56); it engages enemies instead of sheltering from them).
+M.EXEMPT = {to_shelter = true, sheltered = true, driving = true, to_platform = true, waiting_train = true,
+  to_tower = true, guarding = true, ["guarding-fight"] = true}
 
 local function d2(a, b) local dx, dy = a.x - b.x, a.y - b.y; return dx * dx + dy * dy end
 

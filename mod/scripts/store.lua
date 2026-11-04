@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 28
+local SCHEMA = 29
 
 local migrations = {
   [1] = function()
@@ -153,6 +153,20 @@ local migrations = {
     storage.age = storage.age or {}
     for un, rec in pairs(storage.unit_labels or {}) do
       if type(rec) ~= "table" then storage.unit_labels[un] = {mode = "alt", obj = rec} end
+    end
+  end,
+  [29] = function()
+    -- Garrisons (#56 first slice): every existing Watchtower doubles as an unmanned guard post (labour job
+    -- "guard", tool colony-rifle, limit 0). The tower keeps its territory and buffer duties; the hut record
+    -- only opens the option to station colonists on it. The player mans it in the tower's panel.
+    for _, c in pairs(storage.colonies) do
+      c.huts = c.huts or {}
+      for un, e in pairs(c.towers or {}) do
+        if e and e.valid and not c.huts[un] then
+          c.huts[un] = {entity = e, job = "guard", colony_id = c.id,
+            workers = {}, inflight = {}, wear = 0, limit = 0}
+        end
+      end
     end
   end,
 }

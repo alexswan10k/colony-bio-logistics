@@ -75,6 +75,11 @@ function M.choose(s)
   local r_capped = headcount.is_capped(targets, "research", counts.research)
   local can_research = r_rank > 0 and (slots.research or 0) > 0 and not r_capped and (counts.research or 0) < r_cap
 
+  -- Guards (#56): no share of the town - the tower's tooled slots are the whole cap, like the heal role.
+  local g_rank = jobs.rank(priority, "guard")
+  local g_capped = headcount.is_capped(targets, "guard", counts.guard)
+  local can_guard = g_rank > 0 and (slots.guard or 0) > 0 and not g_capped
+
   -- Best eligible harvest rank among slots that are not headcount-capped
   local eligible_harvest_slots = {}
   for _, job in ipairs(M.HARVEST) do
@@ -106,10 +111,18 @@ function M.choose(s)
       or (can_construct and c_rank < haul_rank)
       or (can_preserve and p_rank < haul_rank)
       or (can_research and r_rank < haul_rank)
+      or (can_guard and g_rank < haul_rank)
       or (harvest_rank and harvest_rank < haul_rank)
 
   if can_haul and not better_than_haul then
     return "haul"
+  end
+
+  -- Guard duty first among the dedicated posts: a manned tower is a standing order, not a surplus share.
+  if can_guard and (not harvest_rank or g_rank <= harvest_rank) and (not can_construct or g_rank <= c_rank)
+      and (not can_preserve or g_rank <= p_rank) and (not can_research or g_rank <= r_rank)
+      and (not can_heal or g_rank <= h_rank) then
+    return "guard"
   end
 
   if can_heal and (not harvest_rank or h_rank <= harvest_rank) and (not can_construct or h_rank <= c_rank)
@@ -180,6 +193,7 @@ function M.choose(s)
   end
 
   -- Fallbacks if earlier prioritized roles were skipped
+  if can_guard then return "guard" end
   if can_heal then return "heal" end
   if can_construct then return "construct" end
   if can_preserve then return "preserve" end

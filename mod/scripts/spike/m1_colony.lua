@@ -271,7 +271,7 @@ core.register("m1_colony", {
     local saw = {ore = false, wood = false, food = false, planted = false, ripe = false, produce = false,
       hut_output = false, fish = false, salt = false, preserved = false, water_in_hall = false, well_water = false,
       homestead_water = false, fertilized = false, bread = false, fertilizer = false, sleeping = false,
-      spread = false}
+      spread = false, plates = false}
     local function produce_total()
       local n = hall.get_item_count("colony-produce")
       for _, h in pairs(c.houses) do
@@ -340,6 +340,9 @@ core.register("m1_colony", {
             and workers(c.huts[far_miner.unit_number]) > 0 then
           saw.spread = true
         end
+        -- The furnace's plates may pass through any colony storage (a forward Watchtower is storage too), so
+        -- watch the whole stock, not just the hall.
+        if colony.stock_count(c, "iron-plate") > 0 then saw.plates = true end
         if hall.get_item_count("colony-bread") > 0 then saw.bread = true end
         for _, h in pairs(c.huts) do
           if h.entity.valid and h.entity.get_item_count("colony-bread") > 0 then saw.bread = true end
@@ -423,7 +426,8 @@ core.register("m1_colony", {
         patches_before .. " -> min " .. tostring(saw.patch_min) .. " -> " .. patches_after)
       ctx.check("furnace got iron ore", saw.ore)
       ctx.check("furnace got wood as well as ore", saw.wood)
-      ctx.check("opt-in furnace output collected to hall", hall.get_item_count("iron-plate") > 0, hall.get_item_count("iron-plate"))
+      ctx.check("opt-in furnace output collected into colony stock", hall.get_item_count("iron-plate") > 0 or saw.plates,
+        "hall " .. hall.get_item_count("iron-plate") .. " stock " .. colony.stock_count(c, "iron-plate"))
       ctx.check("mining depletes ore 1:1 (no ore created)", ore_end <= ore_before + 100, ore_end .. " <= " .. (ore_before + 100))
       ctx.check("mining happened", ore_after < ore_before, ore_before .. " -> " .. ore_after)
       ctx.check("tools wear out with use", (wh and wh.wear or 0) + (fh and fh.wear or 0) + (mh and mh.wear or 0) > 0)

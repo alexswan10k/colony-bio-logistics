@@ -16,6 +16,7 @@ local farm = require("scripts.model.farm")
 local mine_plan = require("scripts.model.mine_plan")
 local crates = require("scripts.model.crates")
 local compost = require("scripts.model.compost")
+local garrison = require("scripts.model.garrison")
 local hunting = require("scripts.model.hunting")
 local wildlife = require("scripts.wildlife")
 local fishing = require("scripts.model.fishing")
@@ -50,7 +51,7 @@ M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still 
 M.CARRY_CAP = yields.CARRY_CAP
 M.ORES = mine_plan.ORES   -- every ore a Miner's Hut can be pointed at
 M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", hunt = "hunter",
-  fish = "fisher", preserve = "preserver", haul = "hauler", construct = "builder", research = "scholar", heal = "doctor"}
+  fish = "fisher", preserve = "preserver", haul = "hauler", construct = "builder", research = "scholar", heal = "doctor", guard = "guard"}
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
 
@@ -381,7 +382,9 @@ local function toolsmith_wanted(colony)
   for _, g in ipairs(colony_mod.tool_gaps(colony)) do gap_tools[#gap_tools + 1] = g.tool end
   for _, h in pairs(colony.huts) do
     local def = h.entity.valid and labour.HUTS[h.entity.name]
-    if def and def.tool and not seen[def.tool] then
+    -- A hut the player has deliberately unmanned (limit 0) does not want a spare tool: without this a
+    -- limit-0 Watchtower would have the Toolsmith crafting rifles out of the town's iron (#56).
+    if def and def.tool and not seen[def.tool] and (h.limit or def.capacity) > 0 then
       seen[def.tool] = true
       built[#built + 1] = def.tool
     end
@@ -676,6 +679,9 @@ local function find_site(colony, e, hut)
     -- there is enough of it was settled when the dock was built (model/fishing.lua). Everyone fishes the same
     -- dock, so it is never claimed.
     return hut.entity
+  elseif hut.job == "guard" then
+    -- The tower is the workplace: unmanned posts close automatically when its rifles are gone (labour slots).
+    return hut.entity
   elseif hut.job == "hunt" then
     if colony_mod.quota_met(colony, "colony-meat") then return nil, "colony-meat" end
     -- Game roams, so it is picked by position *now*; the engine's attack command then does the chasing.
@@ -729,6 +735,7 @@ end
 function M.site_count(h)
   local colony = storage.colonies[h.colony_id]
   if not (colony and h.entity.valid) then return 0 end
+  if h.job == "guard" then return nil end   -- not a resource job; no quota to miss and the tower always stands
   if h.job == "research" or h.job == "preserve" or h.job == "fish" or h.job == "heal" then return 1 end
   local s, base = h.entity.surface, h.entity.position
   local radius = h.job == "forage" and colony_mod.FORAGE_RADIUS or colony_mod.HUT_RADIUS
@@ -830,6 +837,9 @@ end
 local function hut_offer(h)
   local def, tools = M.hut_info(h)
   if def.tool then
+    -- A hut the player has closed (limit 0) asks for nothing: an unmanned Watchtower must not pull rifles out
+    -- of the hall (#56). Rifles already in the tower stay there, ready for the player to man it.
+    if (h.limit or def.capacity) <= 0 then return nil end
     local inflight = h.inflight[def.tool] or 0
     if tools == 0 then
       -- A hut with no tool cannot work at all, so it asks for exactly one before any hut tops up. Without
@@ -888,6 +898,7 @@ end
 -- For lab entities, collects from defines.inventory.lab_trash so spoilage is composted (#42).
 local function hut_collect_offer(h)
   local def = labour.HUTS[h.entity.name]
+  if h.job == "guard" then return nil end   -- a garrison produces nothing; its rifles are not output
   local inv = h.entity.type == "lab"
     and h.entity.get_inventory(defines.inventory.lab_trash)
     or h.entity.get_inventory(defines.inventory.chest)
@@ -1325,8 +1336,15 @@ local function start_trip(colony, un, hut)
   if hut.job == "hunt" then
     colony.claimed["boar:" .. site.unit_number] = true
   elseif hut.job ~= "mine" and hut.job ~= "fish" and hut.job ~= "preserve" and hut.job ~= "research"
-      and hut.job ~= "heal" then
+      and hut.job ~= "heal" and hut.job ~= "guard" then
     colony.claimed[key(site)] = true
+  end
+  if hut.job == "guard" then
+    -- Anchored at the tower: no site to reach, no claim needed, the post is the building.
+    storage.unit_state[un] = {colony_id = colony.id, job = "guard", hut = hut, state = "to_tower"}
+    set_label(e, M.LABELS.guard, true)
+    go(e, door_point(e.surface, hut.entity) or hut.entity.position, 0.5)
+    return true
   end
   if hut.job == "hunt" then
     storage.unit_state[un] = {colony_id = colony.id, job = "hunt", hut = hut, state = "hunting", site = site,
@@ -1823,9 +1841,43 @@ function M.release(st)
   end
 end
 
+scheduler.register("garrison.scan", function(d)
+  local st = storage.unit_state[d.un]
+  if not (st and st.job == "guard" and st.state == "guarding") then return end
+  local colony = storage.colonies[st.colony_id]
+  if not colony then return end
+  local tower = st.hut and st.hut.entity
+  if not (tower and tower.valid) then M.assign(colony, d.un); return end   -- tower mined: back to work
+  -- The post must still be legitimate: crewed up to the rifles actually in the tower (limit lowered or a rifle
+  -- broke). Releasing here is what keeps a garrison from outliving its weapons.
+  local _, _, allowed, workers = M.hut_info(st.hut)
+  if allowed <= 0 or workers > allowed or not (st.hut.workers and st.hut.workers[d.un]) then
+    M.assign(colony, d.un)
+    return
+  end
+  -- Off duty at night like everyone else (#86); the morning assignment re-posts them.
+  if M.is_sleep_time(tower.surface) then M.assign(colony, d.un); return end
+  local surface, tp, r = tower.surface, tower.position, garrison.RANGE
+  local list = {}
+  for _, en in ipairs(surface.find_entities_filtered{type = "unit", force = "enemy",
+      area = {{tp.x - r, tp.y - r}, {tp.x + r, tp.y + r}}}) do
+    if en.valid then list[#list + 1] = {unit_number = en.unit_number, position = en.position, entity = en} end
+  end
+  local pick = garrison.nearest(list, tp, r)
+  local e2 = unit_entity(colony, d.un)
+  if pick and e2 and e2.valid then
+    st.site, st.state, st.engaged, st.attempts = pick.entity, "guarding-fight", {un = pick.unit_number}, 1
+    M.command_attack(e2, pick.entity)
+    return
+  end
+  scheduler.after(garrison.CHECK_TICKS + (d.un * 29) % 120, "garrison.scan", {un = d.un})
+end)
+
 scheduler.register("work.retry", function(d)
   local st = storage.unit_state[d.un]
-  if not st then return end
+  -- Retries are only ever scheduled for an idle colonist. A second retry landing in the same tick as a first
+  -- must not reassign a colonist that just set off on a trip: that drops the load it already picked up (#56).
+  if not (st and st.state == "idle") then return end
   local colony = storage.colonies[st.colony_id]
   if colony then M.assign(colony, d.un) end
 end)
@@ -2156,6 +2208,33 @@ events.on(defines.events.on_ai_command_completed, function(ev)
       M.release(st)                                -- car back to the pool (or hall), the claimed load to the hall
       M.assign(colony, ev.unit_number)
     end
+    return
+  end
+  if st.state == "to_tower" then
+    -- Posted: hold at the door with a stop order; the scan decides who to engage.
+    st.state = "guarding"
+    local e2 = unit_entity(colony, ev.unit_number)
+    if e2 and e2.valid then
+      e2.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
+      set_label(e2, M.LABELS.guard, true)
+    end
+    scheduler.after(garrison.CHECK_TICKS + (ev.unit_number * 29) % 120, "garrison.scan", {un = ev.unit_number})
+    return
+  end
+  if st.job == "guard" and st.state == "guarding-fight" then
+    -- One engagement just finished (kill or done trying): the rifle pays (a hunter's kill works the same).
+    use_tool(st.hut)
+    local e2 = unit_entity(colony, ev.unit_number)
+    if ev.result ~= defines.behavior_result.success and st.site and st.site.valid
+        and (st.attempts or 1) < garrison.MAX_ATTEMPTS then
+      st.attempts = (st.attempts or 0) + 1
+      if e2 and e2.valid then M.command_attack(e2, st.site); return end
+    end
+    st.site, st.state, st.engaged, st.attempts = nil, "guarding", nil, nil
+    if e2 and e2.valid then
+      e2.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
+    end
+    scheduler.after(garrison.CHECK_TICKS + (ev.unit_number * 29) % 120, "garrison.scan", {un = ev.unit_number})
     return
   end
   if st.state == "to_bed" then

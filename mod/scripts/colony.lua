@@ -1228,6 +1228,12 @@ local function on_built(ev)
     end
     local colony = storage.colonies[owner]
     colony.towers[e.unit_number] = e
+    -- A Watchtower doubles as a tooled guard post (#56): the rifles in its stock room open the posts. It is
+    -- registered unmanned (limit 0) until the player mans it; labour.HUTS makes the limit buttons work as-is.
+    if not colony.huts[e.unit_number] then
+      colony.huts[e.unit_number] = {entity = e, job = "guard", colony_id = colony.id,
+        workers = {}, inflight = {}, wear = 0, limit = 0}
+    end
     local p = ev.player_index and game.get_player(ev.player_index)
     if p then
       p.create_local_flying_text{text = {"colony-message.watchtower-expanded", territory.TOWER_RADIUS}, position = e.position}
@@ -1515,6 +1521,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.towers and colony.towers[un] then
       colony.towers[un] = nil
+      if colony.huts then colony.huts[un] = nil end
       M.refresh_all_cursor_overlays()
       return
     end

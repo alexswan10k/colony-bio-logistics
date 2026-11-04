@@ -26,6 +26,10 @@ M.HUTS = {
     inputs = {{item = "colony-frontier-pack", count = 10}, {item = "colony-civic-pack", count = 10}}},
   -- Clinic (#47): doctors staff it while it holds medicine and someone is sick.
   ["colony-clinic"] = {job = "heal", capacity = 2, keep = {"colony-herbal-medicine"}, inputs = {{item = "colony-herbal-medicine", count = 10}}},
+  -- Garrisoned Watchtower (#56): a guard post. The tower's stock room is the armory: every rifle inside it
+  -- opens one post. Rifles wear out one step per engagement (a hunter's trip pays for a kill the same way).
+  -- Registered as a hut with limit = 0 by default, so an unmanned tower never nags; the player mans it.
+  ["colony-watchtower"] = {job = "guard", tool = "colony-rifle", capacity = 4},
 }
 -- Worker trips before one tool in the hut wears out. A trip is ~10s of walking + 8s of work, so a hut
 -- with three workers loses a tool roughly every 1-2 minutes: fast enough to see, slow enough to be logistics.

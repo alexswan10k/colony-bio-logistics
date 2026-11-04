@@ -13,6 +13,7 @@ local farm = require("scripts.model.farm")
 local advice = require("scripts.model.advice")
 local desirability = require("scripts.model.desirability")
 local breeding = require("scripts.model.breeding")
+local garrison = require("scripts.model.garrison")
 local milestones = require("scripts.model.milestones")
 local work = require("scripts.work")
 local M = {}
@@ -60,7 +61,7 @@ end
 -- Per-colonist job locks live on the house, not the Town Hall: a house lists only its own handful of
 -- occupants, so the panel stays usable when a town grows to hundreds of colonists.
 local LOCK_OPTS = {{"auto", "A"}, {"haul", "H"}, {"forage", "F"}, {"chop", "C"}, {"mine", "M"}, {"farm", "G"},
-  {"hunt", "T"}, {"fish", "I"}, {"preserve", "P"}, {"construct", "B"}, {"research", "R"}, {"heal", "D"}}
+  {"hunt", "T"}, {"fish", "I"}, {"preserve", "P"}, {"construct", "B"}, {"research", "R"}, {"heal", "D"}, {"guard", "V"}}
 
 local function fill_roster(pane, colony, ids)
   colony.locks = colony.locks or {}
@@ -169,6 +170,12 @@ end)
 -- While the panel is open, the hut's working radius is drawn in the world (the same idea as the Town
 -- Hall's territory rectangle) so "why is nothing being harvested?" is answerable at a glance.
 local function draw_hut_range(h, sites)
+  -- A garrisoned tower draws its engagement circle instead: that is the radius that matters (#56).
+  if h.job == "guard" then
+    rendering.draw_circle{color = {0.95, 0.45, 0.15, 0.7}, width = 2, filled = false,
+      radius = garrison.RANGE, target = h.entity, surface = h.entity.surface, time_to_live = 60}
+    return
+  end
   if sites == nil and h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" then
     sites = work.site_count(h)
   end
@@ -187,7 +194,9 @@ local function item(name) return {"item-name." .. name} end
 function M.hut_reason(h, def, tools, workers)
   local colony = storage.colonies[h.colony_id]
   local sites
-  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" then sites = work.site_count(h) end
+  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" and h.job ~= "guard" then
+    sites = work.site_count(h)
+  end
   local inputs_missing = false
   if not def.tool and workers == 0 then
     local inv = h.entity.type == "lab" and h.entity.get_inventory(defines.inventory.lab_input)
@@ -205,6 +214,7 @@ function M.hut_reason(h, def, tools, workers)
     limit = h.limit, workers = workers, inflight = def.tool and (h.inflight[def.tool] or 0) or 0,
     hall_stock = def.tool and colony and colony_mod.stock_count(colony, def.tool) or 0, sites = sites,
     inputs_missing = inputs_missing, haul_rank = colony and jobs.effective(colony.priority).haul or 1}
+  if h.job == "guard" and reason == "paused" then return nil end   -- unmanned tower: a standing choice, not a fault
   if not reason then return nil end
   if reason == "quota-met" then return "hut-quota-met", {item(arg)}, "green" end
   if reason == "nothing-to-do" then return "hut-nothing-to-do", {}, "green" end
@@ -240,7 +250,7 @@ local function fill_hut(frame, h)
   local more = row.add{type = "button", name = "colony_hut_limit_more", caption = "+",
     tooltip = {"colony-gui-hut.limit-tt"}}
   more.style.width = 24
-  local r = (h.job == "forage" and colony_mod.FORAGE_RADIUS or colony_mod.HUT_RADIUS)
+  local r = (h.job == "forage" and colony_mod.FORAGE_RADIUS or (h.job == "guard" and garrison.RANGE) or colony_mod.HUT_RADIUS)
   frame.add{type = "label", caption = {"colony-gui-hut.range", r}}
   if def.tool then
     frame.add{type = "label", caption = {"colony-gui-hut.tools", tools}}
@@ -313,7 +323,7 @@ local function fill_hut(frame, h)
     end
     frame.add{type = "label", caption = {"colony-gui-hut.ore-hint"}}
   end
-  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" then
+  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" and h.job ~= "guard" then
     local sites = work.site_count(h)
     if sites > 0 then
       frame.add{type = "label", caption = {"colony-gui-hut.sites", sites}}
@@ -419,7 +429,7 @@ local function fill_info(frame, colony)
   frame.add{type = "label", caption = {"colony-gui-info.jobs",
     counts.haul or 0, counts.forage or 0, counts.chop or 0, counts.mine or 0, counts.farm or 0,
     counts.hunt or 0, counts.fish or 0, counts.preserve or 0, counts.construct or 0,
-    counts.research or 0, counts.heal or 0, math.max(st.pop - busy, 0)}}
+    counts.research or 0, counts.heal or 0, counts.guard or 0, math.max(st.pop - busy, 0)}}
   frame.add{type = "label", caption = {"colony-gui-info.territory", st.chunks, st.huts, st.machines, st.towers, st.crates}}
   if st.ghosts > 0 or st.damaged > 0 then
     frame.add{type = "label", caption = {"colony-gui-info.construction", st.ghosts, st.damaged}}

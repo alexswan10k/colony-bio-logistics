@@ -80,6 +80,13 @@ Three headless gates cover the things the unit tests and the playable spike cann
   work, counts toward occupancy, and grows into an adult after `CHILD_TICKS`.
 - `scripts/headless-spike.sh m1_migrant` - the #88 migration pacing probe: fast fill to `BOOTSTRAP_SETTLERS`
   colonists, then five times slower; logs pop/D/next_migrant per evaluation.
+- `scripts/headless-spike.sh m1_garrison` - the #56 garrison spike (18 checks, `TICKS=9000`): a Watchtower is a
+  guard post from the moment it is built but manned only when the player raises its limit; haulers carry rifles
+  out from the hall (`tools` priority), one post per rifle in the tower, and two guards walk to the tower and hold
+  it under a stop order. Two small biters inside `garrison.RANGE` are engaged without any #61 alarm (guards are
+  exempt from sheltering), both die, the completed engagements wear the rifle, a rifle on its last use breaks and
+  is consumed (its post closes and the guard walks off), night sends the garrison to its houses like any other
+  colonist, and lowering the limit to 0 disbands it while the rifles stay in the tower.
 - `scripts/save-load.sh` - builds a live colony on a headless server, saves it with `game.server_save`, then
   reloads that save in a **new process** (`--test-save ... --test-arg m1_persist_load`) and asserts every
   registry, scheduler entry, rendering and job lock came back (25 checks). Anything stored in

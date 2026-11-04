@@ -61,7 +61,7 @@ local function hut_status(colony, h, stock, haul_rank)
     end
   end
   local sites
-  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" then
+  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" and h.job ~= "guard" then
     sites = work.site_count(h)
   end
   local stuck = (colony.no_site[h.entity.unit_number] or 0) > game.tick
@@ -72,6 +72,9 @@ local function hut_status(colony, h, stock, haul_rank)
     limit = h.limit, workers = workers, inflight = def.tool and (h.inflight[def.tool] or 0) or 0,
     hall_stock = def.tool and (stock[def.tool] or 0) or 0, sites = (stuck or (sites and sites == 0)) and 0 or sites,
     inputs_missing = inputs_missing, haul_rank = haul_rank}
+  if h.job == "guard" and reason == "paused" then
+    return nil   -- an unmanned tower is a standing decision, not a problem to keep reporting
+  end
   if not reason then
     return {level = "green"}, {"colony-status.hut-working", workers, allowed}
   end
@@ -165,7 +168,7 @@ function M.update(colony)
   for _, h in pairs(colony.huts) do
     if h.entity.valid and h.job ~= "research" then   -- labs keep their own staffed/unstaffed status
       local r, label, icon = hut_status(colony, h, stock, haul_rank)
-      report(h.entity, r, label, icon)
+      if r then report(h.entity, r, label, icon) end   -- an unmanned tower has no status of its own (#56)
     end
   end
   for _, p in ipairs(colony_mod.pool_list(colony)) do

@@ -172,9 +172,11 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
     end
 
     -- B. Pull from storage (fallback or when storage is closer/available)
+    -- A requester is never its own source: a Watchtower's stock room is colony storage (#56), so without this a
+    -- hauler would carry the tower's own rifles out of it and straight back into it.
     local avail_storages = {}
     for _, s in ipairs(storages) do
-      if has_any_demanded(s.available or {}, r.demands or {}) then
+      if not (r.entity and s.entity == r.entity) and has_any_demanded(s.available or {}, r.demands or {}) then
         avail_storages[#avail_storages + 1] = s
       end
     end

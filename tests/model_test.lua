@@ -217,6 +217,51 @@ describe("jobs priority", function()
   end)
 end)
 
+describe("garrison (#56)", function()  local garrison = require("scripts.model.garrison")
+  local labour = require("scripts.model.labour")
+  it("the Watchtower is a tooled guard post: one post per rifle, capped by the player's limit", function()
+    local def = labour.HUTS["colony-watchtower"]
+    eq(def.job, "guard"); eq(def.tool, "colony-rifle"); eq(def.capacity, 4)
+    eq(labour.allowed(def.capacity, 0, nil), 0)   -- no rifles, nobody posted
+    eq(labour.allowed(def.capacity, 2, nil), 2)
+    eq(labour.allowed(def.capacity, 4, 1), 1)     -- the limit still caps the garrison
+  end)
+  it("a rifle wears one step per engagement, like a hunter's trip", function()
+    local counter, broke = labour.wear(labour.TOOL_USES - 1)
+    eq(counter, 0); eq(broke, true)
+    counter, broke = labour.wear(0); eq(counter, 1); eq(broke, false)
+  end)
+  it("picks the nearest hostile in range, ties by unit number", function()
+    local pos = {x = 0, y = 0}
+    local enemies = {{unit_number = 9, position = {x = 3, y = 4}}, {unit_number = 3, position = {x = -3, y = -4}},
+      {unit_number = 5, position = {x = 100, y = 0}}}
+    eq(garrison.nearest(enemies, pos, 16).unit_number, 3)
+    eq(garrison.nearest(enemies, pos, 4), nil)    -- beyond the engagement radius
+    local tie = {{unit_number = 8, position = {x = 2, y = 0}}, {unit_number = 2, position = {x = -2, y = 0}}}
+    eq(garrison.nearest(tie, pos, 16).unit_number, 2)
+  end)
+  it("guard duty joins the matrix and guards are exempt from sheltering", function()
+    eq(jobs.DEFAULT.guard, 2)
+    local alarm = require("scripts.model.alarm")
+    eq(alarm.EXEMPT.guarding, true); eq(alarm.EXEMPT.to_tower, true); eq(alarm.EXEMPT["guarding-fight"], true)
+  end)
+  it("a tower is never the source of its own rifle request", function()
+    local haul_plan = require("scripts.model.haul_plan")
+    local tower = {}
+    local req = {priority = haul_plan.PRIORITY.tools, entity = tower, pos = {x = 0, y = 0}, key = 7,
+      demands = {{item = "colony-rifle", count = 1}}}
+    local storages = {
+      {kind = "watchtower", entity = tower, pos = {x = 0, y = 0}, key = 7, available = {["colony-rifle"] = 1}, has_space = true},
+      {kind = "hall", entity = {}, pos = {x = 40, y = 0}, key = 1, available = {["colony-rifle"] = 1}, has_space = true},
+    }
+    local task = haul_plan.match({req}, {}, storages, {}, 20, {x = 0, y = 0})
+    eq(task.source.kind, "hall")
+    -- With nothing in the hall the request simply waits: it must never "haul" the tower's own rifle to itself.
+    storages[2].available = {}
+    eq(haul_plan.match({req}, {}, storages, {}, 20, {x = 0, y = 0}), nil)
+  end)
+end)
+
 describe("colony model (theories)", function()
   it("well-fed colony grows to capacity", function()
     local c = cm.new{pop = 4, capacity = 16, food_stock = 100, foragers_output = 30}
@@ -300,6 +345,18 @@ describe("work_plan", function()
   end)
   it("idles when there is no tooled slot and nothing to haul", function()
     eq(wp.choose(s{pop = 2, slots = {}, capacity = {}}), nil)
+  end)
+  it("posts a guard when a tower is manned, and hauling still wins at equal rank", function()
+    local base = {pop = 6, food_ratio = 2, counts = {}, haul = true, slots = {forage = 3, guard = 2},
+      capacity = {forage = 3, guard = 2}, priority = {haul = 1, forage = 2, guard = 2}}
+    eq(wp.choose(base), "haul")                                    -- haul rank 1 outranks a rank-2 garrison
+    base.priority = {haul = 2, forage = 2, guard = 1}
+    eq(wp.choose(base), "guard")                                   -- rank-1 guard duty beats hauling rank 2
+    base.counts = {guard = 2}; base.slots = {forage = 3, guard = 0} -- both posts filled (job_slots closes them)
+    truthy(wp.choose(base) ~= "guard")
+    base.priority = {haul = 1, forage = 2, guard = 2}; base.slots = {forage = 3, guard = 0}
+    base.counts = {}
+    eq(wp.choose(base), "haul")                                    -- an unmanned tower offers no post
   end)
   it("honours the priority matrix: hauling can be switched off", function()
     local job = wp.choose(s{pop = 6, haul = true, priority = {haul = 0, forage = 2, chop = 2, mine = 2}})

@@ -57,4 +57,14 @@ function M.all_met(items, quotas, global_settings, counts)
   return true
 end
 
+-- True if a resource is permitted to be collected as a low-priority overflow task when idle.
+-- Defaults to true for all core resources unless explicitly set to false.
+function M.overflow_allowed(overflow_table, item)
+  if not overflow_table then return true end
+  if overflow_table[item] ~= nil then
+    return overflow_table[item] == true
+  end
+  return true
+end
+
 return M

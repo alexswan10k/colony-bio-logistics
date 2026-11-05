@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 32
+local SCHEMA = 33
 
 local migrations = {
   [1] = function()
@@ -215,6 +215,35 @@ local migrations = {
       for _, st in pairs(storage.unit_state) do
         if st and type(st.target) == "table" and st.target.accepts_item then
           st.target.accepts_item = nil
+        end
+      end
+    end
+  end,
+  [33] = function()
+    -- Initialize colony.overflow for idle resource gathering
+    for _, c in pairs(storage.colonies or {}) do
+      c.overflow = c.overflow or {
+        ["iron-ore"] = true, ["copper-ore"] = true, ["coal"] = true, ["stone"] = true,
+        ["wood"] = true, ["colony-forage"] = true, ["colony-meat"] = true,
+        ["colony-fish"] = true, ["colony-produce"] = true,
+      }
+    end
+    -- Enable newly added early food frontier pack recipes for forces that already researched colony-settlement
+    if rawget(_G, "game") and game.forces then
+      for _, force in pairs(game.forces) do
+        local tech = force.technologies and force.technologies["colony-settlement"]
+        if tech and tech.researched and force.recipes then
+          local new_recipes = {"colony-frontier-pack", "colony-frontier-pack-forage", "colony-frontier-pack-meat",
+            "colony-frontier-pack-fish", "colony-frontier-pack-produce", "colony-frontier-pack-gleba"}
+          for _, rname in ipairs(new_recipes) do
+            if force.recipes[rname] then force.recipes[rname].enabled = true end
+          end
+        end
+        local pres_tech = force.technologies and force.technologies["colony-food-preservation"]
+        if pres_tech and pres_tech.researched and force.recipes then
+          for _, rname in ipairs{"colony-frontier-pack-preserved", "colony-frontier-pack-preserved-fish"} do
+            if force.recipes[rname] then force.recipes[rname].enabled = true end
+          end
         end
       end
     end

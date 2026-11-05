@@ -369,6 +369,11 @@ local function fill_hut(frame, h)
       local b_more = q_row.add{type = "button", name = "colony_quota_" .. hut_res .. "_more", caption = "+",
         tooltip = {"colony-gui-hut.quota-more-tt"}}
       b_more.style.width = 18; b_more.style.height = 20
+
+      local cb = q_row.add{type = "checkbox", name = "colony_hut_overflow_" .. hut_res,
+        state = colony_mod.overflow_allowed(colony, hut_res),
+        caption = {"colony-gui-hut.idle-collect"}, tooltip = {"colony-gui-hut.idle-collect-tt"}}
+      cb.style.left_margin = 8
     end
   end
   if h.job == "mine" then
@@ -407,6 +412,11 @@ local function fill_hut(frame, h)
         local qb_more = row.add{type = "button", name = "colony_quota_" .. ore .. "_more", caption = "+",
           tooltip = {"colony-gui-hut.quota-more-tt"}}
         qb_more.style.width = 18; qb_more.style.height = 20
+
+        local ocb = row.add{type = "checkbox", name = "colony_hut_overflow_" .. ore,
+          state = colony_mod.overflow_allowed(colony, ore),
+          tooltip = {"colony-gui-hut.idle-collect-tt"}}
+        ocb.style.left_margin = 4
       end
     end
     frame.add{type = "label", caption = {"colony-gui-hut.ore-hint"}}
@@ -532,7 +542,7 @@ local function fill_info(frame, colony)
   else
     local scroll = frame.add{type = "scroll-pane", direction = "vertical"}
     scroll.style.maximal_height = 160
-    local table_gui = scroll.add{type = "table", column_count = 6, draw_horizontal_lines = true}
+    local table_gui = scroll.add{type = "table", column_count = 7, draw_horizontal_lines = true}
     table_gui.style.horizontal_spacing = 8
     local h1 = table_gui.add{type = "label", caption = {"colony-gui-info.res-item"}, style = "bold_label"}
     h1.style.width = 90
@@ -546,6 +556,9 @@ local function fill_info(frame, colony)
     h5.style.width = 45; h5.style.horizontal_align = "right"
     local h6 = table_gui.add{type = "label", caption = {"colony-gui-info.res-quota"}, style = "bold_label"}
     h6.style.width = 110; h6.style.horizontal_align = "center"
+    local h7 = table_gui.add{type = "label", caption = {"colony-gui-info.res-idle-collect"}, style = "bold_label"}
+    h7.style.width = 45; h7.style.horizontal_align = "center"
+    h7.tooltip = {"colony-gui-info.res-idle-collect-tt"}
 
     for _, it in ipairs(ledger_data.items) do
       local name_lbl = table_gui.add{type = "label", caption = {"", "[item=" .. it.item .. "] ", {"item-name." .. it.item}}}
@@ -595,9 +608,16 @@ local function fill_info(frame, colony)
         local b_more = q_flow.add{type = "button", name = "colony_quota_" .. it.item .. "_more", caption = "+",
           tooltip = {"colony-gui-info.quota-more-tt"}}
         b_more.style.width = 18; b_more.style.height = 20
+
+        local cb = table_gui.add{type = "checkbox", name = "colony_overflow_" .. it.item,
+          state = colony_mod.overflow_allowed(colony, it.item),
+          tooltip = {"colony-gui-info.res-idle-collect-tt"}}
+        cb.style.horizontal_align = "center"
       else
         local dash = table_gui.add{type = "label", caption = "-"}
         dash.style.width = 110; dash.style.horizontal_align = "center"
+        local dash2 = table_gui.add{type = "label", caption = "-"}
+        dash2.style.width = 45; dash2.style.horizontal_align = "center"
       end
     end
   end
@@ -1232,6 +1252,24 @@ events.on(defines.events.on_gui_checked_state_changed, function(ev)
     if not (e and e.valid and e.name == colony_mod.HALL) then return end
     local colony = colony_at(e)
     if colony then colony.accept_migrants = ev.element.state end
+    return
+  end
+  local overflow_item = name:match("^colony_overflow_(.+)$") or name:match("^colony_hut_overflow_(.+)$")
+  if overflow_item then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid) then return end
+    local colony = colony_at(e)
+    if colony then
+      colony_mod.set_overflow(colony, overflow_item, ev.element.state)
+      local frame = player.gui.relative[INFO_FRAME]
+      if frame and frame.body then fill_info(frame.body, colony) end
+      local hut_frame = player.gui.relative[HUT_FRAME]
+      if hut_frame and hut_frame.body and colony.huts then
+        local h = colony.huts[e.unit_number]
+        if h then fill_hut(hut_frame.body, h) end
+      end
+    end
     return
   end
   if name ~= "colony_supply_enabled" and name ~= "colony_supply_collect" then return end

@@ -393,6 +393,24 @@ local function construct_scan(colony)
     colony.repairs[key(e)] = e
     repairs = repairs + 1
   end
+
+  -- Resynchronize claimed keys: only retain claims for living colonists that actively hold that site_key
+  local active_claims = {}
+  for un, c in pairs(colony.colonists or {}) do
+    local st = storage.unit_state and storage.unit_state[un]
+    if c.valid and st and st.site_key then
+      active_claims[st.site_key] = true
+    end
+  end
+  colony.claimed = active_claims
+
+  -- Prune expired ghost_blocked entries
+  if colony.ghost_blocked then
+    for k, blocked_until in pairs(colony.ghost_blocked) do
+      if blocked_until <= game.tick then colony.ghost_blocked[k] = nil end
+    end
+  end
+
   return ghosts, repairs
 end
 
@@ -707,16 +725,20 @@ end
 -- Harvest only in range and never on another colony's land (design §2.1), preferring the nearest site so
 -- colonists visibly work the forest / berry patch / ore next to their hut instead of walking to a random
 -- tree on the far edge of the radius.
-local function find_site(colony, e, hut)
+local function find_site(colony, e, hut, is_overflow)
   local s, base = e.surface, hut.entity.position
   local radius = hut.job == "forage" and colony_mod.FORAGE_RADIUS or colony_mod.HUT_RADIUS
   local in_territory = function(t) return harvestable(colony, t) end
   local free = function(t) return in_territory(t) and not colony.claimed[key(t)] end
   if hut.job == "forage" then
-    if colony_mod.quota_met(colony, "colony-forage") then return nil, "colony-forage" end
+    if not (is_overflow and colony_mod.overflow_allowed(colony, "colony-forage")) and colony_mod.quota_met(colony, "colony-forage") then
+      return nil, "colony-forage"
+    end
     return nearest(s.find_entities_filtered{name = "colony-forage-patch", position = base, radius = radius}, base, free)
   elseif hut.job == "chop" then
-    if colony_mod.quota_met(colony, "wood") then return nil, "wood" end
+    if not (is_overflow and colony_mod.overflow_allowed(colony, "wood")) and colony_mod.quota_met(colony, "wood") then
+      return nil, "wood"
+    end
     return nearest(s.find_entities_filtered{position = base, radius = radius, type = "tree"}, base, free)
   elseif hut.job == "mine" then
     -- Ore priority: work the best-ranked ore that is actually in range.
@@ -726,7 +748,8 @@ local function find_site(colony, e, hut)
     for _, group in ipairs(mine_plan.by_rank(hut.ores)) do
       local available = {}
       for _, ore in ipairs(group.ores) do
-        if colony_mod.quota_met(colony, ore) then
+        local met = colony_mod.quota_met(colony, ore)
+        if met and not (is_overflow and colony_mod.overflow_allowed(colony, ore)) then
           any_met = true
           last_met = ore
         else
@@ -786,7 +809,9 @@ local function find_site(colony, e, hut)
     -- Returning nil leaves it unstaffed (and `no_site` stops the town from thrashing on it for a while).
     return preserve_ready(colony, hut) and hut.entity
   elseif hut.job == "fish" then
-    if colony_mod.quota_met(colony, "colony-fish") then return nil, "colony-fish" end
+    if not (is_overflow and colony_mod.overflow_allowed(colony, "colony-fish")) and colony_mod.quota_met(colony, "colony-fish") then
+      return nil, "colony-fish"
+    end
     -- The dock is the workplace: there is no world entity to harvest, the water is the resource, and whether
     -- there is enough of it was settled when the dock was built (model/fishing.lua). Everyone fishes the same
     -- dock, so it is never claimed.
@@ -795,7 +820,9 @@ local function find_site(colony, e, hut)
     -- The tower is the workplace: unmanned posts close automatically when its rifles are gone (labour slots).
     return hut.entity
   elseif hut.job == "hunt" then
-    if colony_mod.quota_met(colony, "colony-meat") then return nil, "colony-meat" end
+    if not (is_overflow and colony_mod.overflow_allowed(colony, "colony-meat")) and colony_mod.quota_met(colony, "colony-meat") then
+      return nil, "colony-meat"
+    end
     -- Game roams, so it is picked by position *now*; the engine's attack command then does the chasing.
     -- One animal is claimed at a time so three hunters do not all shoot the same boar.
     local list = {}
@@ -809,7 +836,9 @@ local function find_site(colony, e, hut)
     local pick = hunting.nearest(list, base, radius)
     return pick and pick.entity
   elseif hut.job == "farm" then
-    if colony_mod.quota_met(colony, "colony-produce") then return nil, "colony-produce" end
+    if not (is_overflow and colony_mod.overflow_allowed(colony, "colony-produce")) and colony_mod.quota_met(colony, "colony-produce") then
+      return nil, "colony-produce"
+    end
     -- Ripe plots first (food now), then fallow plots (plant for later); nearest wins, ties by unit_number.
     local best, best_ripe, best_d, r2 = nil, false, nil, radius * radius
     for un, plot in pairs(colony.plots or {}) do
@@ -1534,6 +1563,28 @@ local function find_construct_site(colony, pos)
   return {kind = "build", target = best, key = key(best), cost = best_cost}
 end
 
+-- A `unit` standing inside a ghost blocks `revive` outright (the engine will not place an entity where a
+-- character stands). `go(..., 2)` can leave the builder on its own site, and an idle colonist never steps off
+-- by itself, so a blocked site used to be retried forever with the builder standing on it.
+local function unit_blocking(site)
+  local box = site.bounding_box
+  local r = math.max(box.right_bottom.x - box.left_top.x, box.right_bottom.y - box.left_top.y) / 2 + 1
+  for _, o in ipairs(site.surface.find_entities_filtered{position = site.position, radius = r, type = "unit"}) do
+    if o.valid then return o end
+  end
+end
+
+-- A walkable point just outside the ghost's footprint, on the side the colonist already stands, so it steps
+-- off rather than across the site.
+local function aside_from(site, from)
+  local box = site.bounding_box
+  local r = math.max(box.right_bottom.x - box.left_top.x, box.right_bottom.y - box.left_top.y) / 2 + 2.5
+  local dx, dy = from.x - site.position.x, from.y - site.position.y
+  local len = math.sqrt(dx * dx + dy * dy)
+  if len < 0.1 then dx, dy, len = 1, 0, 1 end
+  return {x = site.position.x + dx / len * r, y = site.position.y + dy / len * r}
+end
+
 -- Pay for the job up front (like a hauler taking a load), then walk there and work. Paying first means a
 -- ghost is never half-built by two colonists who both counted the same stock.
 local function start_construct(colony, un, e)
@@ -1562,18 +1613,25 @@ local function start_construct(colony, un, e)
   storage.unit_state[un] = {colony_id = colony.id, job = "construct", state = "to_construct",
     kind = site.kind, site = site.target, site_key = site.key, carry = carry}
   set_label(e, M.LABELS.construct)
-  go(e, site.target, 2)
+  local dest_target = site.target
+  local dest_rad = 2
+  if site.kind == "build" and site.target.valid then
+    local aside = aside_from(site.target, e.position)
+    dest_target = site.target.surface.find_non_colliding_position("colony-colonist", aside, 2, 0.5) or aside
+    dest_rad = 1
+  end
+  go(e, dest_target, dest_rad)
   return true
 end
 M.start_construct = start_construct
 
-local function start_trip(colony, un, hut)
+local function start_trip(colony, un, hut, is_overflow)
   local e = colony.colonists[un]
-  local site, quota_item, target_ore = find_site(colony, e, hut)
+  local site, quota_item, target_ore = find_site(colony, e, hut, is_overflow)
   if not site then
     hut.workers[un] = nil
     if quota_item then
-      if e and e.valid then popup(e.surface, e.position, {"colony-message.quota-reached", item_name(quota_item)}) end
+      if e and e.valid and not is_overflow then popup(e.surface, e.position, {"colony-message.quota-reached", item_name(quota_item)}) end
     else
       colony.no_site[hut.entity.unit_number] = game.tick + 600
     end
@@ -1596,13 +1654,13 @@ local function start_trip(colony, un, hut)
   end
   if hut.job == "hunt" then
     storage.unit_state[un] = {colony_id = colony.id, job = "hunt", hut = hut, state = "hunting", site = site,
-      site_key = "boar:" .. site.unit_number, attempts = 0}
+      site_key = "boar:" .. site.unit_number, attempts = 0, overflow = is_overflow}
     set_label(e, M.LABELS.hunt)
     M.command_attack(e, site)
     return true
   end
   storage.unit_state[un] = {colony_id = colony.id, job = hut.job, hut = hut, state = "to_site", site = site,
-    site_key = key(site), ore = target_ore}
+    site_key = key(site), ore = target_ore, overflow = is_overflow}
   set_label(e, M.LABELS[hut.job] .. (colony_mod.is_inspired(colony, un) and " ★" or "")
     .. (colony_mod.is_sick(un) and " 🤒" or ""))
   go(e, site, site_radius(site))
@@ -1948,12 +2006,11 @@ function M.assign(colony, un)
 
   -- Night time: colonists return to their house to sleep. Children (#88) sleep with the household too.
   if M.is_sleep_time(e.surface) then
-    if st and st.hut then
-      if st.hut.workers then st.hut.workers[un] = nil end
+    if st then
+      if st.hut and st.hut.workers then st.hut.workers[un] = nil end
       st.hut = nil
+      M.release(st)
     end
-    -- Going to bed never evaporates the load being hauled: it lands in the hall like any completed trip home.
-    if st and st.carry and #st.carry > 0 then M.return_to_hall(colony, st.carry) end
     local house = colony_mod.house_of_colonist(colony, un)
     if house and house.valid then
       storage.unit_state[un] = {colony_id = colony.id, job = is_child(un) and "child" or (st and st.job) or lock or "idle", state = "to_bed", house = house}
@@ -1996,7 +2053,7 @@ function M.assign(colony, un)
   -- whole job matrix for every colonist that finishes a trip (#22 re-measured it).
   local prev_hut = st and st.hut
   if prev_hut then
-    local capped = not lock and (colony_mod.headcount_capped(colony, prev_hut.job) or not jobs.enabled(colony.priority, prev_hut.job) or M.hut_quota_met(colony, prev_hut))
+    local capped = not lock and (colony_mod.headcount_capped(colony, prev_hut.job) or not jobs.enabled(colony.priority, prev_hut.job) or (not st.overflow and M.hut_quota_met(colony, prev_hut)))
     -- A harvester leaves its post when another resource is missing, or (small towns only: it rebuilds the haul
     -- list) when deliveries are waiting and the town is short of haulers. Kept off the common path otherwise:
     -- keeping the post must stay O(1) (#22).
@@ -2011,7 +2068,7 @@ function M.assign(colony, un)
       local starving = colony_mod.total_food(colony) == 0
       if starving and not FOOD_JOB[prev_hut.job] then
         should_switch = true
-      elseif next(missing) and not missing[prev_hut.job] and mates >= 2 then
+      elseif next(missing) and (st.overflow or not missing[prev_hut.job] or mates >= 2) then
         should_switch = true
       elseif pop < M.SMALL_TOWN then
         local task, backlog = M.find_haul_task(colony, nil, e.position)
@@ -2023,7 +2080,7 @@ function M.assign(colony, un)
     if not capped and not should_switch and prev_hut.entity and prev_hut.entity.valid and prev_hut.workers and prev_hut.workers[un]
         and (not lock or lock == prev_hut.job) then
       local _, _, allowed, workers = M.hut_info(prev_hut)
-      if workers <= allowed and M.start_trip(colony, un, prev_hut) then return end
+      if workers <= allowed and M.start_trip(colony, un, prev_hut, st.overflow) then return end
     end
     if prev_hut.workers then prev_hut.workers[un] = nil end
   end
@@ -2061,7 +2118,42 @@ function M.assign(colony, un)
       end
     end
 
-    if not job then M.idle(colony, un, e); return end
+    if not job then
+      if not lock then
+        local overflow_slots = {}
+        for _, h in ipairs(hut_list(colony)) do
+          if HARVEST_JOB[h.job] and (colony.no_site[h.entity.unit_number] or 0) <= game.tick
+              and (colony.no_site[h.job] or 0) <= game.tick and colony_mod.hut_overflow_allowed(colony, h) then
+            local _, _, allowed, workers = M.hut_info(h)
+            if workers < allowed then
+              overflow_slots[h.job] = (overflow_slots[h.job] or 0) + (allowed - workers)
+            end
+          end
+        end
+        local overflow_job = work_plan.choose_overflow{
+          overflow_slots = overflow_slots,
+          counts = counts,
+          priority = colony.priority,
+          cursor = colony.harvest_cursor or 0,
+        }
+        if overflow_job then
+          local house = colony_mod.house_of_colonist(colony, un)
+          local home_pos = house and house.valid and house.position or e.position
+          local candidate_huts = M.candidates_for(slot_list, overflow_job, home_pos)
+          for _, sl in ipairs(candidate_huts) do
+            if colony_mod.hut_overflow_allowed(colony, sl.hut) then
+              sl.hut.workers[un] = true
+              if M.start_trip(colony, un, sl.hut, true) then
+                colony.harvest_cursor = ((colony.harvest_cursor or 0) + 1) % 1000000
+                return
+              end
+            end
+          end
+        end
+      end
+      M.idle(colony, un, e)
+      return
+    end
     if job == "haul" then
       if M.start_drive(colony, un, e, task) then return end
       if M.start_haul(colony, un, e, task) then return end
@@ -2268,12 +2360,12 @@ scheduler.register("work.finish", function(d)
     item, n = "colony-fish", fishing.FISH_PER_TRIP
   elseif st.job == "mine" and site.type == "simple-entity" then
     -- A rock: take its whole yield of the targeted ore (or best-ranked ore) that the colony still wants, and it is gone.
-    if st.ore and rock_yield(site, st.ore) > 0 and not colony_mod.quota_met(colony, st.ore) then
+    if st.ore and rock_yield(site, st.ore) > 0 and (st.overflow or not colony_mod.quota_met(colony, st.ore)) then
       item, n = st.ore, rock_yield(site, st.ore)
     else
       for _, ore in ipairs(mine_plan.order(hut.ores)) do
         local y = rock_yield(site, ore)
-        if y > 0 and not colony_mod.quota_met(colony, ore) then item, n = ore, y; break end
+        if y > 0 and (st.overflow or not colony_mod.quota_met(colony, ore)) then item, n = ore, y; break end
       end
     end
     if n > 0 then
@@ -2350,28 +2442,6 @@ scheduler.register("work.finish", function(d)
   go(e, hut.entity.position, 3)
 end)
 
--- A `unit` standing inside a ghost blocks `revive` outright (the engine will not place an entity where a
--- character stands). `go(..., 2)` can leave the builder on its own site, and an idle colonist never steps off
--- by itself, so a blocked site used to be retried forever with the builder standing on it.
-local function unit_blocking(site)
-  local box = site.bounding_box
-  local r = math.max(box.right_bottom.x - box.left_top.x, box.right_bottom.y - box.left_top.y) / 2 + 1
-  for _, o in ipairs(site.surface.find_entities_filtered{position = site.position, radius = r, type = "unit"}) do
-    if o.valid then return o end
-  end
-end
-
--- A walkable point just outside the ghost's footprint, on the side the colonist already stands, so it steps
--- off rather than across the site.
-local function aside_from(site, from)
-  local box = site.bounding_box
-  local r = math.max(box.right_bottom.x - box.left_top.x, box.right_bottom.y - box.left_top.y) / 2 + 2.5
-  local dx, dy = from.x - site.position.x, from.y - site.position.y
-  local len = math.sqrt(dx * dx + dy * dy)
-  if len < 0.1 then dx, dy, len = 1, 0, 1 end
-  return {x = site.position.x + dx / len * r, y = site.position.y + dy / len * r}
-end
-
 scheduler.register("construct.finish", function(d)
   local st = storage.unit_state[d.un]
   if not (st and st.job == "construct") then return end
@@ -2385,6 +2455,14 @@ scheduler.register("construct.finish", function(d)
     if site and site.valid and site.type == "entity-ghost" then
       for _, blocker in ipairs(site.surface.find_entities_filtered{area = site.bounding_box, type = {"tree", "simple-entity"}}) do
         if blocker.valid then blocker.destroy() end
+      end
+      -- Teleport any units (colonists, vehicles) standing inside the ghost's footprint out of the way!
+      for _, blocker_unit in ipairs(site.surface.find_entities_filtered{area = site.bounding_box, type = "unit"}) do
+        if blocker_unit.valid then
+          local aside = aside_from(site, blocker_unit.position)
+          local safe = site.surface.find_non_colliding_position("colony-colonist", aside, 3, 0.2) or aside
+          blocker_unit.teleport(safe)
+        end
       end
     end
     -- `revive` consumes the ghost, so capture what we need for the message first.
@@ -2405,17 +2483,19 @@ scheduler.register("construct.finish", function(d)
     else
       local attempts = st.attempts or 0
       local blocker = site and site.valid and unit_blocking(site)
-      if attempts < 2 and (blocker or (site and site.valid)) then
+      if attempts < 3 and (blocker or (site and site.valid)) then
         st.attempts = attempts + 1
         colony.claimed[st.site_key] = true       -- the site is still ours, just not reachable yet
         st.state = "to_construct"                -- arriving again re-arms the work timer and retries
-        go(e, aside_from(site, e.position), 0.5)
+        local aside = aside_from(site, e.position)
+        local safe = site.surface.find_non_colliding_position("colony-colonist", aside, 3, 0.5) or aside
+        go(e, safe, 1)
         return
       end
       if st.carry then return_to_hall(colony, st.carry) end
       st.carry = nil
       colony.ghost_blocked = colony.ghost_blocked or {}
-      colony.ghost_blocked[st.site_key] = game.tick + construct.RETRY_TICKS   -- blocked site: back off
+      colony.ghost_blocked[st.site_key] = game.tick + 180   -- blocked site: retry in 3 seconds, not 60!
     end
   else
     local packs = 0

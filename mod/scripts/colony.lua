@@ -656,6 +656,30 @@ function M.set_quota(colony, item, target)
   work.wake_idle_colonists(colony)
 end
 
+function M.overflow_allowed(colony, item)
+  if not colony then return true end
+  return quota.overflow_allowed(colony.overflow, item)
+end
+
+function M.set_overflow(colony, item, enabled)
+  if not colony then return end
+  colony.overflow = colony.overflow or {}
+  colony.overflow[item] = enabled
+  if enabled then
+    work.wake_idle_colonists(colony)
+  end
+end
+
+function M.hut_overflow_allowed(colony, h)
+  if not (colony and h) then return false end
+  local res = work.hut_resources(h)
+  if not res then return false end
+  for _, item in ipairs(res) do
+    if M.overflow_allowed(colony, item) then return true end
+  end
+  return false
+end
+
 -- --- workforce headcount targets (#73) ---------------------------------------------------------------------
 function M.job_target(colony, job)
   return headcount.target(colony.job_targets, job)
@@ -1285,6 +1309,16 @@ local function on_built(ev)
         end
       end
     end
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if owner then
+      local colony = storage.colonies[owner]
+      if colony and e.ghost_prototype and #construct.cost(e.ghost_prototype.items_to_place_this) > 0 then
+        local gk = e.surface.index .. ":" .. e.position.x .. "," .. e.position.y
+        colony.ghosts = colony.ghosts or {}
+        colony.ghosts[gk] = e
+        work.wake_idle_colonists(colony)
+      end
+    end
     return
   end
 
@@ -1293,7 +1327,7 @@ local function on_built(ev)
     if owner then refund(ev, e, name, {"colony-message.hall-too-close"}); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, overflow = {},
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, storage_priority = 3}
     storage.colonies[id] = colony
     M.seed_forage(colony)   -- the claimed land already has berries on it

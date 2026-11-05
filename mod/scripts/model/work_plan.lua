@@ -204,4 +204,39 @@ function M.choose(s)
   return nil
 end
 
+-- When regular choose(s) returns nil, pick an eligible overflow harvest job if any are available.
+-- s.overflow_slots = {job -> free slots}
+-- s.counts = {job -> n}
+-- s.priority = priority matrix
+-- s.cursor = cursor
+function M.choose_overflow(s)
+  local slots = s.overflow_slots or {}
+  local counts = s.counts or {}
+  local priority = s.priority
+  local candidates = {}
+  for _, job in ipairs(M.HARVEST) do
+    if (slots[job] or 0) > 0 and jobs.enabled(priority, job) then
+      candidates[#candidates + 1] = job
+    end
+  end
+  if #candidates == 0 then return nil end
+
+  -- Prefer jobs with fewer workers currently assigned
+  local best, best_count = {}, nil
+  for _, job in ipairs(candidates) do
+    local c = counts[job] or 0
+    if not best_count or c < best_count then
+      best = {job}
+      best_count = c
+    elseif c == best_count then
+      best[#best + 1] = job
+    end
+  end
+  if #best == 1 then return best[1] end
+
+  -- Break ties deterministically with cursor
+  local cursor = s.cursor or 0
+  return best[(cursor % #best) + 1]
+end
+
 return M

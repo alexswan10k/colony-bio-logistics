@@ -8,13 +8,13 @@
 local colony_mod = require("scripts.colony")
 
 local KIT = {
-  ["colony-town-hall"] = 1, ["colony-housing-tent"] = 3, ["colony-housing-cabin"] = 2,
+  ["colony-town-hall"] = 1, ["colony-housing-tent"] = 4,
   ["colony-forager-hut"] = 1, ["colony-woodcutter-hut"] = 1, ["colony-miner-hut"] = 1,
-  ["colony-hunting-lodge"] = 1, ["colony-fishing-dock"] = 1, ["colony-compost-bin"] = 1, ["colony-toolsmith"] = 1,
-  ["colony-basket"] = 5, ["colony-axe"] = 10, ["colony-pickaxe"] = 10, ["colony-rifle"] = 5, ["colony-rod"] = 5,
-  ["colony-debug-generator"] = 1,
-  ["wood"] = 200, ["iron-plate"] = 200, ["stone-brick"] = 50,
-  ["raw-fish"] = 50, ["small-electric-pole"] = 10,
+  ["colony-toolsmith"] = 1, ["colony-compost-bin"] = 1, ["colony-supply-crate"] = 2,
+  ["colony-logistics-marker"] = 1,
+  ["colony-basket"] = 2, ["colony-axe"] = 2, ["colony-pickaxe"] = 2,
+  ["colony-forage"] = 30,
+  ["wood"] = 100, ["stone"] = 50, ["iron-plate"] = 20,
 }
 local BASICS = {wood = 1, ["stone-brick"] = 1, ["iron-plate"] = 1, ["copper-plate"] = 1, coal = 1, stone = 1,
   ["repair-pack"] = 1, ["small-electric-pole"] = 1, ["iron-ore"] = 1, ["copper-ore"] = 1}

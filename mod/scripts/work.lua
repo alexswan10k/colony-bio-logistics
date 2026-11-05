@@ -1142,6 +1142,17 @@ local function hut_collect_offer(h, colony)
   end
   if #demands == 0 then return nil end
 
+  local is_toolsmith = (h.entity.name == "colony-toolsmith")
+  local has_tool = is_toolsmith
+  if not has_tool then
+    for item in pairs(available) do
+      if workshop.RECIPES and workshop.RECIPES[item] then
+        has_tool = true
+        break
+      end
+    end
+  end
+
   local priority = haul_plan.PRIORITY.hut_output
   local is_critical = has_food and colony and (colony_mod.total_food(colony) == 0)
   local is_full = inv.is_full and inv.is_full()
@@ -1149,6 +1160,8 @@ local function hut_collect_offer(h, colony)
 
   if is_critical then
     priority = haul_plan.PRIORITY.critical
+  elseif has_tool then
+    priority = haul_plan.PRIORITY.tools
   elseif is_urgent then
     priority = haul_plan.PRIORITY.urgent_collect
   else
@@ -1240,6 +1253,27 @@ local function machine_demands(m)
   table.sort(out, function(a, b) return a.item < b.item end)
   return out
 end
+M.machine_demands = machine_demands
+
+function M.refresh_machine(colony, m)
+  if not (m and m.entity and m.entity.valid) then return end
+  local has, need = false, nil
+  if m.enabled then
+    if m.collect then
+      local inv = m.entity.get_output_inventory()
+      has = inv ~= nil and not inv.is_empty()
+    end
+    if next(m.requests or {}) then
+      need = machine_demands(m)
+      if #need == 0 then need = nil end
+    end
+  end
+  if has ~= (m.has_output or false) or need ~= m.need then
+    m.has_output = has
+    m.need = need
+    if colony then colony.machine_dirty = true end
+  end
+end
 
 -- Offers use the need list the sweep cached, so an assignment never touches a machine inventory. In-flight
 -- loads are subtracted here because they change between sweeps.
@@ -1275,7 +1309,6 @@ local function collect_offer(colony, m)
   if total == 0 then return nil end
   local is_full = inv.is_full and inv.is_full()
   local is_urgent = is_full or ((m.priority or 4) <= 2)
-  if not is_urgent and total < 10 then return nil end
   local priority = is_urgent and haul_plan.PRIORITY.urgent_collect or haul_plan.PRIORITY.collect
   return {kind = "collect", machine = m, entity = m.entity, pos = m.entity.position,
     priority = priority, building_priority = m.priority or 4, key = m.entity.unit_number,
@@ -2081,6 +2114,9 @@ function M.assign(colony, un)
         local haul_wanted = task and (headcount.target(colony.job_targets, "haul") or work_plan.haul_target(math.max(pop, 1), backlog))
         if task and (counts.haul or 0) < haul_wanted then should_switch = true end
       end
+      if not should_switch and (construct_open(colony) or 0) > 0 and (M.job_counts(colony).construct or 0) == 0 and mates >= 2 then
+        should_switch = true
+      end
     end
     if not capped and not should_switch and prev_hut.entity and prev_hut.entity.valid and prev_hut.workers and prev_hut.workers[un]
         and (not lock or lock == prev_hut.job) then
@@ -2458,14 +2494,19 @@ scheduler.register("construct.finish", function(d)
   if st.kind == "build" then
     -- Clear colliding trees and rocks on the ghost footprint before reviving!
     if site and site.valid and site.type == "entity-ghost" then
-      for _, blocker in ipairs(site.surface.find_entities_filtered{area = site.bounding_box, type = {"tree", "simple-entity"}}) do
+      local box = site.bounding_box
+      local search_area = {
+        {box.left_top.x - 0.8, box.left_top.y - 0.8},
+        {box.right_bottom.x + 0.8, box.right_bottom.y + 0.8}
+      }
+      for _, blocker in ipairs(site.surface.find_entities_filtered{area = search_area, type = {"tree", "simple-entity"}}) do
         if blocker.valid then blocker.destroy() end
       end
-      -- Teleport any units (colonists, vehicles) standing inside the ghost's footprint out of the way!
-      for _, blocker_unit in ipairs(site.surface.find_entities_filtered{area = site.bounding_box, type = "unit"}) do
+      -- Teleport any units, players or vehicles standing on or encroaching the ghost's footprint out of the way!
+      for _, blocker_unit in ipairs(site.surface.find_entities_filtered{area = search_area, type = {"unit", "character", "car", "spider-vehicle"}}) do
         if blocker_unit.valid then
           local aside = aside_from(site, blocker_unit.position)
-          local safe = site.surface.find_non_colliding_position("colony-colonist", aside, 3, 0.2) or aside
+          local safe = site.surface.find_non_colliding_position(blocker_unit.name, aside, 5, 0.2) or aside
           blocker_unit.teleport(safe)
         end
       end

@@ -1427,7 +1427,12 @@ events.on(defines.events.on_gui_checked_state_changed, function(ev)
     fill_machine(body, m, e)
   elseif m then
     m.collect = ev.element.state
-    if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.machine(m)) end
+    if e.type == "entity-ghost" then
+      e.tags = tags.dictionary(tags.machine(m))
+    else
+      work.refresh_machine(colony, m)
+      work.wake_idle_colonists(colony)
+    end
   end
 end)
 
@@ -1451,7 +1456,12 @@ events.on(defines.events.on_gui_elem_changed, function(ev)
   local item = ev.element.elem_value
   if not item then m.requests[i] = nil
   else m.requests[i] = {item = item, count = m.requests[i] and m.requests[i].count or M.DEFAULT_COUNT} end
-  if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.machine(m)) end
+  if e.type == "entity-ghost" then
+    e.tags = tags.dictionary(tags.machine(m))
+  else
+    work.refresh_machine(colony, m)
+    work.wake_idle_colonists(colony)
+  end
   local frame = player and player.gui.relative[MACHINE_FRAME]
   if frame and frame.body then fill_machine(frame.body, m, e) end
 end)
@@ -1472,7 +1482,27 @@ events.on(defines.events.on_gui_text_changed, function(ev)
   local req = m and m.requests[i]
   if req then
     req.count = tonumber(ev.element.text) or 0
-    if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.machine(m)) end
+    if e.type == "entity-ghost" then
+      e.tags = tags.dictionary(tags.machine(m))
+    else
+      work.refresh_machine(colony, m)
+      work.wake_idle_colonists(colony)
+    end
+  end
+end)
+
+-- When a player closes an entity GUI, refresh machine output & demand caches immediately
+events.on(defines.events.on_gui_closed, function(ev)
+  local e = ev.entity
+  if not (e and e.valid) then return end
+  local col_id = colony_mod and colony_mod.colony_of(e)
+  local colony = col_id and storage.colonies and storage.colonies[col_id]
+  if colony and colony.machines then
+    local m = colony.machines[e.unit_number]
+    if m then
+      work.refresh_machine(colony, m)
+      work.wake_idle_colonists(colony)
+    end
   end
 end)
 

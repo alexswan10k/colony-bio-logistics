@@ -89,7 +89,7 @@ M.TARGET_STOCK_INTERVALS = 5
 
 -- Ticks between evaluations (food use, migration, starvation). Runtime-global setting; tests may set storage.interval_override.
 function M.interval()
-  return storage.interval_override or (settings.global["colony-interval-seconds"] and settings.global["colony-interval-seconds"].value * 60) or M.INTERVAL
+  return storage.interval_override or (settings and settings.global and settings.global["colony-interval-seconds"] and settings.global["colony-interval-seconds"].value * 60) or M.INTERVAL
 end
 
 local function name_of(e) return e.type == "entity-ghost" and e.ghost_name or e.name end
@@ -1015,6 +1015,38 @@ function M.evaluate(data)
     for item, n in pairs(consumed) do if n > 0 then inv.remove{name = item, count = n}; stats.consumed(colony, item, n) end end
     h.score, h.sat, h.occupants = score, sat, occ[i]
     if occ[i] > 0 then
+      if crit then
+        -- Emergency pantry pull (#expectation): if house shelves are empty, colonists fetch critical food/supplies
+        -- from central stock (Town Hall / Warehouses) so they never starve in bed while the Town Hall has supplies.
+        local still_crit = false
+        for _, need in ipairs(tier.needs) do
+          if need.critical and not sat[need.id] then
+            local met_need = false
+            for _, opt in ipairs(need.options) do
+              if opt.item and M.stock_count(colony, opt.item) > 0 then
+                local want = math.max(1, math.ceil(mouths[i] * (opt.per or 1)))
+                local taken = M.take_stock(colony, opt.item, want)
+                if taken > 0 then
+                  stats.consumed(colony, opt.item, taken)
+                  met_need = true
+                  sat[need.id] = true
+                  break
+                end
+              end
+            end
+            if not met_need then still_crit = true end
+          end
+        end
+        crit = still_crit
+        h.crit_unmet = crit
+        if not crit then
+          local met = 0
+          for _, n in ipairs(tier.needs) do if sat[n.id] then met = met + 1 end end
+          score = #tier.needs > 0 and (met / #tier.needs) or 1
+          h.score = score
+        end
+      end
+
       score_sum = score_sum + score; rated = rated + 1
       if crit then
         h.hungry = (h.hungry or 0) + 1

@@ -703,4 +703,214 @@ describe("colony logistics network", function()
     truthy(st)
     eq(st.job, "forage", "solitary woodcutter switched to forage when starving")
   end)
+
+  it("offers toolsmith output tools for hauling even with count 1 (< 10 threshold)", function()
+    local env = mock.install(); env = env.reset()
+    local work = require("scripts.work")
+    local colony_mod = require("scripts.colony")
+    local hp = require("scripts.model.haul_plan")
+    work.bind(colony_mod)
+
+    local function make_chest(contents)
+      local items = {}
+      for k, v in pairs(contents) do items[k] = v end
+      return {
+        is_empty = function() return next(items) == nil end,
+        is_full = function() return false end,
+        get_item_count = function(name) return items[name] or 0 end,
+        get_contents = function()
+          local list = {}
+          for k, v in pairs(items) do list[#list + 1] = {name = k, count = v} end
+          return list
+        end,
+        insert = function(stack) items[stack.name] = (items[stack.name] or 0) + stack.count; return stack.count end,
+        remove = function(stack)
+          local have = items[stack.name] or 0
+          local take = math.min(have, stack.count)
+          items[stack.name] = (have - take > 0) and (have - take) or nil
+          return take
+        end,
+      }
+    end
+
+    local hall_inv = make_chest({})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1, find_entities_filtered = function() return {} end}, force = {},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+    }
+
+    local smith_inv = make_chest({["colony-axe"] = 1, ["wood"] = 10})
+    local smith_ent = {
+      valid = true, name = "colony-toolsmith", unit_number = 205, position = {x = 5, y = 5},
+      surface = hall_ent.surface, force = hall_ent.force,
+      get_item_count = function(item) return smith_inv.get_item_count(item) end,
+      get_inventory = function() return smith_inv end,
+    }
+    local smith_hut = {entity = smith_ent, job = "preserve", wear = 0, limit = 1, workers = {}, inflight = {}, ores = {}, colony_id = 1}
+
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {[205] = smith_hut},
+      houses = {}, machines = {}, towers = {}, plots = {}, crates = {},
+      bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {},
+      cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0,
+      locks = {}, quotas = {}, job_targets = {}, colonists = {}, deaths = {},
+      claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, animals = {},
+      priority = {},
+    }
+    storage.colonies = {[1] = c}
+
+    local task = work.find_haul_task(c, nil, {x = 0, y = 0})
+    truthy(task, "found haul task for toolsmith output tool")
+    eq(task.kind, "collect")
+    eq(task.target.key, 100) -- delivers to hall storage
+    eq(task.load[1].item, "colony-axe")
+    eq(task.load[1].count, 1)
+  end)
+
+  it("collects machine output even with small count (< 10)", function()
+    local env = mock.install(); env = env.reset()
+    local work = require("scripts.work")
+    local colony_mod = require("scripts.colony")
+    work.bind(colony_mod)
+
+    local function make_chest(contents)
+      local items = {}
+      for k, v in pairs(contents) do items[k] = v end
+      return {
+        is_empty = function() return next(items) == nil end,
+        is_full = function() return false end,
+        get_item_count = function(name) return items[name] or 0 end,
+        get_contents = function()
+          local list = {}
+          for k, v in pairs(items) do list[#list + 1] = {name = k, count = v} end
+          return list
+        end,
+        insert = function(stack) items[stack.name] = (items[stack.name] or 0) + stack.count; return stack.count end,
+        remove = function(stack)
+          local have = items[stack.name] or 0
+          local take = math.min(have, stack.count)
+          items[stack.name] = (have - take > 0) and (have - take) or nil
+          return take
+        end,
+      }
+    end
+
+    local hall_inv = make_chest({})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1, find_entities_filtered = function() return {} end}, force = {},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+    }
+
+    local machine_out_inv = make_chest({["iron-gear-wheel"] = 3})
+    local machine_ent = {
+      valid = true, name = "assembling-machine-1", unit_number = 301, position = {x = 6, y = 6},
+      surface = hall_ent.surface, force = hall_ent.force,
+      get_output_inventory = function() return machine_out_inv end,
+      get_item_count = function(item) return machine_out_inv.get_item_count(item) end,
+    }
+    local machine = {entity = machine_ent, enabled = true, collect = true, priority = 4, requests = {}, inflight = {}, has_output = true}
+
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {},
+      houses = {}, machines = {[301] = machine}, towers = {}, plots = {}, crates = {},
+      bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {},
+      cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0,
+      locks = {}, quotas = {}, job_targets = {}, colonists = {}, deaths = {},
+      claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, animals = {},
+      priority = {}, machine_output = {machine},
+    }
+    storage.colonies = {[1] = c}
+
+    local task = work.find_haul_task(c, nil, {x = 0, y = 0})
+    truthy(task, "found haul task for machine output")
+    eq(task.kind, "collect")
+    eq(task.load[1].item, "iron-gear-wheel")
+    eq(task.load[1].count, 3)
+  end)
+
+  it("emergency pulls from town hall when house shelves are empty, preventing starvation", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+
+    local function make_chest(contents)
+      local items = {}
+      for k, v in pairs(contents) do items[k] = v end
+      return {
+        is_empty = function() return next(items) == nil end,
+        is_full = function() return false end,
+        get_item_count = function(name) return items[name] or 0 end,
+        get_contents = function()
+          local list = {}
+          for k, v in pairs(items) do list[#list + 1] = {name = k, count = v} end
+          return list
+        end,
+        insert = function(stack) items[stack.name] = (items[stack.name] or 0) + stack.count; return stack.count end,
+        remove = function(stack)
+          local have = items[stack.name] or 0
+          local take = math.min(have, stack.count)
+          items[stack.name] = (have - take > 0) and (have - take) or nil
+          return take
+        end,
+      }
+    end
+
+    local hall_inv = make_chest({["colony-forage"] = 10})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {
+        index = 1, pollute = function() end,
+        find_entities_filtered = function() return {} end,
+        find_non_colliding_position = function(_, pos) return pos end,
+        count_entities_filtered = function() return 0 end,
+        create_entity = function() return {valid = true, unit_number = 999} end,
+        get_tile = function() return {name = "grass-1"} end,
+        get_pollution = function() return 0 end,
+      },
+      force = {print = function() end, technologies = {}},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+      remove_item = function(stack) return hall_inv.remove(stack) end,
+    }
+    game.surfaces[1] = hall_ent.surface
+
+    local tent_inv = make_chest({}) -- empty tent shelves!
+    local tent_ent = {
+      valid = true, name = "colony-housing-tent", unit_number = 401, position = {x = 2, y = 2},
+      surface = hall_ent.surface, force = hall_ent.force,
+      get_item_count = function(item) return tent_inv.get_item_count(item) end,
+      get_inventory = function() return tent_inv end,
+    }
+    local tent_house = {entity = tent_ent, kind = "tent", occupants = 1, mouths = 1, hungry = 0, inflight = {}, acc = {}}
+
+    local colonist_ent = {
+      valid = true, name = "colony-colonist", unit_number = 501, position = {x = 2, y = 2},
+      surface = hall_ent.surface, force = hall_ent.force,
+      die = function() error("colonist died!") end,
+    }
+
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {},
+      houses = {[401] = tent_house}, machines = {}, towers = {}, plots = {}, crates = {},
+      bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {},
+      cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0,
+      locks = {}, quotas = {}, job_targets = {}, colonists = {[501] = colonist_ent}, deaths = {},
+      claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, animals = {},
+      priority = {}, interval = 1200,
+    }
+    storage.colonies = {[1] = c}
+
+    -- Trigger evaluation step
+    colony_mod.evaluate({colony_id = 1})
+
+    eq(tent_house.hungry, 0, "hungry counter was reset by emergency pull from town hall")
+    eq(hall_inv.get_item_count("colony-forage"), 9, "consumed 1 meal from town hall stock")
+    truthy(colonist_ent.valid, "colonist stayed alive")
+  end)
 end)

@@ -5,7 +5,14 @@ local M = {}
 function M.install()
   local env = {handlers = {}}
   _G.storage = {}
-  _G.game = {tick = 0, print = function() end, get_player = function() end}
+  _G.game = {
+    tick = 0, print = function() end, get_player = function() end, forces = {}, surfaces = {},
+    create_force = function(name)
+      local f = {name = name, set_cease_fire = function() end, print = function() end}
+      game.forces[name] = f
+      return f
+    end,
+  }
   _G.rendering = {
     draw_rectangle = function() return {valid = true, destroy = function() end} end,
     draw_circle = function() return {valid = true, destroy = function() end} end,

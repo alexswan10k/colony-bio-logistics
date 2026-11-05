@@ -470,229 +470,365 @@ end)
 -- ---------- colony overview + priority matrix (#38 #27) ----------
 local function pct(x) return string.format("%.0f%%", math.min(math.max(x, 0), 9.99) * 100) end
 
-local function fill_info(frame, colony)
-  frame.clear()
-  local st = colony_mod.stats(colony)
-  local counts = work.job_counts(colony)
-  local busy = 0
-  for _, job in ipairs(jobs.JOBS) do busy = busy + (counts[job] or 0) end
+local function build_info(body, colony)
+  body.clear()
 
-  local problems = M.colony_advice(colony, st, counts)
-  if #problems > 0 then
-    frame.add{type = "label", caption = {"colony-advice.title"}, style = "bold_label"}
-    for _, a in ipairs(problems) do
-      local args = a.args
-      if a.key == "no-tool" then args = {{"item-name." .. a.args[1]}, a.args[2]} end
-      add_advice_line(frame, a.level, a.key, args[1], args[2])
-    end
-    frame.add{type = "line"}
-  end
-  -- Growth first: the one question every glance at the hall is asking (model/advice.growth).
-  local g = advice.growth{pop = st.pop, capacity = st.capacity, d = st.d, parts = st.parts, accept = colony.accept_migrants}
-  local gcol = g.level == "green" and "green" or (g.level == "red" and "red" or "orange")
-  frame.add{type = "label", caption = {"", "[color=" .. gcol .. "]",
-    {"colony-status." .. g.key, g.args[1] and {"colony-advice.factor-" .. g.args[1]} or ""}, "[/color]"}}
-  local facts, researched = colony_mod.milestone_facts(colony.hall.force)
-  local nxt = milestones.next(facts, researched)
-  if nxt then
-    frame.add{type = "label", caption = {"colony-gui-info.next-milestone", {"technology-name." .. nxt.tech},
-      nxt.have, nxt.need}, tooltip = {"colony-milestone." .. nxt.tech}}
-  end
-  frame.add{type = "label", caption = {"colony-gui-info.population", st.pop, st.capacity}}
-  frame.add{type = "label", caption = {"colony-gui-info.housing", st.tents, st.cabins, st.homesteads or 0, st.apartments or 0, math.max(st.capacity - st.pop, 0)}}
-  local colour = st.food_ratio < 0.5 and "red" or (st.food_ratio < 1 and "orange" or "green")
-  frame.add{type = "label", caption = {"", {"colony-gui-info.food", st.food, st.food_target},
-    "  [color=" .. colour .. "]" .. pct(st.food_ratio) .. "[/color]"}}
-  if (st.away or 0) > 0 or (st.commuters_here or 0) > 0 then
-    frame.add{type = "label", caption = {"colony-gui-info.commuters", st.away or 0, st.commuters_here or 0}}
-  end
-  if (st.sick or 0) > 0 then
-    frame.add{type = "label", caption = {"colony-gui-info.sick", st.sick, st.sick_lung or 0, st.sick_poison or 0}}
-  end
-  if (st.fallen or 0) > 0 then
-    frame.add{type = "label", caption = {"colony-gui-info.fallen", st.fallen, st.buried or 0}}
-  end
-  local parts = st.parts
-  frame.add{type = "label", caption = {"colony-gui-info.desirability", string.format("%.2f", st.d),
-    string.format("%.2f", desirability.defaults.migrate_in), string.format("%.2f", desirability.defaults.leave_below)}}
-  frame.add{type = "label", caption = {"colony-gui-info.desirability-parts",
-    string.format("%.2f", parts.food or 0), string.format("%.2f", parts.housing or 0),
-    string.format("%.2f", parts.scenic or 0), string.format("%.2f", parts.leisure or 0),
-    string.format("%.2f", parts.pollution or 0), string.format("%.2f", parts.deaths or 0),
-    string.format("%.2f", parts.recreation or 0), string.format("%.2f", parts.sickness or 0),
-    string.format("%.2f", parts.tents or 0), string.format("%.2f", parts.jobs or 0),
-    string.format("%.2f", parts.privacy or 0)}}
-  frame.add{type = "label", caption = {"colony-gui-info.desirability-inputs",
-    string.format("%.2f", st.scenic or 0), string.format("%.2f", st.pollution or 0)}}
-  frame.add{type = "label", caption = {"colony-gui-info.jobs",
-    counts.haul or 0, counts.forage or 0, counts.chop or 0, counts.mine or 0, counts.farm or 0,
-    counts.hunt or 0, counts.fish or 0, counts.preserve or 0, counts.construct or 0,
-    counts.research or 0, counts.heal or 0, counts.guard or 0, math.max(st.pop - busy, 0)}}
-  frame.add{type = "label", caption = {"colony-gui-info.territory", st.chunks, st.huts, st.machines, st.towers, st.crates}}
-  if st.ghosts > 0 or st.damaged > 0 then
-    frame.add{type = "label", caption = {"colony-gui-info.construction", st.ghosts, st.damaged}}
-  end
+  -- 1. Advice box container (stable presence)
+  local adv_box = body.add{type = "flow", name = "adv_box", direction = "vertical"}
+  adv_box.add{type = "label", name = "adv_title", caption = {"colony-advice.title"}, style = "bold_label"}
+  adv_box.add{type = "flow", name = "adv_list", direction = "vertical"}
+  body.add{type = "line", name = "adv_line"}
 
-  -- Colony resource ledger (#82): Town Hall aggregate inventory + huts + in-transit yields
-  frame.add{type = "line"}
-  frame.add{type = "label", caption = {"colony-gui-info.resources-title"}, style = "bold_label"}
-  local ledger_data = colony_mod.ledger_snapshot(colony)
-  if not ledger_data or #ledger_data.items == 0 then
-    frame.add{type = "label", caption = {"colony-gui-info.resources-empty"}}
-  else
-    local scroll = frame.add{type = "scroll-pane", direction = "vertical"}
-    scroll.style.maximal_height = 160
-    local table_gui = scroll.add{type = "table", column_count = 7, draw_horizontal_lines = true}
-    table_gui.style.horizontal_spacing = 8
-    local h1 = table_gui.add{type = "label", caption = {"colony-gui-info.res-item"}, style = "bold_label"}
-    h1.style.width = 90
-    local h2 = table_gui.add{type = "label", caption = {"colony-gui-info.res-stock"}, style = "bold_label"}
-    h2.style.width = 40; h2.style.horizontal_align = "right"
-    local h3 = table_gui.add{type = "label", caption = {"colony-gui-info.res-huts"}, style = "bold_label"}
-    h3.style.width = 40; h3.style.horizontal_align = "right"
-    local h4 = table_gui.add{type = "label", caption = {"colony-gui-info.res-transit"}, style = "bold_label"}
-    h4.style.width = 40; h4.style.horizontal_align = "right"
-    local h5 = table_gui.add{type = "label", caption = {"colony-gui-info.res-total"}, style = "bold_label"}
-    h5.style.width = 45; h5.style.horizontal_align = "right"
-    local h6 = table_gui.add{type = "label", caption = {"colony-gui-info.res-quota"}, style = "bold_label"}
-    h6.style.width = 110; h6.style.horizontal_align = "center"
-    local h7 = table_gui.add{type = "label", caption = {"colony-gui-info.res-idle-collect"}, style = "bold_label"}
-    h7.style.width = 45; h7.style.horizontal_align = "center"
-    h7.tooltip = {"colony-gui-info.res-idle-collect-tt"}
+  -- 2. Fixed status rows (never collapse height or pop in/out)
+  body.add{type = "label", name = "status_growth"}
+  body.add{type = "label", name = "status_milestone"}
+  body.add{type = "label", name = "status_pop"}
+  body.add{type = "label", name = "status_housing"}
+  body.add{type = "label", name = "status_food"}
+  body.add{type = "label", name = "status_community"}
+  body.add{type = "label", name = "status_desirability"}
+  body.add{type = "label", name = "status_desirability_parts"}
+  body.add{type = "label", name = "status_desirability_inputs"}
+  body.add{type = "label", name = "status_jobs"}
+  body.add{type = "label", name = "status_territory"}
+  body.add{type = "label", name = "status_construction"}
 
-    for _, it in ipairs(ledger_data.items) do
-      local name_lbl = table_gui.add{type = "label", caption = {"", "[item=" .. it.item .. "] ", {"item-name." .. it.item}}}
-      name_lbl.style.width = 90
+  -- 3. Resources ledger
+  body.add{type = "line", name = "res_line"}
+  body.add{type = "label", name = "res_title", caption = {"colony-gui-info.resources-title"}, style = "bold_label"}
+  local res_scroll = body.add{type = "scroll-pane", name = "res_scroll", direction = "vertical"}
+  res_scroll.style.maximal_height = 160
+  local res_table = res_scroll.add{type = "table", name = "res_table", column_count = 7, draw_horizontal_lines = true}
+  res_table.style.horizontal_spacing = 8
+  local h1 = res_table.add{type = "label", caption = {"colony-gui-info.res-item"}, style = "bold_label"}
+  h1.style.width = 90
+  local h2 = res_table.add{type = "label", caption = {"colony-gui-info.res-stock"}, style = "bold_label"}
+  h2.style.width = 40; h2.style.horizontal_align = "right"
+  local h3 = res_table.add{type = "label", caption = {"colony-gui-info.res-huts"}, style = "bold_label"}
+  h3.style.width = 40; h3.style.horizontal_align = "right"
+  local h4 = res_table.add{type = "label", caption = {"colony-gui-info.res-transit"}, style = "bold_label"}
+  h4.style.width = 40; h4.style.horizontal_align = "right"
+  local h5 = res_table.add{type = "label", caption = {"colony-gui-info.res-total"}, style = "bold_label"}
+  h5.style.width = 45; h5.style.horizontal_align = "right"
+  local h6 = res_table.add{type = "label", caption = {"colony-gui-info.res-quota"}, style = "bold_label"}
+  h6.style.width = 110; h6.style.horizontal_align = "center"
+  local h7 = res_table.add{type = "label", caption = {"colony-gui-info.res-idle-collect"}, style = "bold_label"}
+  h7.style.width = 45; h7.style.horizontal_align = "center"
+  h7.tooltip = {"colony-gui-info.res-idle-collect-tt"}
 
-      local tt = {"", {"item-name." .. it.item}, "\n", {"colony-gui-info.tt-stock", it.stock}}
-      if it.huts > 0 then
-        tt[#tt + 1] = "\n"
-        tt[#tt + 1] = {"colony-gui-info.tt-huts", it.huts}
-        for hut_name, count in pairs(it.hut_details) do
-          tt[#tt + 1] = "\n  • " .. count .. " in "
-          tt[#tt + 1] = {"entity-name." .. hut_name}
-        end
-      end
-      if it.transit > 0 then
-        tt[#tt + 1] = "\n"
-        tt[#tt + 1] = {"colony-gui-info.tt-transit", it.transit}
-      end
-      name_lbl.tooltip = tt
-
-      local l_stock = table_gui.add{type = "label", caption = tostring(it.stock)}
-      l_stock.style.width = 40; l_stock.style.horizontal_align = "right"
-      local l_huts = table_gui.add{type = "label", caption = it.huts > 0 and tostring(it.huts) or "-"}
-      l_huts.style.width = 40; l_huts.style.horizontal_align = "right"
-      local l_trans = table_gui.add{type = "label", caption = it.transit > 0 and tostring(it.transit) or "-"}
-      l_trans.style.width = 40; l_trans.style.horizontal_align = "right"
-      local l_tot = table_gui.add{type = "label", caption = tostring(it.total), style = "bold_label"}
-      l_tot.style.width = 45; l_tot.style.horizontal_align = "right"
-
-      if quota.RESOURCES[it.item] then
-        local q_flow = table_gui.add{type = "flow", direction = "horizontal"}
-        q_flow.style.vertical_align = "center"
-        local b_less = q_flow.add{type = "button", name = "colony_quota_" .. it.item .. "_less", caption = "-",
-          tooltip = {"colony-gui-info.quota-less-tt"}}
-        b_less.style.width = 18; b_less.style.height = 20
-        local base_tgt = colony_mod.base_quota_target(colony, it.item)
-        local eff_tgt = colony_mod.quota_target(colony, it.item)
-        local extra = eff_tgt - base_tgt
-        local txt = (base_tgt == 0) and {"colony-gui-info.quota-unlimited"}
-          or (extra > 0 and (tostring(base_tgt) .. " (+" .. extra .. ")") or tostring(base_tgt))
-        local q_lbl = q_flow.add{type = "label", caption = txt}
-        q_lbl.style.width = 68; q_lbl.style.horizontal_align = "center"
-        q_lbl.tooltip = {"colony-gui-info.quota-target-tt",
-          (base_tgt == 0) and {"colony-gui-info.quota-unlimited"} or tostring(eff_tgt),
-          (base_tgt == 0) and {"colony-gui-info.quota-unlimited"} or tostring(base_tgt),
-          tostring(extra)}
-        local b_more = q_flow.add{type = "button", name = "colony_quota_" .. it.item .. "_more", caption = "+",
-          tooltip = {"colony-gui-info.quota-more-tt"}}
-        b_more.style.width = 18; b_more.style.height = 20
-
-        local cb = table_gui.add{type = "checkbox", name = "colony_overflow_" .. it.item,
-          state = colony_mod.overflow_allowed(colony, it.item),
-          tooltip = {"colony-gui-info.res-idle-collect-tt"}}
-        cb.style.horizontal_align = "center"
-      else
-        local dash = table_gui.add{type = "label", caption = "-"}
-        dash.style.width = 110; dash.style.horizontal_align = "center"
-        local dash2 = table_gui.add{type = "label", caption = "-"}
-        dash2.style.width = 45; dash2.style.horizontal_align = "center"
-      end
-    end
-  end
-
-  frame.add{type = "line"}
-  frame.add{type = "checkbox", name = "colony_accept_migrants", state = colony.accept_migrants ~= false,
+  -- 4. Colony settings
+  body.add{type = "line", name = "opts_line"}
+  body.add{type = "checkbox", name = "colony_accept_migrants", state = colony.accept_migrants ~= false,
     caption = {"colony-gui-info.accept-migrants"}, tooltip = {"colony-gui-info.accept-migrants-tt"}}
-  local sp_row = frame.add{type = "flow", direction = "horizontal"}
+  local sp_row = body.add{type = "flow", name = "sp_row", direction = "horizontal"}
   sp_row.style.vertical_align = "center"
   sp_row.add{type = "label", caption = {"colony-gui-info.storage-priority"}, style = "bold_label"}
   local sp_less = sp_row.add{type = "button", name = "colony_hall_sprio_less", caption = "-", tooltip = {"colony-gui.priority-less-tt"}}
   sp_less.style.width = 24
-  local sp_val = sp_row.add{type = "label", caption = tostring(colony.storage_priority or 3), tooltip = {"colony-gui-crate.storage-priority-tt"}}
-  sp_val.style.width = 24
-  sp_val.style.horizontal_align = "center"
+  local sp_val = sp_row.add{type = "label", name = "sp_val", caption = tostring(colony.storage_priority or 3), tooltip = {"colony-gui-crate.storage-priority-tt"}}
+  sp_val.style.width = 24; sp_val.style.horizontal_align = "center"
   local sp_more = sp_row.add{type = "button", name = "colony_hall_sprio_more", caption = "+", tooltip = {"colony-gui.priority-more-tt"}}
   sp_more.style.width = 24
 
-  frame.add{type = "line"}
-  frame.add{type = "label", caption = {"colony-gui-info.workforce-title"}, style = "bold_label"}
-  local table_gui = frame.add{type = "table", column_count = 4, draw_horizontal_lines = false}
-  table_gui.style.horizontal_spacing = 6
-  local h1 = table_gui.add{type = "label", caption = {"colony-gui-info.wf-job"}, style = "bold_label"}
-  h1.style.width = 68
-  local h2 = table_gui.add{type = "label", caption = {"colony-gui-info.wf-workers"}, style = "bold_label"}
-  h2.style.width = 46; h2.style.horizontal_align = "center"
-  local h3 = table_gui.add{type = "label", caption = {"colony-gui-info.wf-priority"}, style = "bold_label"}
-  h3.style.width = 66; h3.style.horizontal_align = "center"
-  local h4 = table_gui.add{type = "label", caption = {"colony-gui-info.wf-target"}, style = "bold_label"}
-  h4.style.width = 82; h4.style.horizontal_align = "center"
+  -- 5. Workforce & priorities
+  body.add{type = "line", name = "wf_line"}
+  body.add{type = "label", name = "wf_title", caption = {"colony-gui-info.workforce-title"}, style = "bold_label"}
+  local wf_table = body.add{type = "table", name = "wf_table", column_count = 4, draw_horizontal_lines = false}
+  wf_table.style.horizontal_spacing = 6
+  local wh1 = wf_table.add{type = "label", caption = {"colony-gui-info.wf-job"}, style = "bold_label"}
+  wh1.style.width = 68
+  local wh2 = wf_table.add{type = "label", caption = {"colony-gui-info.wf-workers"}, style = "bold_label"}
+  wh2.style.width = 46; wh2.style.horizontal_align = "center"
+  local wh3 = wf_table.add{type = "label", caption = {"colony-gui-info.wf-priority"}, style = "bold_label"}
+  wh3.style.width = 66; wh3.style.horizontal_align = "center"
+  local wh4 = wf_table.add{type = "label", caption = {"colony-gui-info.wf-target"}, style = "bold_label"}
+  wh4.style.width = 82; wh4.style.horizontal_align = "center"
 
-  local p = jobs.effective(colony.priority)
   for _, job in ipairs(jobs.JOBS) do
-    local name = table_gui.add{type = "label", caption = {"colony-gui-info.job-" .. job}}
-    name.style.width = 68
-
-    local cur = counts[job] or 0
-    local w_lbl = table_gui.add{type = "label", caption = tostring(cur)}
+    local j_name = wf_table.add{type = "label", caption = {"colony-gui-info.job-" .. job}}
+    j_name.style.width = 68
+    local w_lbl = wf_table.add{type = "label", name = "wf_wlbl_" .. job, caption = "0"}
     w_lbl.style.width = 46; w_lbl.style.horizontal_align = "center"
 
-    local p_flow = table_gui.add{type = "flow", direction = "horizontal"}
+    local p_flow = wf_table.add{type = "flow", name = "wf_pflow_" .. job, direction = "horizontal"}
     p_flow.style.vertical_align = "center"
     local b_less = p_flow.add{type = "button", name = "colony_prio_" .. job .. "_less", caption = "-",
       tooltip = {"colony-gui-info.less-tt"}}
     b_less.style.width = 18; b_less.style.height = 20
-    local rank_lbl = p_flow.add{type = "label", caption = p[job] > 0 and tostring(p[job]) or {"colony-gui-info.off"}}
+    local rank_lbl = p_flow.add{type = "label", name = "wf_rank_" .. job, caption = "1"}
     rank_lbl.style.width = 24; rank_lbl.style.horizontal_align = "center"
     local b_more = p_flow.add{type = "button", name = "colony_prio_" .. job .. "_more", caption = "+",
       tooltip = {"colony-gui-info.more-tt"}}
     b_more.style.width = 18; b_more.style.height = 20
 
-    local t_flow = table_gui.add{type = "flow", direction = "horizontal"}
+    local t_flow = wf_table.add{type = "flow", name = "wf_tflow_" .. job, direction = "horizontal"}
     t_flow.style.vertical_align = "center"
     local tb_less = t_flow.add{type = "button", name = "colony_target_" .. job .. "_less", caption = "-",
       tooltip = {"colony-gui-info.target-less-tt"}}
     tb_less.style.width = 18; tb_less.style.height = 20
-    local tgt = colony_mod.job_target(colony, job)
-    local tgt_text = tgt ~= nil and tostring(tgt) or {"colony-gui-info.auto"}
-    local tgt_lbl = t_flow.add{type = "label", caption = tgt_text}
+    local tgt_lbl = t_flow.add{type = "label", name = "wf_tgt_" .. job, caption = {"colony-gui-info.auto"}}
     tgt_lbl.style.width = 38; tgt_lbl.style.horizontal_align = "center"
     local tb_more = t_flow.add{type = "button", name = "colony_target_" .. job .. "_more", caption = "+",
       tooltip = {"colony-gui-info.target-more-tt"}}
     tb_more.style.width = 18; tb_more.style.height = 20
   end
 
-  if p.haul == 0 then frame.add{type = "label", caption = {"colony-gui-info.haul-off"}} end
-  local btn_row = frame.add{type = "flow", direction = "horizontal"}
+  local haul_off = body.add{type = "label", name = "wf_haul_off", caption = {"colony-gui-info.haul-off"}}
+  haul_off.visible = false
+  local btn_row = body.add{type = "flow", name = "btn_row", direction = "horizontal"}
   btn_row.add{type = "button", name = "colony_prio_reset", caption = {"colony-gui-info.reset-priority"}}
   btn_row.add{type = "button", name = "colony_target_reset", caption = {"colony-gui-info.reset-target"}}
-  frame.add{type = "label", caption = {"colony-gui-info.workforce-hint"}}
+  body.add{type = "label", name = "wf_hint", caption = {"colony-gui-info.workforce-hint"}}
 
-  -- Per-colonist locks live on each house (see fill_house); a town can have hundreds of colonists, so the
-  -- Town Hall keeps to aggregate job counts and points at the houses for individual assignment.
-  frame.add{type = "line"}
-  frame.add{type = "label", caption = {"colony-gui-info.roster-moved"}}
+  body.add{type = "line", name = "roster_line"}
+  body.add{type = "label", name = "roster_moved", caption = {"colony-gui-info.roster-moved"}}
+end
+
+local function update_info(body, colony)
+  local st = colony_mod.stats(colony)
+  local counts = work.job_counts(colony)
+  local busy = 0
+  for _, job in ipairs(jobs.JOBS) do busy = busy + (counts[job] or 0) end
+
+  -- 1. Advice
+  local problems = M.colony_advice(colony, st, counts)
+  local adv_box = body.adv_box
+  if adv_box and adv_box.adv_list then
+    local adv_sig = serpent.line(problems, {comment = false, sortkeys = true})
+    if not adv_box.tags or adv_box.tags.sig ~= adv_sig then
+      adv_box.tags = {sig = adv_sig}
+      local adv_list = adv_box.adv_list
+      adv_list.clear()
+      if #problems == 0 then
+        adv_list.add{type = "label", caption = {"", "[color=green]", {"colony-advice.no-issues"}, "[/color]"}}
+      else
+        for _, a in ipairs(problems) do
+          local args = a.args
+          if a.key == "no-tool" then args = {{"item-name." .. a.args[1]}, a.args[2]} end
+          add_advice_line(adv_list, a.level, a.key, args[1], args[2])
+        end
+      end
+    end
+  end
+
+  -- 2. Status labels
+  local g = advice.growth{pop = st.pop, capacity = st.capacity, d = st.d, parts = st.parts, accept = colony.accept_migrants}
+  local gcol = g.level == "green" and "green" or (g.level == "red" and "red" or "orange")
+  if body.status_growth then
+    body.status_growth.caption = {"", "[color=" .. gcol .. "]",
+      {"colony-status." .. g.key, g.args[1] and {"colony-advice.factor-" .. g.args[1]} or ""}, "[/color]"}
+  end
+
+  local facts, researched = colony_mod.milestone_facts(colony.hall.force)
+  local nxt = milestones.next(facts, researched)
+  if body.status_milestone then
+    if nxt then
+      body.status_milestone.caption = {"colony-gui-info.next-milestone", {"technology-name." .. nxt.tech},
+        nxt.have, nxt.need}
+      body.status_milestone.tooltip = {"colony-milestone." .. nxt.tech}
+    else
+      body.status_milestone.caption = {"colony-gui-info.milestones-done"}
+      body.status_milestone.tooltip = ""
+    end
+  end
+
+  if body.status_pop then
+    body.status_pop.caption = {"colony-gui-info.population", st.pop, st.capacity}
+  end
+
+  if body.status_housing then
+    body.status_housing.caption = {"colony-gui-info.housing", st.tents, st.cabins, st.homesteads or 0, st.apartments or 0, math.max(st.capacity - st.pop, 0)}
+  end
+
+  local colour = st.food_ratio < 0.5 and "red" or (st.food_ratio < 1 and "orange" or "green")
+  if body.status_food then
+    body.status_food.caption = {"", {"colony-gui-info.food", st.food, st.food_target},
+      "  [color=" .. colour .. "]" .. pct(st.food_ratio) .. "[/color]"}
+  end
+
+  if body.status_community then
+    local comm_parts = {}
+    if (st.sick or 0) > 0 then
+      comm_parts[#comm_parts + 1] = tostring(st.sick) .. " sick"
+    end
+    if (st.fallen or 0) > 0 then
+      comm_parts[#comm_parts + 1] = tostring(st.fallen) .. " dead"
+    end
+    if (st.away or 0) > 0 or (st.commuters_here or 0) > 0 then
+      comm_parts[#comm_parts + 1] = tostring(st.away or 0) .. " away, " .. tostring(st.commuters_here or 0) .. " commuters"
+    end
+    if #comm_parts == 0 then
+      body.status_community.caption = {"colony-gui-info.healthy"}
+    else
+      body.status_community.caption = {"colony-gui-info.community", table.concat(comm_parts, " | ")}
+    end
+  end
+
+  local parts = st.parts
+  if body.status_desirability then
+    body.status_desirability.caption = {"colony-gui-info.desirability", string.format("%.2f", st.d),
+      string.format("%.2f", desirability.defaults.migrate_in), string.format("%.2f", desirability.defaults.leave_below)}
+  end
+  if body.status_desirability_parts then
+    body.status_desirability_parts.caption = {"colony-gui-info.desirability-parts",
+      string.format("%.2f", parts.food or 0), string.format("%.2f", parts.housing or 0),
+      string.format("%.2f", parts.scenic or 0), string.format("%.2f", parts.leisure or 0),
+      string.format("%.2f", parts.pollution or 0), string.format("%.2f", parts.deaths or 0),
+      string.format("%.2f", parts.recreation or 0), string.format("%.2f", parts.sickness or 0),
+      string.format("%.2f", parts.tents or 0), string.format("%.2f", parts.jobs or 0),
+      string.format("%.2f", parts.privacy or 0)}
+  end
+  if body.status_desirability_inputs then
+    body.status_desirability_inputs.caption = {"colony-gui-info.desirability-inputs",
+      string.format("%.2f", st.scenic or 0), string.format("%.2f", st.pollution or 0)}
+  end
+  if body.status_jobs then
+    body.status_jobs.caption = {"colony-gui-info.jobs",
+      counts.haul or 0, counts.forage or 0, counts.chop or 0, counts.mine or 0, counts.farm or 0,
+      counts.hunt or 0, counts.fish or 0, counts.preserve or 0, counts.construct or 0,
+      counts.research or 0, counts.heal or 0, counts.guard or 0, math.max(st.pop - busy, 0)}
+  end
+  if body.status_territory then
+    body.status_territory.caption = {"colony-gui-info.territory", st.chunks, st.huts, st.machines, st.towers, st.crates}
+  end
+  if body.status_construction then
+    body.status_construction.caption = {"colony-gui-info.construction", st.ghosts or 0, st.damaged or 0}
+  end
+
+  -- 3. Resources ledger
+  local ledger_data = colony_mod.ledger_snapshot(colony)
+  local res_scroll = body.res_scroll
+  local res_table = res_scroll and res_scroll.res_table
+  if res_table and ledger_data and ledger_data.items then
+    for _, it in ipairs(ledger_data.items) do
+      local item_key = it.item
+      if not res_table["res_stock_" .. item_key] then
+        local name_lbl = res_table.add{type = "label", name = "res_name_" .. item_key,
+          caption = {"", "[item=" .. item_key .. "] ", {"item-name." .. item_key}}}
+        name_lbl.style.width = 90
+        local l_stock = res_table.add{type = "label", name = "res_stock_" .. item_key, caption = "0"}
+        l_stock.style.width = 40; l_stock.style.horizontal_align = "right"
+        local l_huts = res_table.add{type = "label", name = "res_huts_" .. item_key, caption = "-"}
+        l_huts.style.width = 40; l_huts.style.horizontal_align = "right"
+        local l_trans = res_table.add{type = "label", name = "res_trans_" .. item_key, caption = "-"}
+        l_trans.style.width = 40; l_trans.style.horizontal_align = "right"
+        local l_tot = res_table.add{type = "label", name = "res_tot_" .. item_key, caption = "0", style = "bold_label"}
+        l_tot.style.width = 45; l_tot.style.horizontal_align = "right"
+
+        if quota.RESOURCES[item_key] then
+          local q_flow = res_table.add{type = "flow", name = "res_qflow_" .. item_key, direction = "horizontal"}
+          q_flow.style.vertical_align = "center"
+          local b_less = q_flow.add{type = "button", name = "colony_quota_" .. item_key .. "_less", caption = "-",
+            tooltip = {"colony-gui-info.quota-less-tt"}}
+          b_less.style.width = 18; b_less.style.height = 20
+          local q_lbl = q_flow.add{type = "label", name = "res_qlbl_" .. item_key, caption = ""}
+          q_lbl.style.width = 68; q_lbl.style.horizontal_align = "center"
+          local b_more = q_flow.add{type = "button", name = "colony_quota_" .. item_key .. "_more", caption = "+",
+            tooltip = {"colony-gui-info.quota-more-tt"}}
+          b_more.style.width = 18; b_more.style.height = 20
+        else
+          local dash = res_table.add{type = "label", name = "res_qdash_" .. item_key, caption = "-"}
+          dash.style.width = 110; dash.style.horizontal_align = "center"
+        end
+
+        if quota.RESOURCES[item_key] and quota.RESOURCES[item_key].job then
+          local cb = res_table.add{type = "checkbox", name = "colony_overflow_" .. item_key,
+            state = colony_mod.overflow_allowed(colony, item_key),
+            tooltip = {"colony-gui-info.res-idle-collect-tt"}}
+          cb.style.horizontal_align = "center"
+        else
+          local dash2 = res_table.add{type = "label", name = "res_idledash_" .. item_key, caption = "-"}
+          dash2.style.width = 45; dash2.style.horizontal_align = "center"
+        end
+      end
+
+      local name_lbl = res_table["res_name_" .. item_key]
+      if name_lbl then
+        local tt = {"", {"item-name." .. item_key}, "\n", {"colony-gui-info.tt-stock", it.stock}}
+        if it.huts > 0 then
+          tt[#tt + 1] = "\n"
+          tt[#tt + 1] = {"colony-gui-info.tt-huts", it.huts}
+          for hut_name, count in pairs(it.hut_details) do
+            tt[#tt + 1] = "\n  • " .. count .. " in "
+            tt[#tt + 1] = {"entity-name." .. hut_name}
+          end
+        end
+        if it.transit > 0 then
+          tt[#tt + 1] = "\n"
+          tt[#tt + 1] = {"colony-gui-info.tt-transit", it.transit}
+        end
+        name_lbl.tooltip = tt
+      end
+
+      local l_stock = res_table["res_stock_" .. item_key]
+      if l_stock then l_stock.caption = tostring(it.stock) end
+      local l_huts = res_table["res_huts_" .. item_key]
+      if l_huts then l_huts.caption = it.huts > 0 and tostring(it.huts) or "-" end
+      local l_trans = res_table["res_trans_" .. item_key]
+      if l_trans then l_trans.caption = it.transit > 0 and tostring(it.transit) or "-" end
+      local l_tot = res_table["res_tot_" .. item_key]
+      if l_tot then l_tot.caption = tostring(it.total) end
+
+      if quota.RESOURCES[item_key] then
+        local base_tgt = colony_mod.base_quota_target(colony, item_key)
+        local eff_tgt = colony_mod.quota_target(colony, item_key)
+        local extra = eff_tgt - base_tgt
+        local txt = (base_tgt == 0) and {"colony-gui-info.quota-unlimited"}
+          or (extra > 0 and (tostring(base_tgt) .. " (+" .. extra .. ")") or tostring(base_tgt))
+        local q_flow = res_table["res_qflow_" .. item_key]
+        local q_lbl = q_flow and q_flow["res_qlbl_" .. item_key]
+        if q_lbl then
+          q_lbl.caption = txt
+          q_lbl.tooltip = {"colony-gui-info.quota-target-tt",
+            (base_tgt == 0) and {"colony-gui-info.quota-unlimited"} or tostring(eff_tgt),
+            (base_tgt == 0) and {"colony-gui-info.quota-unlimited"} or tostring(base_tgt),
+            tostring(extra)}
+        end
+        local cb = res_table["colony_overflow_" .. item_key]
+        if cb then
+          cb.state = colony_mod.overflow_allowed(colony, item_key)
+        end
+      end
+    end
+  end
+
+  -- 4. Options
+  if body.colony_accept_migrants then
+    body.colony_accept_migrants.state = colony.accept_migrants ~= false
+  end
+  local sp_row = body.sp_row
+  if sp_row and sp_row.sp_val then
+    sp_row.sp_val.caption = tostring(colony.storage_priority or 3)
+  end
+
+  -- 5. Workforce table
+  local p = jobs.effective(colony.priority)
+  local wf_table = body.wf_table
+  if wf_table then
+    for _, job in ipairs(jobs.JOBS) do
+      local cur = counts[job] or 0
+      local w_lbl = wf_table["wf_wlbl_" .. job]
+      if w_lbl then w_lbl.caption = tostring(cur) end
+      local p_flow = wf_table["wf_pflow_" .. job]
+      local rank_lbl = p_flow and p_flow["wf_rank_" .. job]
+      if rank_lbl then rank_lbl.caption = p[job] > 0 and tostring(p[job]) or {"colony-gui-info.off"} end
+      local tgt = colony_mod.job_target(colony, job)
+      local tgt_text = tgt ~= nil and tostring(tgt) or {"colony-gui-info.auto"}
+      local t_flow = wf_table["wf_tflow_" .. job]
+      local tgt_lbl = t_flow and t_flow["wf_tgt_" .. job]
+      if tgt_lbl then tgt_lbl.caption = tgt_text end
+    end
+  end
+  if body.wf_haul_off then
+    body.wf_haul_off.visible = (p.haul == 0)
+  end
+end
+
+local function fill_info(frame, colony)
+  if not frame.status_pop then
+    build_info(frame, colony)
+  end
+  update_info(frame, colony)
 end
 
 local function open_info(player, e)
@@ -735,13 +871,14 @@ events.on(defines.events.on_gui_click, function(ev)
     local colony = colony_at(e)
     if not colony then return end
     local base = colony_mod.base_quota_target(colony, q_item)
-    local step = ev.shift and 50 or 10
+    local is_tool = quota.RESOURCES[q_item] and quota.RESOURCES[q_item].category == "tool" and q_item ~= "colony-arrow"
+    local step = is_tool and (ev.shift and 5 or 1) or (ev.shift and 50 or 10)
     local new_tgt
     if q_dir == "more" then
-      if base == 0 then new_tgt = 10
+      if base == 0 and not is_tool then new_tgt = 10
       else new_tgt = base + step end
     else
-      if base <= step then new_tgt = 0 -- 0 = unlimited
+      if base <= step then new_tgt = 0 -- 0 = unlimited or none
       else new_tgt = base - step end
     end
     colony_mod.set_quota(colony, q_item, new_tgt)

@@ -1404,6 +1404,19 @@ describe("toolsmith (tool recipes and the Toolsmith hut)", function()
     eq(table.concat(t.wanted(gaps, built, stock), ","), "colony-rod,colony-basket")
     eq(#t.wanted({}, built, {wood = 20, ["iron-plate"] = 20, ["colony-axe"] = 1, ["colony-basket"] = 2}), 0)
   end)
+  it("respects tool quotas when specified", function()
+    local built = {"colony-axe"}
+    local stock = {wood = 50, ["iron-plate"] = 50, ["colony-axe"] = 2}
+    eq(#t.wanted({}, built, stock), 0)
+    local quotas = {["colony-axe"] = 5}
+    eq(table.concat(t.wanted({}, built, stock, quotas), ","), "colony-axe")
+    stock["colony-axe"] = 5
+    eq(#t.wanted({}, built, stock, quotas), 0)
+    stock["colony-axe"] = 0
+    local quotas_zero = {["colony-axe"] = 0}
+    eq(#t.wanted({}, built, stock, quotas_zero), 0)
+    eq(table.concat(t.wanted({"colony-axe"}, built, stock, quotas_zero), ","), "colony-axe")
+  end)
   it("does not want a tool the colony has no ingredients for", function()
     -- A rifle needs copper: with none in colony stock it is not wanted, so the Toolsmith does not idle on it.
     eq(table.concat(t.wanted({"colony-rifle"}, {"colony-rifle", "colony-rod"}, {wood = 20, ["iron-plate"] = 20}), ","),

@@ -526,7 +526,7 @@ local function toolsmith_wanted(colony)
       for item, n in pairs(chest_contents(h.entity) or {}) do stock[item] = (stock[item] or 0) + n end
     end
   end
-  return toolsmith.wanted(gap_tools, built, stock)
+  return toolsmith.wanted(gap_tools, built, stock, colony.quotas)
 end
 
 M.toolsmith_wanted = toolsmith_wanted
@@ -590,14 +590,12 @@ local FOOD_JOB = {}
 for _, j in ipairs(work_plan.FOOD) do FOOD_JOB[j] = true end
 
 local function colony_missing_jobs(colony)
-  local led = colony_mod.ledger_snapshot(colony)
-  local totals = led and led.totals or {}
   local empty = {}
   local below_target = {}
 
   -- 1. Chop: wood
   if not colony_mod.quota_met(colony, "wood") then
-    local cnt = totals["wood"] or 0
+    local cnt = colony_mod.stock_count(colony, "wood")
     local tgt = colony_mod.quota_target(colony, "wood")
     if cnt == 0 then empty.chop = true end
     if tgt > 0 and cnt < tgt then below_target.chop = true end
@@ -607,7 +605,7 @@ local function colony_missing_jobs(colony)
   local mine_ores = {"iron-ore", "copper-ore", "coal", "stone"}
   for _, ore in ipairs(mine_ores) do
     if not colony_mod.quota_met(colony, ore) then
-      local cnt = totals[ore] or 0
+      local cnt = colony_mod.stock_count(colony, ore)
       local tgt = colony_mod.quota_target(colony, ore)
       if cnt == 0 then empty.mine = true end
       if tgt > 0 and cnt < tgt then below_target.mine = true end
@@ -615,19 +613,26 @@ local function colony_missing_jobs(colony)
   end
 
   -- 3. Food: forage, farm, hunt, fish
-  local target_food = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
-  local total_food = colony_mod.total_food(colony)
-  local food_ratio = total_food / target_food
-  if total_food == 0 then
-    if not colony_mod.quota_met(colony, "colony-forage") then empty.forage = true end
-    if not colony_mod.quota_met(colony, "colony-produce") then empty.farm = true end
-    if not colony_mod.quota_met(colony, "colony-meat") then empty.hunt = true end
-    if not colony_mod.quota_met(colony, "colony-fish") then empty.fish = true end
-  elseif food_ratio < 1.0 then
-    if not colony_mod.quota_met(colony, "colony-forage") then below_target.forage = true end
-    if not colony_mod.quota_met(colony, "colony-produce") then below_target.farm = true end
-    if not colony_mod.quota_met(colony, "colony-meat") then below_target.hunt = true end
-    if not colony_mod.quota_met(colony, "colony-fish") then below_target.fish = true end
+  local food_jobs = {
+    ["colony-forage"] = "forage",
+    ["colony-produce"] = "farm",
+    ["colony-meat"] = "hunt",
+    ["colony-fish"] = "fish",
+  }
+  for item, job in pairs(food_jobs) do
+    if not colony_mod.quota_met(colony, item) then
+      local cnt = colony_mod.stock_count(colony, item)
+      local tgt = colony_mod.quota_target(colony, item)
+      if cnt == 0 then empty[job] = true end
+      if tgt > 0 and cnt < tgt then below_target[job] = true end
+    end
+  end
+  if colony_mod.food_in(colony) == 0 then
+    for item, job in pairs(food_jobs) do
+      if not colony_mod.quota_met(colony, item) then
+        empty[job] = true
+      end
+    end
   end
 
   local has_empty = false

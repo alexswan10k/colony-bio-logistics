@@ -596,27 +596,6 @@ function M.resource_demand(colony, item)
     end
   end
 
-  -- 4. Heating demand for unpowered houses
-  if item == "wood" or item == "coal" then
-    for _, h in pairs(colony.houses or {}) do
-      if not M.is_powered(h) and (h.kind == "tent" or h.kind == "cabin" or h.kind == "homestead") then
-        local occ = h.occupants or 1
-        demand = demand + math.ceil(occ * 0.5 * 6)
-      end
-    end
-  end
-
-  -- 5. Food demand for colonists
-  if item == "colony-forage" or item == "colony-fish" or item == "colony-meat" or item == "colony-produce" then
-    local pop = colony.mouths or 0
-    if pop == 0 and colony.colonists then
-      for _ in pairs(colony.colonists) do pop = pop + 1 end
-    end
-    if pop > 0 then
-      demand = demand + math.ceil(pop * 6)
-    end
-  end
-
   return demand
 end
 
@@ -626,7 +605,8 @@ function M.base_quota_target(colony, item)
   end
   local g = M.global_quotas()
   if g and g[item] then return tonumber(g[item]) or 0 end
-  if quota.RESOURCES[item] then return quota.DEFAULT_QUOTA end
+  local res_def = quota.RESOURCES[item]
+  if res_def then return res_def.default or quota.DEFAULT_QUOTA end
   return 0
 end
 
@@ -640,8 +620,7 @@ end
 function M.quota_met(colony, item)
   local tgt = M.quota_target(colony, item)
   if tgt <= 0 then return false end
-  local led = M.ledger_snapshot(colony)
-  local count = led and led.totals and led.totals[item] or 0
+  local count = M.stock_count(colony, item)
   return quota.met(tgt, count)
 end
 

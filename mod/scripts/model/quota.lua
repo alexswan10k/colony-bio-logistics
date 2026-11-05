@@ -14,6 +14,14 @@ M.RESOURCES = {
   ["colony-meat"] = {job = "hunt"},
   ["colony-fish"] = {job = "fish"},
   ["colony-produce"] = {job = "farm"},
+  ["colony-basket"] = {category = "tool", default = 1},
+  ["colony-axe"] = {category = "tool", default = 1},
+  ["colony-pickaxe"] = {category = "tool", default = 1},
+  ["colony-hoe"] = {category = "tool", default = 1},
+  ["colony-rod"] = {category = "tool", default = 1},
+  ["colony-bow"] = {category = "tool", default = 1},
+  ["colony-arrow"] = {category = "tool", default = 20},
+  ["colony-rifle"] = {category = "tool", default = 1},
 }
 
 -- Target quota for item (0 or nil = unlimited).

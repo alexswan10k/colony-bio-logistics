@@ -30,21 +30,41 @@ function M.pick(wanted, stock, unlocked)
 end
 
 -- The tools the Toolsmith should make, in order: first the tools huts are short of (gap_tools), then one spare of
--- each tool a built hut uses (built_tools). A tool only goes on the list while the colony has none in stock, so
--- the Toolsmith keeps one spare rather than piling tools up, and only when colony stock holds its ingredients: a
--- rifle with no copper in the colony is not wanted (the advice for that hut is `gap`, not a request). stock = colony
--- stock {item -> n}.
-function M.wanted(gap_tools, built_tools, stock)
+-- each tool a built hut uses (built_tools), or up to the configured quota. A tool only goes on the list while the colony
+-- stock is below target, and only when colony stock holds its ingredients: a rifle with no copper in the colony is not
+-- wanted (the advice for that hut is `gap`, not a request). stock = colony stock {item -> n}.
+function M.wanted(gap_tools, built_tools, stock, quotas)
   local out, seen = {}, {}
-  local function add(tool)
-    if not seen[tool] and (stock[tool] or 0) <= 0 and workshop.RECIPES[tool]
-        and next(workshop.missing(tool, stock)) == nil then
+  local function target_for(tool)
+    if quotas and quotas[tool] ~= nil then
+      return tonumber(quotas[tool]) or 0
+    end
+    return 1
+  end
+
+  local function add(tool, min_needed)
+    if seen[tool] or not workshop.RECIPES[tool] then return end
+    if next(workshop.missing(tool, stock)) ~= nil then return end
+    local have = stock[tool] or 0
+    local tgt = math.max(target_for(tool), min_needed or 0)
+    if have < tgt then
       seen[tool] = true
       out[#out + 1] = tool
     end
   end
-  for _, tool in ipairs(gap_tools) do add(tool) end
-  for _, tool in ipairs(built_tools) do add(tool) end
+
+  for _, tool in ipairs(gap_tools) do add(tool, 1) end
+  for _, tool in ipairs(built_tools) do add(tool, 0) end
+  if quotas then
+    local sorted = {}
+    for tool, tgt in pairs(quotas) do
+      if tonumber(tgt) and tonumber(tgt) > 0 and not seen[tool] then
+        sorted[#sorted + 1] = tool
+      end
+    end
+    table.sort(sorted)
+    for _, tool in ipairs(sorted) do add(tool, 0) end
+  end
   return out
 end
 

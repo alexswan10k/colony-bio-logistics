@@ -15,6 +15,7 @@ local desirability = require("scripts.model.desirability")
 local breeding = require("scripts.model.breeding")
 local garrison = require("scripts.model.garrison")
 local milestones = require("scripts.model.milestones")
+local tags = require("scripts.model.tags")
 local work = require("scripts.work")
 local M = {}
 local colony_mod   -- injected via M.bind (runtime require is illegal)
@@ -658,6 +659,7 @@ events.on(defines.events.on_gui_click, function(ev)
       if c then
         local cur = c.priority or 3
         c.priority = math.max(1, math.min(5, cur + delta))
+        if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.crate(c)) end
         local frame = player.gui.relative[CRATE_FRAME]
         if frame and frame.body then fill_crate(frame.body, c) end
       end
@@ -666,6 +668,7 @@ events.on(defines.events.on_gui_click, function(ev)
       if m then
         local cur = m.priority or 4
         m.priority = math.max(1, math.min(5, cur + delta))
+        if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.machine(m)) end
         local frame = player.gui.relative[MACHINE_FRAME]
         if frame and frame.body then fill_machine(frame.body, m, e) end
       end
@@ -874,13 +877,28 @@ end
 
 local function open_crate(player, e)
   local old = player.gui.relative[CRATE_FRAME]; if old then old.destroy() end
+  local name = (e.type == "entity-ghost") and e.ghost_name or e.name
+  local names = {colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE}
+  if e.type == "entity-ghost" then
+    names = {"entity-ghost", colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE}
+  end
   local frame = player.gui.relative.add{type = "frame", name = CRATE_FRAME, direction = "vertical",
     caption = e.localised_name, anchor = {gui = defines.relative_gui_type.container_gui,
       position = defines.relative_gui_position.right,
-      names = {colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE}}}
+      names = names}}
   local body = frame.add{type = "flow", name = "body", direction = "vertical"}
   local colony = colony_at(e)
-  local c = colony and colony.crates[e.unit_number]
+  local c = colony and colony.crates and colony.crates[e.unit_number]
+  if not c and e.type == "entity-ghost" and colony and colony_mod.CRATES[name] then
+    local kind = colony_mod.CRATES[name]
+    c = {entity = e, kind = kind, colony_id = colony.id,
+      filters = {}, inflight = {}, logistics_enabled = true,
+      priority = 3,
+      accept_all = (kind == crates.WAREHOUSE and true or nil)}
+    colony.crates = colony.crates or {}
+    colony.crates[e.unit_number] = c
+    if e.tags then colony_mod.apply_tags(colony, e, e.tags) end
+  end
   if not c then body.add{type = "label", caption = {"colony-gui-crate.outside"}}; return end
   fill_crate(body, c)
 end
@@ -890,16 +908,17 @@ function crate_ctx(ev)
   local e = player and player.opened
   if not (e and e.valid and player.opened_gui_type == defines.gui_type.entity) then return end
   local colony = colony_at(e)
-  local c = colony and colony.crates[e.unit_number]
+  local c = colony and colony.crates and colony.crates[e.unit_number]
   if not c then return end
   local frame = player.gui.relative[CRATE_FRAME]
-  return player, c, colony, frame and frame.body
+  return player, c, colony, frame and frame.body, e
 end
 
 -- ---------- machine supply panel ----------
 local function req_status(e, m, req)
   local colony = colony_at(e)
-  local state = advice.request{have = e.get_item_count(req.item), count = req.count, inflight = m.inflight and m.inflight[req.item] or 0,
+  local have = e.valid and (e.type ~= "entity-ghost" and e.get_item_count(req.item) or 0) or 0
+  local state = advice.request{have = have, count = req.count, inflight = m.inflight and m.inflight[req.item] or 0,
     stock = colony and colony_mod.stock_count(colony, req.item) or 0,
     haul_rank = colony and jobs.effective(colony.priority).haul or 1}
   local lvl = (state == "no-stock" or state == "haul-off") and "red" or (state == "queued" and "orange" or "green")
@@ -939,7 +958,8 @@ end
 
 local function open_machine(player, e)
   local old = player.gui.relative[MACHINE_FRAME]; if old then old.destroy() end
-  local gui_name = MACHINE_GUIS[e.type]
+  local type = (e.type == "entity-ghost") and e.ghost_type or e.type
+  local gui_name = MACHINE_GUIS[type]
   local gt = gui_name and defines.relative_gui_type[gui_name]
   if not gt then return end
   local frame = player.gui.relative.add{type = "frame", name = MACHINE_FRAME, direction = "vertical",
@@ -947,7 +967,12 @@ local function open_machine(player, e)
   local body = frame.add{type = "flow", name = "body", direction = "vertical"}
   local colony = colony_at(e)
   if not colony then body.add{type = "label", caption = {"colony-gui.supply-outside"}}; return end
-  fill_machine(body, colony.machines[e.unit_number], e)
+  local m = colony.machines and colony.machines[e.unit_number]
+  if not m and e.type == "entity-ghost" and e.tags then
+    colony_mod.apply_tags(colony, e, e.tags)
+    m = colony.machines and colony.machines[e.unit_number]
+  end
+  fill_machine(body, m, e)
   scheduler.after(30, "gui.refresh_machine", {player_index = player.index, un = e.unit_number})
 end
 
@@ -958,7 +983,7 @@ scheduler.register("gui.refresh_machine", function(d)
   local e = player and player.opened
   if not (frame and frame.valid and frame.visible and e and e.valid and e.unit_number == d.un) then return end
   local colony = colony_at(e)
-  local m = colony and colony.machines[e.unit_number]
+  local m = colony and colony.machines and colony.machines[e.unit_number]
   if m and m.enabled then
     for i = 1, M.REQUEST_ROWS do
       local row, req = frame.body["colony_req_row_" .. i], m.requests[i]
@@ -973,11 +998,13 @@ events.on(defines.events.on_gui_opened, function(ev)
   local player = game.get_player(ev.player_index)
   local e = ev.entity
   if not (player and e and e.valid and ev.gui_type == defines.gui_type.entity) then return end
-  if colony_mod.HOUSES[e.name] then open_house(player, e)
-  elseif labour.HUTS[e.name] then open_hut(player, e)
-  elseif e.name == colony_mod.HALL then open_info(player, e)
-  elseif colony_mod.CRATES[e.name] then open_crate(player, e)
-  elseif MACHINE_GUIS[e.type] then open_machine(player, e) end
+  local name = (e.type == "entity-ghost") and e.ghost_name or e.name
+  local type = (e.type == "entity-ghost") and e.ghost_type or e.type
+  if colony_mod.HOUSES[name] then open_house(player, e)
+  elseif labour.HUTS[name] then open_hut(player, e)
+  elseif name == colony_mod.HALL then open_info(player, e)
+  elseif colony_mod.CRATES[name] then open_crate(player, e)
+  elseif MACHINE_GUIS[type] then open_machine(player, e) end
 end)
 
 local function machine_ctx(ev)
@@ -1014,15 +1041,19 @@ events.on(defines.events.on_gui_checked_state_changed, function(ev)
     return
   end
   if name == "colony_crate_logistics" then
-    local _, c = crate_ctx(ev)
-    if c then c.logistics_enabled = ev.element.state end
+    local _, c, _, _, e = crate_ctx(ev)
+    if c then
+      c.logistics_enabled = ev.element.state
+      if e and e.type == "entity-ghost" then e.tags = tags.dictionary(tags.crate(c)) end
+    end
     return
   end
   if name == "colony_warehouse_all" then
-    local _, c, _, body = crate_ctx(ev)
+    local _, c, _, body, e = crate_ctx(ev)
     if c then
       c.accept_all = ev.element.state
       if body then fill_crate(body, c) end
+      if e and e.type == "entity-ghost" then e.tags = tags.dictionary(tags.crate(c)) end
     end
     return
   end
@@ -1037,11 +1068,12 @@ events.on(defines.events.on_gui_checked_state_changed, function(ev)
   if name ~= "colony_supply_enabled" and name ~= "colony_supply_collect" then return end
   local player, e, colony, body = machine_ctx(ev)
   if not body then return end
-  local m = colony.machines[e.unit_number]
+  local m = colony.machines and colony.machines[e.unit_number]
   if name == "colony_supply_enabled" then
     m = colony_mod.set_machine(colony, e, ev.element.state)
     fill_machine(body, m, e)
   elseif m then m.collect = ev.element.state end
+  if e.type == "entity-ghost" and m then e.tags = tags.dictionary(tags.machine(m)) end
 end)
 
 local function row_of(name) return tonumber(name:match("^colony_req_%a+_(%d+)$")) end
@@ -1049,21 +1081,23 @@ local function row_of(name) return tonumber(name:match("^colony_req_%a+_(%d+)$")
 events.on(defines.events.on_gui_elem_changed, function(ev)
   local row = tonumber(ev.element.name:match("^colony_crate_item_(%d+)$"))
   if row then
-    local _, c, _, body = crate_ctx(ev)
+    local _, c, _, body, e = crate_ctx(ev)
     if c then
       crates.set_filter(c.filters, row, ev.element.elem_value)
       if body then fill_crate(body, c) end
+      if e and e.type == "entity-ghost" then e.tags = tags.dictionary(tags.crate(c)) end
     end
     return
   end
   local i = row_of(ev.element.name)
   if not (i and ev.element.name:find("colony_req_item_", 1, true)) then return end
   local _, e, colony = machine_ctx(ev)
-  local m = colony and colony.machines[e.unit_number]
+  local m = colony and colony.machines and colony.machines[e.unit_number]
   if not m then return end
   local item = ev.element.elem_value
   if not item then m.requests[i] = nil
   else m.requests[i] = {item = item, count = m.requests[i] and m.requests[i].count or M.DEFAULT_COUNT} end
+  if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.machine(m)) end
   local frame = game.get_player(ev.player_index).gui.relative[MACHINE_FRAME]
   if frame then fill_machine(frame.body, m, e) end
 end)
@@ -1071,16 +1105,22 @@ end)
 events.on(defines.events.on_gui_text_changed, function(ev)
   local row = tonumber(ev.element.name:match("^colony_crate_count_(%d+)$"))
   if row then
-    local _, c = crate_ctx(ev)
-    if c then crates.set_count(c.filters, row, ev.element.text) end
+    local _, c, _, _, e = crate_ctx(ev)
+    if c then
+      crates.set_count(c.filters, row, ev.element.text)
+      if e and e.type == "entity-ghost" then e.tags = tags.dictionary(tags.crate(c)) end
+    end
     return
   end
   local i = row_of(ev.element.name)
   if not (i and ev.element.name:find("colony_req_count_", 1, true)) then return end
   local _, e, colony = machine_ctx(ev)
-  local m = colony and colony.machines[e.unit_number]
+  local m = colony and colony.machines and colony.machines[e.unit_number]
   local req = m and m.requests[i]
-  if req then req.count = tonumber(ev.element.text) or 0 end
+  if req then
+    req.count = tonumber(ev.element.text) or 0
+    if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.machine(m)) end
+  end
 end)
 
 return M

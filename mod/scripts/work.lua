@@ -104,6 +104,17 @@ local function set_label(e, text, always)
   storage.unit_labels[e.unit_number] = {mode = want, obj = rendering.draw_text{text = text, surface = e.surface, target = {entity = e, offset = {0, -1.4}},
     color = {1, 1, 1}, scale = 0.7, alignment = "center", only_in_alt_mode = not always}}
 end
+M.set_label = set_label
+
+local function clear_label(un)
+  local rec = storage.unit_labels and storage.unit_labels[un]
+  if rec then
+    local obj = type(rec) == "table" and rec.obj or rec
+    if obj and obj.valid then obj.destroy() end
+    storage.unit_labels[un] = nil
+  end
+end
+M.clear_label = clear_label
 
 local function popup(surface, pos, text)
   rendering.draw_text{text = text, surface = surface, target = pos, color = {0.8, 1, 0.8},
@@ -117,6 +128,7 @@ local function door_point(surface, house)
   local p = surface.find_non_colliding_position("colony-colonist", house.position, 4, 0.3)
   return p or house.position
 end
+M.door_point = door_point
 
 local function clear_carry_sprite(un)
   local sprites = storage.carry_sprites
@@ -384,10 +396,23 @@ local function construct_scan(colony)
   return ghosts, repairs
 end
 
+local function wake_idle_colonists(colony)
+  if not colony then return end
+  for un, c in pairs(colony.colonists or {}) do
+    local st = storage.unit_state and storage.unit_state[un]
+    if c.valid and st and st.state == "idle" then
+      st.misses = 0
+      M.assign(colony, un)
+    end
+  end
+end
+M.wake_idle_colonists = wake_idle_colonists
+
 scheduler.register("construct.scan", function(d)
   local colony = storage.colonies[d.colony_id]
   if not (colony and colony.hall and colony.hall.valid) then return end
-  construct_scan(colony)
+  local ghosts, repairs = construct_scan(colony)
+  if ghosts > 0 or repairs > 0 then wake_idle_colonists(colony) end
   scheduler.after(construct.SCAN_TICKS, "construct.scan", {colony_id = colony.id})
 end)
 
@@ -409,8 +434,34 @@ local function hut_resources(h)
 end
 
 local function hut_quota_met(colony, h)
+  if h.quota_item then
+    if colony_mod.quota_met(colony, h.quota_item) then
+      return true, h.quota_item
+    else
+      h.quota_item = nil
+      h.quota_met = nil
+    end
+  end
   local res = hut_resources(h)
   if not res then return false, nil end
+  if h.job == "mine" then
+    local ranks = mine_plan.effective(h.ores)
+    local any_active = false
+    local all_met = true
+    local last_item = nil
+    for ore, rank in pairs(ranks) do
+      if rank > 0 then
+        any_active = true
+        if colony_mod.quota_met(colony, ore) then
+          last_item = ore
+        else
+          all_met = false
+        end
+      end
+    end
+    if any_active and all_met and last_item then return true, last_item end
+    return false, nil
+  end
   local last_item = nil
   for _, item in ipairs(res) do
     if colony_mod.quota_met(colony, item) then
@@ -511,6 +562,7 @@ local function job_slots(colony)
   slots.construct = math.max(capacity.construct - (job_counts(colony).construct or 0), 0)
   return slots, capacity, list, active
 end
+M.job_slots = job_slots
 
 -- Identify harvest jobs whose resources are missing in the colony (#84, priority tuning).
 -- Completely empty resources (stock == 0) take strict precedence; otherwise jobs below target quota.
@@ -723,7 +775,9 @@ local function find_site(colony, e, hut)
         return chosen.site, nil, chosen.ore
       end
     end
-    if any_met and hut_quota_met(colony, hut) then
+    if any_met then
+      hut.quota_met = true
+      hut.quota_item = last_met
       return nil, last_met
     end
     return nil
@@ -862,6 +916,7 @@ local function go(e, dest, radius)
   e.commandable.set_command(cmd)
   show_carry(e)
 end
+M.go = go
 
 -- Hunting (#79): the engine does the chasing and the shooting. The colonist prototype carries a ranged
 -- hitscan attack and the animal is on a force nobody is at war with, so this is a real kill, with real
@@ -882,14 +937,22 @@ local function house_offer(colony, h)
   local demands = housing.demand(tier, stock, h.inflight, colony_mod.is_powered(h), occupants)
   if #demands == 0 then return nil end
   local critical = false
+  local unmet = false
   for _, need in ipairs(tier.needs) do
-    if need.critical then
-      local ok = h.sat and h.sat[need.id]
-      if ok == false or (ok == nil and occupants > 0) then critical = true end
+    local ok = h.sat and h.sat[need.id]
+    if ok == false or (ok == nil and occupants > 0) then
+      if need.critical then
+        critical = true
+      else
+        unmet = true
+      end
     end
   end
+  local band = critical and haul_plan.PRIORITY.critical
+    or (unmet and haul_plan.PRIORITY.request)
+    or haul_plan.PRIORITY.buffer
   return {kind = "supply", house = h, entity = h.entity, pos = h.entity.position,
-    priority = critical and haul_plan.PRIORITY.critical or haul_plan.PRIORITY.buffer,
+    priority = band,
     building_priority = h.priority or 3,
     key = h.entity.unit_number, demands = demands}
 end
@@ -1302,6 +1365,7 @@ local function find_haul_task(colony, cap, hauler_pos)
 
   return haul_plan.match(requesters, providers, storages, compost_offers, cap or M.CARRY_CAP, hauler_pos)
 end
+M.find_haul_task = find_haul_task
 
 -- Take the load out of its source. The returned stacks hold the amounts that really left, so a
 -- partially filled request can never duplicate items.
@@ -1368,6 +1432,7 @@ local function return_to_hall(colony, stacks)
     end
   end
 end
+M.return_to_hall = return_to_hall
 
 -- Trip start / finish ----------------------------------------------------------------------------
 local function stock_map(colony, cost)
@@ -1437,6 +1502,7 @@ local function start_construct(colony, un, e)
   go(e, site.target, 2)
   return true
 end
+M.start_construct = start_construct
 
 local function start_trip(colony, un, hut)
   local e = colony.colonists[un]
@@ -1479,6 +1545,7 @@ local function start_trip(colony, un, hut)
   go(e, site, site_radius(site))
   return true
 end
+M.start_trip = start_trip
 
 local function idle(colony, un, e)
   -- A surplus colonist re-runs the whole job matrix on every retry and almost always finds nothing, which
@@ -1487,14 +1554,17 @@ local function idle(colony, un, e)
   -- through reassign_workforce regardless of the timer.
   local prev = storage.unit_state[un]
   -- A young colony stays snappy (its few idle colonists must notice new work quickly); only a big town backs off.
-  local cap = math.min(1 + math.floor(colony_mod.live_colonists(colony) / M.RETRY_BACKOFF_POP), M.RETRY_BACKOFF_MAX)
+  local pop = colony_mod.live_colonists(colony)
+  local cap = math.min(1 + math.floor(pop / M.RETRY_BACKOFF_POP), M.RETRY_BACKOFF_MAX)
   local misses = math.min((prev and prev.state == "idle" and prev.misses or 0) + 1, cap)
   storage.unit_state[un] = {colony_id = colony.id, state = "idle", misses = misses}
   set_label(e, "idle")
   show_carry(e)
-  -- Deterministic jitter by unit number: a town spawned in one tick would otherwise retry in lockstep.
-  scheduler.after(M.RETRY_TICKS * misses + (un * 37) % 240, "work.retry", {un = un})
+  local retry_period = (pop <= 5) and 60 or M.RETRY_TICKS
+  local jitter = (pop <= 5) and ((un * 11) % 60) or ((un * 37) % 240)
+  scheduler.after(retry_period * misses + jitter, "work.retry", {un = un})
 end
+M.idle = idle
 
 -- Start a haul trip if there is one; returns true when the colonist is on its way.
 -- Take a task's load and build the hauler state that delivers it: (state table, destination), or nil.
@@ -1562,6 +1632,7 @@ local function start_haul(colony, un, e, task, label)
   set_off(e, st)
   return true
 end
+M.start_haul = start_haul
 
 -- Motor Pool trucks (#60) --------------------------------------------------------------------------
 -- A car cannot be driven by a unit, so the hauler does not sit in a `car`: it walks to the pool, waits inside it
@@ -1615,6 +1686,7 @@ local function start_drive(colony, un, e, task)
   go(e, pool.entity.position, 3)
   return true
 end
+M.start_drive = start_drive
 
 -- Burn one fuel item from the pool. Returns the trips it bought, or nil when the pool is dry. Trips a parked
 -- truck had left (`pool.tank`) are used first, so fuel already burnt is never thrown away.
@@ -1703,6 +1775,7 @@ local function assign_truck(colony, tun)
   end
   send_home(colony, tun, e)
 end
+M.assign_truck = assign_truck
 
 -- Back at the pool: refuel and go again if the tank is what stopped it, otherwise park.
 local function truck_home(colony, tun)
@@ -1790,9 +1863,10 @@ local function candidates_for(slot_list, job, home_pos)
   end
   return sorted
 end
+M.candidates_for = candidates_for
 
 function M.assign(colony, un)
-  if storage.trucks and storage.trucks[un] then return assign_truck(colony, un) end
+  if storage.trucks and storage.trucks[un] then return M.assign_truck(colony, un) end
   local e = colony.colonists[un]
   if not (e and e.valid and colony.hall.valid) then return end
   local st = storage.unit_state[un]
@@ -1816,18 +1890,18 @@ function M.assign(colony, un)
       st.hut = nil
     end
     -- Going to bed never evaporates the load being hauled: it lands in the hall like any completed trip home.
-    if st and st.carry and #st.carry > 0 then return_to_hall(colony, st.carry) end
+    if st and st.carry and #st.carry > 0 then M.return_to_hall(colony, st.carry) end
     local house = colony_mod.house_of_colonist(colony, un)
     if house and house.valid then
       storage.unit_state[un] = {colony_id = colony.id, job = is_child(un) and "child" or (st and st.job) or lock or "idle", state = "to_bed", house = house}
-      set_label(e, "sleeping 💤", true)
-      go(e, door_point(e.surface, house) or house.position, 0.5)
+      M.set_label(e, "going to bed 🏠", true)
+      M.go(e, M.door_point(e.surface, house) or house.position, 0.5)
       return
     end
   elseif is_child(un) then
     -- A child is not part of the workforce: it stays by the house until grown, so no job, no retry timer.
     storage.unit_state[un] = {colony_id = colony.id, job = "child", state = "child"}
-    set_label(e, "child", true)
+    M.set_label(e, "child", true)
     return
   end
 
@@ -1839,13 +1913,13 @@ function M.assign(colony, un)
   -- whole job matrix for every colonist that finishes a trip (#22 re-measured it).
   local prev_hut = st and st.hut
   if prev_hut then
-    local capped = not lock and (colony_mod.headcount_capped(colony, prev_hut.job) or not jobs.enabled(colony.priority, prev_hut.job))
+    local capped = not lock and (colony_mod.headcount_capped(colony, prev_hut.job) or not jobs.enabled(colony.priority, prev_hut.job) or M.hut_quota_met(colony, prev_hut))
     -- A harvester leaves its post when another resource is missing, or (small towns only: it rebuilds the haul
     -- list) when deliveries are waiting and the town is short of haulers. Kept off the common path otherwise:
     -- keeping the post must stay O(1) (#22).
     local should_switch = false
     if not lock and HARVEST_JOB[prev_hut.job] then
-      missing = colony_missing_jobs(colony)
+      missing = M.colony_missing_jobs(colony)
       local mates = 0
       for _ in pairs(prev_hut.workers or {}) do mates = mates + 1 end
       -- Never strip a hut of its last worker for another resource (see work_plan.choose).
@@ -1857,8 +1931,8 @@ function M.assign(colony, un)
       elseif next(missing) and not missing[prev_hut.job] and mates >= 2 then
         should_switch = true
       elseif pop < M.SMALL_TOWN then
-        local task, backlog = find_haul_task(colony, nil, e.position)
-        local counts = task and job_counts(colony)
+        local task, backlog = M.find_haul_task(colony, nil, e.position)
+        local counts = task and M.job_counts(colony)
         local haul_wanted = task and (headcount.target(colony.job_targets, "haul") or work_plan.haul_target(math.max(pop, 1), backlog))
         if task and (counts.haul or 0) < haul_wanted then should_switch = true end
       end
@@ -1866,16 +1940,16 @@ function M.assign(colony, un)
     if not capped and not should_switch and prev_hut.entity and prev_hut.entity.valid and prev_hut.workers and prev_hut.workers[un]
         and (not lock or lock == prev_hut.job) then
       local _, _, allowed, workers = M.hut_info(prev_hut)
-      if workers <= allowed and start_trip(colony, un, prev_hut) then return end
+      if workers <= allowed and M.start_trip(colony, un, prev_hut) then return end
     end
     if prev_hut.workers then prev_hut.workers[un] = nil end
   end
 
-  local counts = job_counts(colony)
+  local counts = M.job_counts(colony)
   if st and st.job then counts[st.job] = math.max((counts[st.job] or 1) - 1, 0) end
-  local slots, capacity, slot_list, hut_count = job_slots(colony)
-  local task, backlog = find_haul_task(colony, nil, e.position)
-  missing = missing or colony_missing_jobs(colony)
+  local slots, capacity, slot_list, hut_count = M.job_slots(colony)
+  local task, backlog = M.find_haul_task(colony, nil, e.position)
+  missing = missing or M.colony_missing_jobs(colony)
 
   local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
   local choose_state = {
@@ -1904,34 +1978,43 @@ function M.assign(colony, un)
       end
     end
 
-    if not job then idle(colony, un, e); return end
+    if not job then M.idle(colony, un, e); return end
     if job == "haul" then
-      if start_drive(colony, un, e, task) then return end
-      if start_haul(colony, un, e, task) then return end
-      idle(colony, un, e); return
-    end
-    if job == "construct" then
-      if start_construct(colony, un, e) then return end
-      idle(colony, un, e); return
-    end
-    local house = colony_mod.house_of_colonist(colony, un)
-    local home_pos = house and house.valid and house.position or e.position
-    local candidate_huts = candidates_for(slot_list, job, home_pos)
-    local started = false
-    for _, sl in ipairs(candidate_huts) do
-      sl.hut.workers[un] = true
-      if start_trip(colony, un, sl.hut) then
-        started = true
+      if M.start_drive(colony, un, e, task) then return end
+      if M.start_haul(colony, un, e, task) then return end
+      if attempt == 1 and not lock then
+        choose_state.haul = false
+      else
+        M.idle(colony, un, e); return
+      end
+    elseif job == "construct" then
+      if M.start_construct(colony, un, e) then return end
+      if attempt == 1 and not lock then
+        slots.construct = 0
+        choose_state.slots = slots
+      else
+        M.idle(colony, un, e); return
+      end
+    else
+      local house = colony_mod.house_of_colonist(colony, un)
+      local home_pos = house and house.valid and house.position or e.position
+      local candidate_huts = M.candidates_for(slot_list, job, home_pos)
+      local started = false
+      for _, sl in ipairs(candidate_huts) do
+        sl.hut.workers[un] = true
+        if M.start_trip(colony, un, sl.hut) then
+          started = true
+          return
+        end
+      end
+      -- If all candidates for this job failed (e.g. no site / missing inputs, comms #4), retry once with other roles
+      if not started and attempt == 1 and not lock then
+        slots[job] = 0
+        choose_state.slots = slots
+      else
+        M.idle(colony, un, e)
         return
       end
-    end
-    -- If all candidates for this job failed (e.g. no site / missing inputs, comms #4), retry once with other roles
-    if not started and attempt == 1 and not lock then
-      slots[job] = 0
-      choose_state.slots = slots
-    else
-      idle(colony, un, e)
-      return
     end
   end
 end
@@ -2224,12 +2307,14 @@ scheduler.register("construct.finish", function(d)
     -- `revive` consumes the ghost, so capture what we need for the message first.
     local pos = site and site.valid and {x = site.position.x, y = site.position.y}
     local ghost_name = site and site.valid and site.ghost_name
+    local ghost_tags = site and site.valid and site.tags
     -- `revive` returns (items it collided with, the new entity, the item request proxy): the entity is the
     -- second value, so take it explicitly rather than testing the item list for truthiness. `raise_revive`
     -- also re-delivers the ghost's blueprint tags to `on_built`, which is how a revived opt-in machine is
     -- registered again (#36).
     local built = site and site.valid and site.type == "entity-ghost" and select(2, site.revive{raise_revive = true})
     if built then
+      if ghost_tags then colony_mod.apply_tags(colony, built, ghost_tags) end
       for _, s in ipairs(st.carry or {}) do stats.consumed(colony, s.item, s.count) end
       st.carry = nil                            -- the ghost consumed the materials
       if colony.ghosts then colony.ghosts[st.site_key] = nil end
@@ -2264,6 +2349,7 @@ scheduler.register("construct.finish", function(d)
     end
     if packs > 0 then return_to_hall(colony, {{item = construct.REPAIR_PACK, count = packs}}) end
   end
+  wake_idle_colonists(colony)
   M.assign(colony, d.un)
 end)
 
@@ -2273,12 +2359,24 @@ scheduler.register("work.sleep_check", function(d)
   local colony = storage.colonies[st.colony_id]
   local e = colony and colony.colonists and colony.colonists[d.un]
   if not (colony and e and e.valid) then return end
+  local house = st.house or colony_mod.house_of_colonist(colony, d.un)
   if M.is_sleep_time(e.surface) then
+    if house and house.valid then
+      e.teleport(house.position)
+      e.destructible = false
+      popup(house.surface, house.position, "💤")
+    end
     e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
-    popup(e.surface, e.position, "💤")
     scheduler.after(180 + (d.un * 13) % 120, "work.sleep_check", d)
   else
-    popup(e.surface, e.position, "☀️")
+    e.destructible = true
+    if house and house.valid then
+      local out_pos = door_point(e.surface, house) or house.position
+      e.teleport(out_pos)
+      popup(e.surface, out_pos, "☀️")
+    else
+      popup(e.surface, e.position, "☀️")
+    end
     st.state = "idle"
     M.assign(colony, d.un)
   end
@@ -2366,11 +2464,18 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   if st.state == "to_bed" then
     st.state = "sleeping"
     local e = unit_entity(colony, ev.unit_number)
-    if e and e.valid then
+    local house = st.house or (colony and colony_mod.house_of_colonist(colony, ev.unit_number))
+    if e and e.valid and house and house.valid then
+      e.teleport(house.position)
+      e.destructible = false
       e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
-      set_label(e, "sleeping 💤", true)
-      clear_carry_sprite(ev.unit_number)   -- a sleeping colonist shows no load
-      popup(e.surface, e.position, "💤")
+      clear_label(ev.unit_number)
+      clear_carry_sprite(ev.unit_number)
+      popup(house.surface, house.position, "💤")
+      scheduler.after(180 + (ev.unit_number * 13) % 120, "work.sleep_check", {un = ev.unit_number})
+    elseif e and e.valid then
+      e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
+      clear_label(ev.unit_number)
       scheduler.after(180 + (ev.unit_number * 13) % 120, "work.sleep_check", {un = ev.unit_number})
     end
     return
@@ -2444,6 +2549,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
         return
       end
     else M.release(st) end
+    wake_idle_colonists(colony)
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_bin" then
     local e = unit_entity(colony, ev.unit_number)
@@ -2461,6 +2567,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     -- can be rebuilt, and the next delivery clears it out again.
     if #leftover > 0 then return_to_hall(colony, leftover) end
     if dropped > 0 and e and e.valid then popup(e.surface, e.position, {"", "Composted ", tostring(dropped)}) end
+    wake_idle_colonists(colony)
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_site" then
     st.state = "working"
@@ -2508,6 +2615,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
         end
       end
     end
+    wake_idle_colonists(colony)
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_hall" then
     if st.carry then
@@ -2525,6 +2633,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     end
     st.carry = nil
     colony.ledger_cache = nil
+    wake_idle_colonists(colony)
     M.assign(colony, ev.unit_number)
   end
 end)

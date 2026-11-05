@@ -6,10 +6,6 @@ local M = {}
 -- In order: each milestone is the prerequisite of the next, and the thresholds only ever rise.
 M.LIST = {
   {tech = "colony-settlement", halls = 1},
-  {tech = "colony-mining", pop = 4},
-  {tech = "colony-hunting-fishing", pop = 8},
-  {tech = "colony-logistics", pop = 12},
-  {tech = "colony-food-preservation", pop = 16},
 }
 
 local function met(m, f)

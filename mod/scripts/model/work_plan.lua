@@ -34,7 +34,8 @@ function M.haul_target(pop, backlog)
   if pop <= 0 then return 0 end
   local base = math.max(1, math.floor(M.HAUL_SHARE * pop + 0.5))
   if not backlog or backlog <= base then return base end
-  return math.max(base, math.min(backlog, math.floor(M.HAUL_MAX_SHARE * pop + 0.5)))
+  local max_haul = math.max(base + 1, math.floor(M.HAUL_MAX_SHARE * pop + 0.5))
+  return math.max(base, math.min(backlog, max_haul))
 end
 
 -- s = {food_ratio=, backlog= (haul destinations waiting), counts={job->n}, slots={job->free tooled slots}, capacity={job->tooled slots},

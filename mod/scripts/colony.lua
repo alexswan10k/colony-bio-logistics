@@ -571,12 +571,11 @@ function M.set_quota(colony, item, target)
   colony.quotas = colony.quotas or {}
   colony.quotas[item] = target
   colony.ledger_cache = nil
-  for un in pairs(colony.colonists or {}) do
-    local st = storage.unit_state and storage.unit_state[un]
-    if st and st.state == "idle" then
-      work.assign(colony, un)
-    end
+  for _, h in pairs(colony.huts or {}) do
+    h.quota_met = nil
+    h.quota_item = nil
   end
+  work.wake_idle_colonists(colony)
 end
 
 -- --- workforce headcount targets (#73) ---------------------------------------------------------------------
@@ -637,6 +636,15 @@ function M.take_stock(colony, item, count)
     if s.entity and s.entity.valid then
       taken = taken + s.entity.remove_item{name = item, count = count - taken}
     end
+  end
+  if taken > 0 then
+    for _, h in pairs(colony.huts or {}) do
+      if h.quota_item == item then
+        h.quota_item = nil
+        h.quota_met = nil
+      end
+    end
+    work.wake_idle_colonists(colony)
   end
   return taken
 end
@@ -1056,6 +1064,7 @@ function M.evaluate(data)
         work.assign(colony, un)
       end
     end
+    work.wake_idle_colonists(colony)
   end
 end
 scheduler.register("colony.evaluate", M.evaluate)
@@ -1585,8 +1594,9 @@ M.BADGE_SPRITE = "entity/colony-town-hall"   -- SpritePath: the Town Hall's icon
 M.REQUEST_ROWS = 3
 function M.default_requests(e)
   local out = {}
-  local recipe = (e.type == "assembling-machine" or e.type == "furnace")
-    and (e.get_recipe() or (e.type == "furnace" and e.previous_recipe and e.previous_recipe.name
+  local type = (e.type == "entity-ghost") and e.ghost_type or e.type
+  local recipe = (type == "assembling-machine" or type == "furnace")
+    and (e.get_recipe() or (type == "furnace" and e.previous_recipe and e.previous_recipe.name
       and prototypes.recipe[e.previous_recipe.name]))
   if recipe then
     for _, ing in ipairs(recipe.ingredients) do
@@ -1668,10 +1678,19 @@ function M.find_record(e)
   local un = e.unit_number
   if not un then return end
   for _, colony in pairs(storage.colonies) do
-    local m = colony.machines[un]
+    local m = colony.machines and colony.machines[un]
     if m and m.enabled then return colony, "machine", m end
     local c = colony.crates and colony.crates[un]
     if c then return colony, "crate", c end
+  end
+  if e.type == "entity-ghost" and e.tags then
+    local colony = M.colony_of(e)
+    local payload = tags.decode(e.tags)
+    if payload and payload.machine then
+      return colony, "machine", payload.machine
+    elseif payload and payload.crate then
+      return colony, "crate", payload.crate
+    end
   end
 end
 
@@ -1680,28 +1699,6 @@ function M.entity_tags(e)
   local _, kind, rec = M.find_record(e)
   if kind == "machine" then return tags.dictionary(tags.machine(rec)) end
   if kind == "crate" then return tags.dictionary(tags.crate(rec)) end
-end
-
--- Restore settings a blueprint/copy carried. The payload is untrusted, so the model validates it.
-function M.apply_tags(colony, e, dict)
-  local payload = tags.decode(dict)
-  if not (payload and colony and e and e.valid) then return false end
-  if payload.machine then
-    if not gui.MACHINE_GUIS[e.type] then return false end
-    local m = M.set_machine(colony, e, true)
-    if not m then return false end
-    m.collect, m.requests = payload.machine.collect, payload.machine.requests
-    m.need, m.has_output = nil, nil
-    return true
-  elseif payload.crate then
-    local c = colony.crates and colony.crates[e.unit_number]
-    if not c then return false end
-    c.filters = payload.crate.filters
-    if payload.crate.accept_all ~= nil then c.accept_all = payload.crate.accept_all end
-    if payload.crate.priority then c.priority = payload.crate.priority end
-    return true
-  end
-  return false
 end
 
 -- Copy rows out of a registry record into a fresh table: two machines must never share the same row list.
@@ -1713,6 +1710,44 @@ local function copy_rows(rows)
   return out
 end
 
+-- Restore settings a blueprint/copy carried. The payload is untrusted, so the model validates it.
+function M.apply_tags(colony, e, dict)
+  local payload = tags.decode(dict)
+  if not (payload and colony and e and e.valid) then return false end
+  local e_type = (e.type == "entity-ghost") and e.ghost_type or e.type
+  local e_name = (e.type == "entity-ghost") and e.ghost_name or e.name
+  if payload.machine then
+    if not gui.MACHINE_GUIS[e_type] then return false end
+    local m = M.set_machine(colony, e, true)
+    if not m then return false end
+    m.collect, m.requests = payload.machine.collect, copy_rows(payload.machine.requests)
+    if payload.machine.priority then m.priority = payload.machine.priority end
+    m.need, m.has_output = nil, nil
+    if e.type == "entity-ghost" then
+      e.tags = tags.dictionary(tags.machine(m))
+    end
+    return true
+  elseif payload.crate then
+    local c = colony.crates and colony.crates[e.unit_number]
+    if not c and e.type == "entity-ghost" and M.CRATES[e_name] then
+      local kind = M.CRATES[e_name]
+      c = {entity = e, kind = kind, colony_id = colony.id, filters = {}, inflight = {},
+           logistics_enabled = true, priority = 3, accept_all = (kind == crates.WAREHOUSE and true or nil)}
+      colony.crates = colony.crates or {}
+      colony.crates[e.unit_number] = c
+    end
+    if not c then return false end
+    c.filters = copy_rows(payload.crate.filters)
+    if payload.crate.accept_all ~= nil then c.accept_all = payload.crate.accept_all end
+    if payload.crate.priority then c.priority = payload.crate.priority end
+    if e.type == "entity-ghost" then
+      e.tags = tags.dictionary(tags.crate(c))
+    end
+    return true
+  end
+  return false
+end
+
 -- Copy the colony half of copy-paste. The engine copies the entity's own settings; the registry is ours, so
 -- a plain (un-opted-in) source clears the destination rather than leaving it serving silently.
 function M.copy_settings(src, dst)
@@ -1720,26 +1755,46 @@ function M.copy_settings(src, dst)
   local colony = M.colony_of(dst)
   if not colony then return false end
   local _, kind, rec = M.find_record(src)
-  if gui.MACHINE_GUIS[dst.type] then
+  local dst_type = (dst.type == "entity-ghost") and dst.ghost_type or dst.type
+  local dst_name = (dst.type == "entity-ghost") and dst.ghost_name or dst.name
+  if gui.MACHINE_GUIS[dst_type] then
     local m = M.set_machine(colony, dst, kind == "machine")
     if not m then return false end
     -- Not `x and y or z`: collect is a boolean, so that idiom turns a copied false back into true.
     if kind == "machine" then
       m.collect, m.requests = rec.collect, copy_rows(rec.requests)
+      if rec.priority ~= nil then m.priority = rec.priority end
     else
       m.collect, m.requests = true, {}
+      m.priority = 4
     end
     m.need, m.has_output = nil, nil
-    return true
-  end
-  local c = colony.crates and colony.crates[dst.unit_number]
-  if c then
-    c.filters = kind == "crate" and copy_rows(rec.filters) or {}
-    if kind == "crate" then
-      if rec.accept_all ~= nil then c.accept_all = rec.accept_all end
-      if rec.priority ~= nil then c.priority = rec.priority end
+    if dst.type == "entity-ghost" then
+      dst.tags = tags.dictionary(tags.machine(m))
     end
     return true
+  end
+  local is_crate = (dst.type == "entity-ghost") and M.CRATES[dst_name] or (colony.crates and colony.crates[dst.unit_number])
+  if is_crate then
+    local c = colony.crates and colony.crates[dst.unit_number]
+    if not c and dst.type == "entity-ghost" then
+      local kind = M.CRATES[dst_name]
+      c = {entity = dst, kind = kind, colony_id = colony.id, filters = {}, inflight = {},
+           logistics_enabled = true, priority = 3, accept_all = (kind == crates.WAREHOUSE and true or nil)}
+      colony.crates = colony.crates or {}
+      colony.crates[dst.unit_number] = c
+    end
+    if c then
+      c.filters = kind == "crate" and copy_rows(rec.filters) or {}
+      if kind == "crate" then
+        if rec.accept_all ~= nil then c.accept_all = rec.accept_all end
+        if rec.priority ~= nil then c.priority = rec.priority end
+      end
+      if dst.type == "entity-ghost" then
+        dst.tags = tags.dictionary(tags.crate(c))
+      end
+      return true
+    end
   end
   return false
 end

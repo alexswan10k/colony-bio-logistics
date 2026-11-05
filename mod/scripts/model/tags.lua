@@ -48,7 +48,7 @@ end
 -- player's supply rows are the settings the player would be annoyed to redo.
 function M.machine(m)
   return {machine = true, collect = m.collect and true or false,
-    requests = encode_rows(m.requests, M.MAX_REQUESTS)}
+    requests = encode_rows(m.requests, M.MAX_REQUESTS), priority = m.priority}
 end
 
 -- colony.crates[un] -> payload. Only a demand crate uses filters, and an empty filter list still travels so
@@ -71,7 +71,12 @@ function M.decode(dict)
   local t = dict[M.TAG]
   if type(t) ~= "table" then return nil end
   if t.machine then
-    return {machine = {collect = t.collect ~= false, requests = decode_rows(t.requests, M.MAX_REQUESTS)}}
+    local p = t.priority and tonumber(t.priority)
+    return {machine = {
+      collect = t.collect ~= false,
+      requests = decode_rows(t.requests, M.MAX_REQUESTS),
+      priority = p and math.max(1, math.min(5, math.floor(p))) or nil,
+    }}
   elseif t.crate then
     local p = t.priority and tonumber(t.priority)
     return {crate = {

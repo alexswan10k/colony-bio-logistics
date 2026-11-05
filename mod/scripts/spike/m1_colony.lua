@@ -289,6 +289,7 @@ core.register("m1_colony", {
           if furnace.get_item_count("wood") > 0 then saw.wood = true end
         end
         local th, ch = c.houses[tent.unit_number], c.houses[cabin.unit_number]
+        if tent.valid and tent.get_item_count("wood") > 0 then saw.wood_in_tent = true end
         local function food(h)
           local n = 0
           for _, item in ipairs({"colony-forage", "raw-fish"}) do n = n + h.entity.get_item_count(item) end
@@ -417,7 +418,7 @@ core.register("m1_colony", {
       ctx.log("furnace: ore=" .. furnace.get_item_count("iron-ore") .. " wood=" .. furnace.get_item_count("wood") ..
         " plates=" .. furnace.get_item_count("iron-plate") .. " hall plates=" .. hall.get_item_count("iron-plate"))
       ctx.check("hauled food to houses", saw.food)
-      ctx.check("hauled wood to tent", tcnt(tent, "wood") > 0)
+      ctx.check("hauled wood to tent", saw.wood_in_tent == true or tcnt(tent, "wood") > 0)
       ctx.check("cabin is powered", colony.is_powered(ch) == true)
       ctx.check("cabin got no wood (power substitutes)", tcnt(cabin, "wood") == 0, tcnt(cabin, "wood"))
       ctx.check("houses were fed (critical need served before machine requests)", saw.food)

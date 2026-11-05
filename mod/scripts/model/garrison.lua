@@ -11,6 +11,57 @@ M.CHECK_TICKS = 45    -- idle rescan period while a guard is posted and sees no 
 M.MAX_ATTEMPTS = 3    -- attack commands re-issued per target before the guard lets it go (same rule as hunts)
 M.STRIKE_CLAIM = 3600 -- after this many failures, lose that target for a while (a turret-pinned biter)
 
+-- Weapon choice. A post uses the best weapon the stock room holds, and vanilla firearms need no colony
+-- research gate: if the player hauls a gun in, it is used. A rifle carries its own ammunition; a pistol or
+-- submachine gun spends a magazine every few engagements; a bow spends an arrow.
+M.PREFERENCE = {"colony-rifle", "submachine-gun", "pistol", "colony-bow"}
+M.GUNS = {["submachine-gun"] = true, pistol = true}
+M.MAGAZINES = {"piercing-rounds-magazine", "firearm-magazine"}
+M.AMMO_FOR = {pistol = "firearm-magazine", ["submachine-gun"] = "firearm-magazine", ["colony-bow"] = "colony-arrow"}
+M.AMMO_TARGET = {["firearm-magazine"] = 5, ["colony-arrow"] = 20}
+M.AMMO_BATCH = {["firearm-magazine"] = 3, ["colony-arrow"] = 10}
+
+-- The best weapon in a stock room, best first (rifle > SMG > pistol > bow), or nil.
+function M.best_weapon(counts)
+  for _, item in ipairs(M.PREFERENCE) do
+    if (counts and counts[item] or 0) > 0 then return item end
+  end
+  return nil
+end
+
+-- What a post can actually shoot with right now, from what the stock room holds: mode ("gun" or "bow"), the
+-- weapon item, and the item it spends (nil for a rifle). A gun with no magazine is not usable, so a bow is
+-- chosen instead until ammunition arrives.
+function M.arm(counts)
+  local function c(item) return (counts and counts[item]) or 0 end
+  if c("colony-rifle") > 0 then return "gun", "colony-rifle", nil end
+  local magazine
+  for _, item in ipairs(M.MAGAZINES) do
+    if c(item) > 0 then magazine = item; break end
+  end
+  local gun = c("submachine-gun") > 0 and "submachine-gun" or (c("pistol") > 0 and "pistol" or nil)
+  if gun and magazine then return "gun", gun, magazine end
+  if c("colony-bow") > 0 then return "bow", "colony-bow", "colony-arrow" end
+  return nil
+end
+
+-- Ammunition the stock room should ask for, given what it holds and what is already on the way.
+-- Returns item, deficit, have, target, batch (nil when it needs none). Deliberately keyed off the weapons
+-- present, not off `arm`: a pistol with no magazine must still ask for one or the post never uses its gun.
+function M.ammo_wanted(counts, inflight)
+  local function c(item) return (counts and counts[item]) or 0 end
+  local function f(item) return (inflight and inflight[item]) or 0 end
+  local item
+  if c("submachine-gun") > 0 or c("pistol") > 0 then item = "firearm-magazine"
+  elseif c("colony-bow") > 0 then item = "colony-arrow"
+  else return nil end
+  local target = M.AMMO_TARGET[item]
+  local have = c(item) + f(item)
+  local deficit = target - have
+  if deficit < 1 then return nil end
+  return item, deficit, have, target, M.AMMO_BATCH[item]
+end
+
 -- Nearest hostile to the tower's post `pos`; ties by unit_number. `enemies` = array of {unit_number=, position=}.
 -- Deterministic: the same world state always picks the same target, so a desync or a test does not re-fight.
 function M.nearest(enemies, pos, range)

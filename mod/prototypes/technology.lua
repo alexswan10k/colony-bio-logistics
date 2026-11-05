@@ -75,6 +75,7 @@ data:extend({
   tech("colony-logistics", "icon-watchtower.png", 15, {"colony-frontier-pack"}, 15,
     {"colony-frontier-charter"}, {
     unlock("colony-watchtower"), unlock("colony-demand-crate"), unlock("colony-logistics-marker"),
+    unlock("colony-rifle"),
   }),
   tech("colony-warehousing", "icon-warehouse.png", 15, {"colony-frontier-pack"}, 15,
     {"colony-logistics"}, {
@@ -83,10 +84,6 @@ data:extend({
   tech("colony-cemetery", "icon-cemetery.png", 10, {"colony-frontier-pack"}, 10,
     {"colony-frontier-charter"}, {
     unlock("colony-cemetery"),
-  }),
-  tech("colony-firearms", "icon-rifle.png", 20, {"colony-frontier-pack"}, 15,
-    {"colony-hunting-fishing"}, {
-    unlock("colony-rifle"),
   }),
   tech("colony-water-infrastructure", "icon-well.png", 30, {"colony-frontier-pack"}, 15,
     {"colony-permanent-housing"}, {

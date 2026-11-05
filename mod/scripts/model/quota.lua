@@ -24,6 +24,20 @@ M.RESOURCES = {
   ["colony-rifle"] = {category = "tool", default = 1},
 }
 
+-- Produced intermediates the player can cap from the Town Hall ledger. They are not harvested by a hut, so
+-- they are not listed above; a default of 0 means unlimited (the furnace behaves exactly as before) and a
+-- player-set cap is a *ceiling on collection*, not a target: once stock reaches it, haulers stop emptying
+-- machine output, the machine's output fills, and it stalls until demand or the player raises the cap.
+local quota_supply = {
+  ["iron-plate"] = true, ["copper-plate"] = true, ["steel-plate"] = true,
+  ["iron-gear-wheel"] = true, ["stone-brick"] = true, ["concrete"] = true,
+  ["electronic-circuit"] = true, ["advanced-circuit"] = true, ["plastic-bar"] = true,
+  ["solid-fuel"] = true,
+}
+for item in pairs(quota_supply) do
+  M.RESOURCES[item] = {category = "supply", default = 0}
+end
+
 -- Target quota for item (0 or nil = unlimited).
 function M.target(quotas, global_settings, item)
   if quotas and quotas[item] ~= nil then

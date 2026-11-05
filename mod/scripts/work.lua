@@ -31,6 +31,7 @@ local construct = require("scripts.model.construct")
 local science = require("scripts.model.science")
 local illness = require("scripts.model.illness")
 local headcount = require("scripts.model.headcount")
+local quota = require("scripts.model.quota")
 local motor = require("scripts.model.motor")
 local recreation = require("scripts.model.recreation")
 local jobs = require("scripts.model.jobs")
@@ -43,6 +44,7 @@ M.WORK_TICKS = yields.WORK_TICKS
 M.tools_made = 0
 M.RETRY_TICKS = 300
 M.SMALL_TOWN = 8           -- below this many colonists a harvester also checks for waiting deliveries
+M.HAUL_SWITCH_MIN = 4      -- items: a harvester only leaves a productive post for a haul worth the walk
 M.RETRY_BACKOFF_MAX = 4     -- an idle colonist that keeps finding nothing waits up to this many retry periods (#22)
 M.RETRY_BACKOFF_POP = 100   -- ...but only in big towns: one extra retry period per this many colonists
 M.YIELD = {forage = yields.FORAGE, chop = yields.CHOP}
@@ -187,16 +189,19 @@ M.update_lab_status = update_lab_status
 
 -- One completed trip = one use of the hut's tool. Shared by `work.finish` (harvest) and the hunter, which
 -- completes its trip the moment the animal dies rather than after a work animation.
-local function use_tool(hut)
+local function use_tool(hut, specific)
   local def = hut and hut.entity and hut.entity.valid and labour.HUTS[hut.entity.name]
   if not (def and (def.tools or def.tool)) then return end
   local broke
   hut.wear, broke = labour.wear(hut.wear or 0)
   if broke then
-    local tool_item = def.tool
-    if def.tools then
-      for _, t in ipairs(def.tools) do
-        if hut.entity.get_item_count(t) > 0 then tool_item = t; break end
+    local tool_item = specific
+    if not tool_item then
+      tool_item = def.tool
+      if def.tools then
+        for _, t in ipairs(def.tools) do
+          if hut.entity.get_item_count(t) > 0 then tool_item = t; break end
+        end
       end
     end
     if tool_item and hut.entity.remove_item{name = tool_item, count = 1} > 0 then
@@ -212,37 +217,37 @@ local function hut_weapon(hut)
     hut.entity.type == "lab" and hut.entity.get_inventory(defines.inventory.lab_input)
     or hut.entity.get_inventory(defines.inventory.chest)
   )
-  if not inv then return "bow" end
-  local has_gun = inv.get_item_count("submachine-gun") > 0 or inv.get_item_count("pistol") > 0 or inv.get_item_count("colony-rifle") > 0
-  local has_ammo = inv.get_item_count("firearm-magazine") > 0 or inv.get_item_count("piercing-rounds-magazine") > 0
-  if has_gun and (has_ammo or inv.get_item_count("colony-rifle") > 0) then
-    return "gun"
-  end
-  return "bow"
+  if not inv then return nil end
+  local counts = {}
+  for _, c in ipairs(inv.get_contents()) do counts[c.name] = c.count end
+  return garrison.arm(counts)
 end
 
 local function use_weapon(hut)
   local inv = hut and hut.entity and hut.entity.valid and hut.entity.get_inventory(defines.inventory.chest)
   if not inv then return use_tool(hut) end
-  local w = hut_weapon(hut)
-  if w == "gun" then
-    hut.ammo_count = (hut.ammo_count or 0) + 1
-    if hut.ammo_count >= 10 then
-      hut.ammo_count = 0
-      if inv.get_item_count("piercing-rounds-magazine") > 0 then
-        inv.remove_item{name = "piercing-rounds-magazine", count = 1}
-      elseif inv.get_item_count("firearm-magazine") > 0 then
-        inv.remove_item{name = "firearm-magazine", count = 1}
+  local counts = {}
+  for _, c in ipairs(inv.get_contents()) do counts[c.name] = c.count end
+  local mode, weapon, ammo = garrison.arm(counts)
+  if mode == "gun" then
+    -- A gun spends a magazine every ten completed engagements; a rifle is hitscan and wears like a tool.
+    if ammo then
+      hut.ammo_count = (hut.ammo_count or 0) + 1
+      if hut.ammo_count >= 10 then
+        hut.ammo_count = 0
+        if inv.get_item_count("piercing-rounds-magazine") > 0 then
+          inv.remove_item{name = "piercing-rounds-magazine", count = 1}
+        elseif inv.get_item_count("firearm-magazine") > 0 then
+          inv.remove_item{name = "firearm-magazine", count = 1}
+        end
       end
     end
-    if inv.get_item_count("colony-rifle") > 0 then
-      use_tool(hut)
-    end
-  else
+    if weapon == "colony-rifle" then use_tool(hut, "colony-rifle") end
+  elseif mode == "bow" then
     if inv.get_item_count("colony-arrow") > 0 then
       inv.remove_item{name = "colony-arrow", count = 1}
     end
-    use_tool(hut)
+    use_tool(hut, "colony-bow")
   end
 end
 
@@ -513,9 +518,15 @@ local function toolsmith_wanted(colony)
     local def = h.entity.valid and labour.HUTS[h.entity.name]
     -- A hut the player has deliberately unmanned (limit 0) does not want a spare tool: without this a
     -- limit-0 Watchtower would have the Toolsmith crafting rifles out of the town's iron (#56).
-    if def and def.tool and not seen[def.tool] and (h.limit or def.capacity) > 0 then
-      seen[def.tool] = true
-      built[#built + 1] = def.tool
+    if def and (def.tool or def.tools) and (h.limit or def.capacity) > 0 then
+      local used = {}
+      if def.tool then used[#used + 1] = def.tool end
+      for _, t in ipairs(def.tools or {}) do
+        if workshop.RECIPES[t] then used[#used + 1] = t end   -- pistols/SMGs have no colony recipe
+      end
+      for _, tool in ipairs(used) do
+        if not seen[tool] then seen[tool] = true; built[#built + 1] = tool end
+      end
     end
   end
   table.sort(built)   -- pairs order is not stable
@@ -528,7 +539,15 @@ local function toolsmith_wanted(colony)
       for item, n in pairs(chest_contents(h.entity) or {}) do stock[item] = (stock[item] or 0) + n end
     end
   end
-  return toolsmith.wanted(gap_tools, built, stock, colony.quotas)
+  -- Effective quota targets, not just the player's per-colony overrides: arrows have a default quota of 20
+  -- and the Toolsmith used to ignore it, so a hunting lodge ran dry while a stack of wood sat beside the
+  -- workbench.
+  local targets = {}
+  for item in pairs(quota.RESOURCES) do
+    local t = colony_mod.base_quota_target(colony, item)
+    if t > 0 then targets[item] = t end
+  end
+  return toolsmith.wanted(gap_tools, built, stock, targets)
 end
 
 M.toolsmith_wanted = toolsmith_wanted
@@ -1012,25 +1031,15 @@ local function hut_offer(h)
     -- A hut the player has closed (limit 0) asks for nothing: an unmanned Watchtower must not pull rifles/weapons out
     -- of the hall (#56). Weapons already in the tower stay there, ready for the player to man it.
     if (h.limit or def.capacity) <= 0 then return nil end
-    local primary_tool = def.tool
     local colony = storage.colonies[h.colony_id]
-    if def.tools and colony then
-      if colony_mod.stock_count(colony, primary_tool) == 0 then
-        for _, t in ipairs(def.tools) do
-          if colony_mod.stock_count(colony, t) > 0 then
-            primary_tool = t
-            break
-          end
-        end
-      end
-      local force = h.entity.valid and h.entity.force
-      local has_guns = force and force.technologies["colony-firearms"] and force.technologies["colony-firearms"].researched
-      if has_guns then
-        if colony_mod.stock_count(colony, "colony-rifle") > 0 then primary_tool = "colony-rifle"
-        elseif colony_mod.stock_count(colony, "submachine-gun") > 0 then primary_tool = "submachine-gun"
-        elseif colony_mod.stock_count(colony, "pistol") > 0 then primary_tool = "pistol"
-        end
-      end
+    local contents = chest_contents(h.entity) or {}
+    -- Weapon choice: the best weapon the colony can supply, else the best one the hut already holds, else the
+    -- hut's default tool. Vanilla firearms need no colony research gate: if the player hauls a gun in, it is
+    -- used. (Removed `colony-firearms`, which only gated this preference.)
+    local primary_tool = def.tool
+    if def.tools then
+      local stock = colony and colony_mod.stock_table(colony) or {}
+      primary_tool = garrison.best_weapon(stock) or garrison.best_weapon(contents) or def.tool
     end
     local inflight = 0
     if def.tools then
@@ -1047,27 +1056,26 @@ local function hut_offer(h)
         priority = haul_plan.PRIORITY.tools, building_priority = h.priority or 3, key = h.entity.unit_number,
         deficit = def.capacity * 10 + 1, demands = {{item = primary_tool, count = 1}}}
     end
+    local demands = {}
+    -- Ammunition before more weapons: a tower holding a pistol with no magazine used to keep asking for
+    -- more pistols and never for a magazine, so its gun was never loaded. One trip can carry both.
+    if def.tools then
+      local ammo_item, ammo_deficit, have_ammo, ammo_target, batch = garrison.ammo_wanted(contents, h.inflight)
+      local threshold = math.floor((ammo_target or 1) * 0.5)
+      if ammo_item and (have_ammo <= threshold or ammo_deficit >= (batch or 1) or (h.priority and h.priority <= 2))
+          and colony and colony_mod.stock_count(colony, ammo_item) > 0 then
+        demands[#demands + 1] = {item = ammo_item, count = ammo_deficit}
+      end
+    end
     local want = math.min(def.capacity, h.limit or def.capacity) - tools - inflight
     if want >= 1 then
-      return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
-        priority = haul_plan.PRIORITY.tools, building_priority = h.priority or 3, key = h.entity.unit_number,
-        demands = {{item = primary_tool, count = want}}}
+      demands[#demands + 1] = {item = primary_tool, count = want}
     end
-    if def.tools then
-      local inv = h.entity.valid and (h.entity.type == "lab" and h.entity.get_inventory(defines.inventory.lab_input) or h.entity.get_inventory(defines.inventory.chest))
-      local is_gun = hut_weapon(h) == "gun"
-      local ammo_item = is_gun and "firearm-magazine" or "colony-arrow"
-      local ammo_target = is_gun and 5 or 20
-      local have_ammo = inv and inv.get_item_count(ammo_item) or 0
-      local inflight_ammo = h.inflight[ammo_item] or 0
-      local ammo_deficit = ammo_target - have_ammo - inflight_ammo
-      local threshold = math.floor(ammo_target * 0.5)
-      local batch = is_gun and 3 or 10
-      if ammo_deficit > 0 and (have_ammo <= threshold or ammo_deficit >= batch or (h.priority and h.priority <= 2)) and colony and colony_mod.stock_count(colony, ammo_item) > 0 then
-        return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
-          priority = haul_plan.PRIORITY.request, building_priority = h.priority or 3, key = h.entity.unit_number,
-          demands = {{item = ammo_item, count = ammo_deficit}}}
-      end
+    if #demands > 0 then
+      return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
+        priority = want >= 1 and haul_plan.PRIORITY.tools or haul_plan.PRIORITY.request,
+        building_priority = h.priority or 3, key = h.entity.unit_number,
+        demands = demands}
     end
     if def.inputs then
       local demands = {}
@@ -1259,22 +1267,41 @@ local function machine_demands(m)
 end
 M.machine_demands = machine_demands
 
+-- A produced intermediate the player capped in the ledger stops being collected at the cap (#84): the
+-- machine's output backs up and it stalls until demand or a higher cap moves the line. A cap of 0 means
+-- unlimited, so untouched colonies behave exactly as before.
+local function supply_capped(colony, item)
+  local def = quota.RESOURCES[item]
+  if not (def and def.category == "supply") then return false end
+  return colony_mod.quota_met(colony, item)
+end
+M.supply_capped = supply_capped
+
 function M.refresh_machine(colony, m)
   if not (m and m.entity and m.entity.valid) then return end
-  local has, need = false, nil
+  local has, need, capped = false, nil, false
   if m.enabled then
     if m.collect then
       local inv = m.entity.get_output_inventory()
-      has = inv ~= nil and not inv.is_empty()
+      if inv and not inv.is_empty() then
+        capped = true   -- until an item that is not at its cap shows up
+        for _, c in ipairs(inv.get_contents()) do
+          if not supply_capped(colony, c.name) then
+            has, capped = true, false
+            break
+          end
+        end
+      end
     end
-    if next(m.requests or {}) then
+    if next(m.requests or {}) and not capped then
       need = machine_demands(m)
       if #need == 0 then need = nil end
     end
   end
-  if has ~= (m.has_output or false) or need ~= m.need then
+  if has ~= (m.has_output or false) or need ~= m.need or capped ~= (m.capped or false) then
     m.has_output = has
     m.need = need
+    m.capped = capped
     if colony then colony.machine_dirty = true end
   end
 end
@@ -1283,6 +1310,7 @@ end
 -- loads are subtracted here because they change between sweeps.
 local function machine_offer(m)
   if not m.entity.valid or not m.enabled or m.entity.type == "entity-ghost" or (m.blocked_until or 0) > game.tick then return nil end
+  if m.capped then return nil end   -- output has nowhere to go: do not haul inputs into a stalled machine
   local need = m.need
   if not need then return nil end
   local demands, any = {}, false
@@ -1306,9 +1334,11 @@ local function collect_offer(colony, m)
   local demands, available = {}, {}
   local total = 0
   for _, c in ipairs(inv.get_contents()) do
-    demands[#demands + 1] = {item = c.name, count = c.count}
-    available[c.name] = (available[c.name] or 0) + c.count
-    total = total + c.count
+    if not supply_capped(colony, c.name) then
+      demands[#demands + 1] = {item = c.name, count = c.count}
+      available[c.name] = (available[c.name] or 0) + c.count
+      total = total + c.count
+    end
   end
   if total == 0 then return nil end
   local is_full = inv.is_full and inv.is_full()
@@ -2128,12 +2158,17 @@ function M.assign(colony, un)
       if starving and not FOOD_JOB[prev_hut.job] then
         should_switch = true
       elseif next(missing) and (st.overflow or not missing[prev_hut.job] or mates >= 2) then
+        -- Another role is short, and leaving will not empty this hut: switch. Keeping the post is only
+        -- mandatory when this hut's own resource is the missing one.
         should_switch = true
       elseif pop < M.SMALL_TOWN then
         local task, backlog = M.find_haul_task(colony, nil, e.position)
         local counts = task and M.job_counts(colony)
         local haul_wanted = task and (headcount.target(colony.job_targets, "haul") or work_plan.haul_target(math.max(pop, 1), backlog))
-        if task and (counts.haul or 0) < haul_wanted then should_switch = true end
+        -- Only a substantial delivery pulls a productive harvester off their hut: a one-item top-up can
+        -- wait for a real hauler, and the woodcutter should keep cutting wood the colony still needs.
+        if task and haul_plan.total(task.load) >= M.HAUL_SWITCH_MIN
+            and (counts.haul or 0) < haul_wanted then should_switch = true end
       end
       if not should_switch and (construct_open(colony) or 0) > 0 and (M.job_counts(colony).construct or 0) == 0 and mates >= 2 then
         should_switch = true

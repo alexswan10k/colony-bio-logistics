@@ -1599,7 +1599,7 @@ local function haul_trip(colony, task)
   end
 
   local bin_obj = task.bin or (task.kind == "compost" and (task.target and (task.target.bin or task.target))) or nil
-  local target_obj = inflight_target or (task.target and (task.target.house or task.target.machine or task.target.crate or task.target.pool or task.target.tavern or task.target.canteen or task.target.hut or task.target)) or (task.kind == "collect" and task.machine or nil)
+  local target_obj = inflight_target or (task.target and (task.target.house or task.target.machine or task.target.crate or task.target.pool or task.target.tavern or task.target.canteen or task.target.hut or (task.kind ~= "collect" and task.target))) or (task.kind == "collect" and task.machine or nil)
 
   return {colony_id = colony.id, job = "haul", state = state, bin = bin_obj,
     target = target_obj, inflight_target = inflight_target, dest_entity = dest_entity,
@@ -1895,14 +1895,34 @@ function M.assign(colony, un)
     if house and house.valid then
       storage.unit_state[un] = {colony_id = colony.id, job = is_child(un) and "child" or (st and st.job) or lock or "idle", state = "to_bed", house = house}
       M.set_label(e, "going to bed 🏠", true)
-      M.go(e, M.door_point(e.surface, house) or house.position, 0.5)
+      local dp = M.door_point(e.surface, house) or house.position
+      if dist2(e.position, dp) <= 1.0 or dist2(e.position, house.position) <= 1.0 then
+        storage.unit_state[un].state = "sleeping"
+        e.teleport(house.position)
+        e.destructible = false
+        e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
+        clear_label(un)
+        clear_carry_sprite(un)
+        popup(house.surface, house.position, "💤")
+        scheduler.after(180 + (un * 13) % 120, "work.sleep_check", {un = un})
+        return
+      end
+      M.go(e, dp, 0.5)
       return
     end
-  elseif is_child(un) then
-    -- A child is not part of the workforce: it stays by the house until grown, so no job, no retry timer.
-    storage.unit_state[un] = {colony_id = colony.id, job = "child", state = "child"}
-    M.set_label(e, "child", true)
-    return
+  else
+    if not e.destructible then e.destructible = true end
+    local house = colony_mod.house_of_colonist(colony, un)
+    if house and house.valid and dist2(e.position, house.position) < 0.25 then
+      local out_pos = door_point(e.surface, house)
+      if out_pos then e.teleport(out_pos) end
+    end
+    if is_child(un) then
+      -- A child is not part of the workforce: it stays by the house until grown, so no job, no retry timer.
+      storage.unit_state[un] = {colony_id = colony.id, job = "child", state = "child"}
+      M.set_label(e, "child", true)
+      return
+    end
   end
 
   local pop = math.max(colony_mod.live_colonists(colony) - 1, 0)
@@ -2353,6 +2373,24 @@ scheduler.register("construct.finish", function(d)
   M.assign(colony, d.un)
 end)
 
+function M.wake_up(colony, un, e)
+  local st = storage.unit_state and storage.unit_state[un]
+  if not (st and (st.state == "sleeping" or st.state == "to_bed")) then return end
+  e = e or (colony and colony.colonists and colony.colonists[un])
+  if not (colony and e and e.valid) then return end
+  local house = st.house or (colony and colony_mod.house_of_colonist(colony, un))
+  e.destructible = true
+  if house and house.valid then
+    local out_pos = door_point(e.surface, house) or house.position
+    e.teleport(out_pos)
+    popup(e.surface, out_pos, "☀️")
+  else
+    popup(e.surface, e.position, "☀️")
+  end
+  st.state = "idle"
+  M.assign(colony, un)
+end
+
 scheduler.register("work.sleep_check", function(d)
   local st = storage.unit_state and storage.unit_state[d.un]
   if not (st and (st.state == "sleeping" or st.state == "to_bed")) then return end
@@ -2369,16 +2407,7 @@ scheduler.register("work.sleep_check", function(d)
     e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
     scheduler.after(180 + (d.un * 13) % 120, "work.sleep_check", d)
   else
-    e.destructible = true
-    if house and house.valid then
-      local out_pos = door_point(e.surface, house) or house.position
-      e.teleport(out_pos)
-      popup(e.surface, out_pos, "☀️")
-    else
-      popup(e.surface, e.position, "☀️")
-    end
-    st.state = "idle"
-    M.assign(colony, d.un)
+    M.wake_up(colony, d.un, e)
   end
 end)
 

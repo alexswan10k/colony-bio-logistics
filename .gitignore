@@ -3,3 +3,5 @@ build/
 mod/autorun.lua
 spike-results/
 __pycache__/
+.types/
+log/

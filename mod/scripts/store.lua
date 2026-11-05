@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 31
+local SCHEMA = 32
 
 local migrations = {
   [1] = function()
@@ -209,7 +209,32 @@ local migrations = {
       c.machine_ids_cache = nil
     end
   end,
+  [32] = function()
+    -- Purge any function closures that leaked into unit_state or storage (#39)
+    if storage.unit_state then
+      for _, st in pairs(storage.unit_state) do
+        if st and type(st.target) == "table" and st.target.accepts_item then
+          st.target.accepts_item = nil
+        end
+      end
+    end
+  end,
 }
+
+local function sanitize_functions(tbl, seen)
+  if type(tbl) ~= "table" then return end
+  seen = seen or {}
+  if seen[tbl] then return end
+  seen[tbl] = true
+  for k, v in pairs(tbl) do
+    if type(v) == "function" then
+      tbl[k] = nil
+    elseif type(v) == "table" then
+      sanitize_functions(v, seen)
+    end
+  end
+end
+M.sanitize_functions = sanitize_functions
 
 function M.migrate()
   storage.schema = storage.schema or 0
@@ -220,6 +245,9 @@ function M.migrate()
   end
 end
 
-function M.init() M.migrate() end
+function M.init()
+  M.migrate()
+  sanitize_functions(storage)
+end
 
 return M

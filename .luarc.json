@@ -1,0 +1,51 @@
+{
+  "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+  "runtime": {
+    "version": "Lua 5.2",
+    "path": [
+      "?.lua",
+      "?/init.lua",
+      "mod/?.lua",
+      "mod/?/init.lua"
+    ],
+    "requirePattern": [
+      "?",
+      "?.lua"
+    ]
+  },
+  "workspace": {
+    "library": [
+      ".types/factorio/library/runtime-api",
+      ".types/factorio/library/runtime",
+      ".types/factorio/library/prototype-api",
+      ".types/factorio/library/core",
+      ".types/factorio/library/data",
+      ".types/factorio/library/lua"
+    ],
+    "checkThirdParty": false,
+    "ignoreDir": [
+      ".git",
+      ".types",
+      "build",
+      "docs",
+      "spike-results",
+      "tests",
+      "sim",
+      "scripts",
+      "log"
+    ]
+  },
+  "diagnostics": {
+    "neededFileStatus": {
+      "undefined-global": "Any",
+      "undefined-field": "Any"
+    },
+    "globals": [
+      "storage"
+    ],
+    "disable": [
+      "lowercase-global",
+      "missing-fields"
+    ]
+  }
+}

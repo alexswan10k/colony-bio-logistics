@@ -226,6 +226,14 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
     end
   end
 
+function M.storage_accepts(s, item)
+  if not s then return false end
+  if s.accept_all ~= false and s.accept_all ~= nil then return true end
+  if s.allowed_items then return s.allowed_items[item] == true end
+  if s.accepts_item then return s.accepts_item(item) end
+  return true
+end
+
   -- 2. Active providers: push finished output to nearest storage with space that accepts the items
   for _, p in ipairs(providers) do
     local p_pos = p.pos or (p.entity and p.entity.position) or {x = 0, y = 0}
@@ -239,7 +247,7 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
         if s.has_space ~= false then
           local accepts_any = false
           for _, item in ipairs(p_items) do
-            if not s.accepts_item or s.accepts_item(item) then
+            if M.storage_accepts(s, item) then
               accepts_any = true
               break
             end
@@ -262,7 +270,7 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
         local s_pos = best_s.pos or (best_s.entity and best_s.entity.position) or {x = 0, y = 0}
         local demands = {}
         for item, count in pairs(p.available or {}) do
-          if count > 0 and (not best_s.accepts_item or best_s.accepts_item(item)) then
+          if count > 0 and M.storage_accepts(best_s, item) then
             demands[#demands + 1] = {item = item, count = count}
           end
         end

@@ -15,7 +15,7 @@ describe("store migrations", function()
   it("initialises the current schema layout", function()
     local env = mock.install(); env = env.reset()
     require("scripts.store").init()
-    eq(storage.schema, 31); eq(storage.colony_chunks, nil); truthy(storage.scheduled)
+    eq(storage.schema, 32); eq(storage.colony_chunks, nil); truthy(storage.scheduled)
     truthy(storage.cursor_overlays)
     truthy(storage.age)
   end)
@@ -24,7 +24,7 @@ describe("store migrations", function()
     storage.schema = 6
     storage.colonies = {[1] = {id = 1}}
     require("scripts.store").init()
-    eq(storage.schema, 31); truthy(storage.colonies[1].cemeteries); truthy(storage.age); truthy(storage.colonies[1].alarms); truthy(storage.colonies[1].canteens); truthy(storage.commuters); truthy(storage.sick); eq(storage.colonies[1].fallen, 0); truthy(storage.colonies[1].pools); truthy(storage.colonies[1].taverns); truthy(storage.colonies[1].platforms); truthy(storage.coaches); truthy(storage.trucks); truthy(storage.colonies[1].towers); truthy(storage.colonies[1].locks)
+    eq(storage.schema, 32); truthy(storage.colonies[1].cemeteries); truthy(storage.age); truthy(storage.colonies[1].alarms); truthy(storage.colonies[1].canteens); truthy(storage.commuters); truthy(storage.sick); eq(storage.colonies[1].fallen, 0); truthy(storage.colonies[1].pools); truthy(storage.colonies[1].taverns); truthy(storage.colonies[1].platforms); truthy(storage.coaches); truthy(storage.trucks); truthy(storage.colonies[1].towers); truthy(storage.colonies[1].locks)
     truthy(storage.colonies[1].plots); truthy(storage.colonies[1].crates); truthy(storage.colonies[1].bins)
     truthy(storage.colonies[1].animals)
     truthy(storage.colonies[1].salt_pans)
@@ -70,13 +70,36 @@ describe("store migrations", function()
       },
     }}
     require("scripts.store").init()
-    eq(storage.schema, 31)
+    eq(storage.schema, 32)
     eq(storage.colonies[1].machines[10], nil)
     truthy(storage.colonies[1].machines[20])
     eq(destroyed_badge, true)
     eq(storage.colonies[1].crates[30], nil)
     truthy(storage.colonies[1].crates[40])
     eq(storage.colonies[1].machine_dirty, true)
+  end)
+  it("purges function closures from unit_state and storage (schema 32)", function()
+    local env = mock.install(); env = env.reset()
+    storage.schema = 31
+    storage.unit_state = {
+      [100] = {
+        job = "haul",
+        target = {
+          entity = {valid = true},
+          accepts_item = function() return true end,
+        },
+      },
+    }
+    storage.random_leak = {
+      fn = function() return 42 end,
+      nested = {fn2 = function() end, data = "ok"},
+    }
+    require("scripts.store").init()
+    eq(storage.schema, 32)
+    eq(storage.unit_state[100].target.accepts_item, nil)
+    eq(storage.random_leak.fn, nil)
+    eq(storage.random_leak.nested.fn2, nil)
+    eq(storage.random_leak.nested.data, "ok")
   end)
 end)
 

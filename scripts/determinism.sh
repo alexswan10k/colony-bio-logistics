@@ -16,8 +16,12 @@ cat > "$WORK/mods/mod-list.json" <<JSON
 {"mods":[{"name":"base","enabled":true},{"name":"elevated-rails","enabled":true},{"name":"quality","enabled":true},
 {"name":"space-age","enabled":true},{"name":"${MOD_NAME}","enabled":true}]}
 JSON
+cat > "$WORK/create-config.ini" <<INI
+[path]
+write-data=$WORK/create-data
+INI
 echo "== creating map"
-"$FACTORIO_BIN" --config <(printf '[path]\nwrite-data=%s\n' "$WORK/create-data") \
+"$FACTORIO_BIN" --config "$WORK/create-config.ini" \
   --mod-directory "$WORK/mods" --create "$WORK/map.zip" --map-gen-seed "$MAP_SEED" --disable-audio > "$WORK/create.log" 2>&1 \
   || { tail -20 "$WORK/create.log"; exit 1; }
 

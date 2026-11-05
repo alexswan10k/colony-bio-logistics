@@ -383,6 +383,12 @@ end
 
 -- Storage locations (Town Hall, Warehouses, Watchtowers):
 -- Hall is central working storage, Warehouses are bulk storage, Watchtowers are forward buffer storage.
+function M.storage_accepts(s, item)
+  if not s then return false end
+  if s.accept_all ~= false then return true end
+  return s.allowed_items ~= nil and s.allowed_items[item] == true
+end
+
 function M.storage_list(colony)
   local list = {}
   local hall = colony.hall
@@ -399,7 +405,6 @@ function M.storage_list(colony)
       key = hall.unit_number,
       storage_priority = colony.storage_priority or 3,
       accept_all = true,
-      accepts_item = function(item) return true end,
     }
   end
   for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
@@ -425,10 +430,6 @@ function M.storage_list(colony)
         crate = c,
         accept_all = accept_all,
         allowed_items = allowed_items,
-        accepts_item = function(item)
-          if accept_all then return true end
-          return allowed_items[item] == true
-        end,
       }
     end
   end
@@ -446,7 +447,6 @@ function M.storage_list(colony)
         key = un,
         storage_priority = 4,
         accept_all = true,
-        accepts_item = function(item) return true end,
       }
     else
       colony.towers[un] = nil
@@ -608,8 +608,12 @@ function M.reassign_workforce(colony)
   if not colony then return end
   for un, c in pairs(colony.colonists or {}) do
     local st = storage.unit_state and storage.unit_state[un]
-    if c.valid and st and (st.state == "idle" or ((st.state == "sleeping" or st.state == "to_bed") and not work.is_sleep_time(c.surface))) then
-      work.assign(colony, un)
+    if c.valid and st then
+      if st.state == "idle" then
+        work.assign(colony, un)
+      elseif (st.state == "sleeping" or st.state == "to_bed") and not work.is_sleep_time(c.surface) then
+        work.wake_up(colony, un, c)
+      end
     end
   end
 end
@@ -661,7 +665,7 @@ function M.put_stock(colony, item, count)
   end)
   for _, s in ipairs(storages) do
     if left <= 0 then break end
-    if s.entity and s.entity.valid and (not s.accepts_item or s.accepts_item(item)) then
+    if s.entity and s.entity.valid and M.storage_accepts(s, item) then
       left = left - s.entity.insert{name = item, count = left}
     end
   end
@@ -1060,8 +1064,7 @@ function M.evaluate(data)
     for un, c in pairs(colony.colonists or {}) do
       local st = storage.unit_state and storage.unit_state[un]
       if c.valid and st and (st.state == "sleeping" or st.state == "to_bed") then
-        st.state = "idle"
-        work.assign(colony, un)
+        work.wake_up(colony, un, c)
       end
     end
     work.wake_idle_colonists(colony)

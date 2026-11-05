@@ -15,7 +15,7 @@ describe("store migrations", function()
   it("initialises the current schema layout", function()
     local env = mock.install(); env = env.reset()
     require("scripts.store").init()
-    eq(storage.schema, 30); eq(storage.colony_chunks, nil); truthy(storage.scheduled)
+    eq(storage.schema, 31); eq(storage.colony_chunks, nil); truthy(storage.scheduled)
     truthy(storage.cursor_overlays)
     truthy(storage.age)
   end)
@@ -24,7 +24,7 @@ describe("store migrations", function()
     storage.schema = 6
     storage.colonies = {[1] = {id = 1}}
     require("scripts.store").init()
-    eq(storage.schema, 30); truthy(storage.colonies[1].cemeteries); truthy(storage.age); truthy(storage.colonies[1].alarms); truthy(storage.colonies[1].canteens); truthy(storage.commuters); truthy(storage.sick); eq(storage.colonies[1].fallen, 0); truthy(storage.colonies[1].pools); truthy(storage.colonies[1].taverns); truthy(storage.colonies[1].platforms); truthy(storage.coaches); truthy(storage.trucks); truthy(storage.colonies[1].towers); truthy(storage.colonies[1].locks)
+    eq(storage.schema, 31); truthy(storage.colonies[1].cemeteries); truthy(storage.age); truthy(storage.colonies[1].alarms); truthy(storage.colonies[1].canteens); truthy(storage.commuters); truthy(storage.sick); eq(storage.colonies[1].fallen, 0); truthy(storage.colonies[1].pools); truthy(storage.colonies[1].taverns); truthy(storage.colonies[1].platforms); truthy(storage.coaches); truthy(storage.trucks); truthy(storage.colonies[1].towers); truthy(storage.colonies[1].locks)
     truthy(storage.colonies[1].plots); truthy(storage.colonies[1].crates); truthy(storage.colonies[1].bins)
     truthy(storage.colonies[1].animals)
     truthy(storage.colonies[1].salt_pans)
@@ -50,6 +50,33 @@ describe("store migrations", function()
     local hut = storage.colonies[1].huts[7]
     eq(hut.job, "guard"); eq(hut.limit, 0); eq(hut.entity, tower)
     truthy(storage.colonies[1].towers[7], "the tower keeps its territory duty")
+  end)
+  it("prunes ghost entities from machines and crates (schema 31)", function()
+    local env = mock.install(); env = env.reset()
+    storage.schema = 30
+    local ghost_ent = {valid = true, type = "entity-ghost"}
+    local live_ent = {valid = true, type = "assembling-machine"}
+    local destroyed_badge = false
+    local badge = {valid = true, destroy = function() destroyed_badge = true end}
+    storage.colonies = {[1] = {
+      id = 1,
+      machines = {
+        [10] = {entity = ghost_ent, badge = badge},
+        [20] = {entity = live_ent},
+      },
+      crates = {
+        [30] = {entity = ghost_ent},
+        [40] = {entity = live_ent},
+      },
+    }}
+    require("scripts.store").init()
+    eq(storage.schema, 31)
+    eq(storage.colonies[1].machines[10], nil)
+    truthy(storage.colonies[1].machines[20])
+    eq(destroyed_badge, true)
+    eq(storage.colonies[1].crates[30], nil)
+    truthy(storage.colonies[1].crates[40])
+    eq(storage.colonies[1].machine_dirty, true)
   end)
 end)
 

@@ -314,7 +314,7 @@ end
 function M.crate_list(colony, kind)
   local ids = {}
   for un, c in pairs(colony.crates or {}) do
-    if c.entity.valid then
+    if c.entity.valid and c.entity.type ~= "entity-ghost" then
       if not kind or c.kind == kind then ids[#ids + 1] = un end
     else
       colony.crates[un] = nil
@@ -1607,6 +1607,7 @@ function M.default_requests(e)
 end
 
 function M.set_machine(colony, e, enabled)
+  if not (colony and e and e.valid and e.type ~= "entity-ghost") then return nil end
   local m = colony.machines[e.unit_number]
   if enabled then
     m = m or {entity = e, requests = {}, collect = true, inflight = {}, need = nil, has_output = nil, priority = 4}
@@ -1676,12 +1677,13 @@ end
 function M.find_record(e)
   if not (e and e.valid) then return end
   local un = e.unit_number
-  if not un then return end
-  for _, colony in pairs(storage.colonies) do
-    local m = colony.machines and colony.machines[un]
-    if m and m.enabled then return colony, "machine", m end
-    local c = colony.crates and colony.crates[un]
-    if c then return colony, "crate", c end
+  if un then
+    for _, colony in pairs(storage.colonies) do
+      local m = colony.machines and colony.machines[un]
+      if m and m.enabled and m.entity.type ~= "entity-ghost" then return colony, "machine", m end
+      local c = colony.crates and colony.crates[un]
+      if c and c.entity.type ~= "entity-ghost" then return colony, "crate", c end
+    end
   end
   if e.type == "entity-ghost" and e.tags then
     local colony = M.colony_of(e)
@@ -1718,31 +1720,35 @@ function M.apply_tags(colony, e, dict)
   local e_name = (e.type == "entity-ghost") and e.ghost_name or e.name
   if payload.machine then
     if not gui.MACHINE_GUIS[e_type] then return false end
+    if e.type == "entity-ghost" then
+      local m = {collect = payload.machine.collect ~= false, requests = copy_rows(payload.machine.requests),
+                 priority = payload.machine.priority or 4}
+      e.tags = tags.dictionary(tags.machine(m))
+      return true
+    end
     local m = M.set_machine(colony, e, true)
     if not m then return false end
     m.collect, m.requests = payload.machine.collect, copy_rows(payload.machine.requests)
     if payload.machine.priority then m.priority = payload.machine.priority end
     m.need, m.has_output = nil, nil
-    if e.type == "entity-ghost" then
-      e.tags = tags.dictionary(tags.machine(m))
-    end
     return true
   elseif payload.crate then
-    local c = colony.crates and colony.crates[e.unit_number]
-    if not c and e.type == "entity-ghost" and M.CRATES[e_name] then
+    if e.type == "entity-ghost" then
       local kind = M.CRATES[e_name]
-      c = {entity = e, kind = kind, colony_id = colony.id, filters = {}, inflight = {},
-           logistics_enabled = true, priority = 3, accept_all = (kind == crates.WAREHOUSE and true or nil)}
-      colony.crates = colony.crates or {}
-      colony.crates[e.unit_number] = c
+      if kind then
+        local c = {kind = kind, filters = copy_rows(payload.crate.filters),
+                   accept_all = payload.crate.accept_all, priority = payload.crate.priority or 3,
+                   logistics_enabled = true}
+        e.tags = tags.dictionary(tags.crate(c))
+        return true
+      end
+      return false
     end
+    local c = colony.crates and colony.crates[e.unit_number]
     if not c then return false end
     c.filters = copy_rows(payload.crate.filters)
     if payload.crate.accept_all ~= nil then c.accept_all = payload.crate.accept_all end
     if payload.crate.priority then c.priority = payload.crate.priority end
-    if e.type == "entity-ghost" then
-      e.tags = tags.dictionary(tags.crate(c))
-    end
     return true
   end
   return false
@@ -1758,10 +1764,19 @@ function M.copy_settings(src, dst)
   local dst_type = (dst.type == "entity-ghost") and dst.ghost_type or dst.type
   local dst_name = (dst.type == "entity-ghost") and dst.ghost_name or dst.name
   if gui.MACHINE_GUIS[dst_type] then
+    if dst.type == "entity-ghost" then
+      if kind == "machine" and rec then
+        local m = {collect = rec.collect, requests = copy_rows(rec.requests), priority = rec.priority or 4}
+        dst.tags = tags.dictionary(tags.machine(m))
+      else
+        dst.tags = nil
+      end
+      return true
+    end
     local m = M.set_machine(colony, dst, kind == "machine")
     if not m then return false end
     -- Not `x and y or z`: collect is a boolean, so that idiom turns a copied false back into true.
-    if kind == "machine" then
+    if kind == "machine" and rec then
       m.collect, m.requests = rec.collect, copy_rows(rec.requests)
       if rec.priority ~= nil then m.priority = rec.priority end
     else
@@ -1769,29 +1784,26 @@ function M.copy_settings(src, dst)
       m.priority = 4
     end
     m.need, m.has_output = nil, nil
-    if dst.type == "entity-ghost" then
-      dst.tags = tags.dictionary(tags.machine(m))
-    end
     return true
   end
   local is_crate = (dst.type == "entity-ghost") and M.CRATES[dst_name] or (colony.crates and colony.crates[dst.unit_number])
   if is_crate then
-    local c = colony.crates and colony.crates[dst.unit_number]
-    if not c and dst.type == "entity-ghost" then
-      local kind = M.CRATES[dst_name]
-      c = {entity = dst, kind = kind, colony_id = colony.id, filters = {}, inflight = {},
-           logistics_enabled = true, priority = 3, accept_all = (kind == crates.WAREHOUSE and true or nil)}
-      colony.crates = colony.crates or {}
-      colony.crates[dst.unit_number] = c
+    if dst.type == "entity-ghost" then
+      if kind == "crate" and rec then
+        local c = {kind = M.CRATES[dst_name], filters = copy_rows(rec.filters),
+                   accept_all = rec.accept_all, priority = rec.priority or 3, logistics_enabled = true}
+        dst.tags = tags.dictionary(tags.crate(c))
+      else
+        dst.tags = nil
+      end
+      return true
     end
+    local c = colony.crates and colony.crates[dst.unit_number]
     if c then
-      c.filters = kind == "crate" and copy_rows(rec.filters) or {}
-      if kind == "crate" then
+      c.filters = (kind == "crate" and rec) and copy_rows(rec.filters) or {}
+      if kind == "crate" and rec then
         if rec.accept_all ~= nil then c.accept_all = rec.accept_all end
         if rec.priority ~= nil then c.priority = rec.priority end
-      end
-      if dst.type == "entity-ghost" then
-        dst.tags = tags.dictionary(tags.crate(c))
       end
       return true
     end

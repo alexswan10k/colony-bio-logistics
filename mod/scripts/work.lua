@@ -272,7 +272,7 @@ local function machine_ids(colony)
   if colony.machine_ids_cache and not colony.machine_dirty then return colony.machine_ids_cache end
   local ids = {}
   for un, m in pairs(colony.machines) do
-    if m.entity.valid then ids[#ids + 1] = un else colony.machines[un] = nil end
+    if m.entity.valid and m.entity.type ~= "entity-ghost" then ids[#ids + 1] = un else colony.machines[un] = nil end
   end
   table.sort(ids)
   local demand, output, damaged = {}, {}, {}
@@ -1154,7 +1154,7 @@ end
 -- Offers use the need list the sweep cached, so an assignment never touches a machine inventory. In-flight
 -- loads are subtracted here because they change between sweeps.
 local function machine_offer(m)
-  if not m.entity.valid or not m.enabled or (m.blocked_until or 0) > game.tick then return nil end
+  if not m.entity.valid or not m.enabled or m.entity.type == "entity-ghost" or (m.blocked_until or 0) > game.tick then return nil end
   local need = m.need
   if not need then return nil end
   local demands, any = {}, false
@@ -1215,7 +1215,7 @@ scheduler.register("work.machine_sweep", function(d)
         if has ~= (m.has_output or false) then m.has_output, changed = has, true end
         -- Health is read here too: construct.scan used to read it for every machine every 300 ticks,
         -- which was a 13 ms tick at 2000 machines (#75).
-        local hurt = m.entity.health < m.entity.max_health
+        local hurt = construct.needs_repair(m.entity.health, m.entity.max_health)
         if hurt ~= (m.damaged or false) then m.damaged, changed = hurt, true end
         -- Badge tint (world view of the supply network): green stocked, orange waiting on a hauler, red
         -- starved because the colony has none. Only recoloured when the state flips.

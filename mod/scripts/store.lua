@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 30
+local SCHEMA = 31
 
 local migrations = {
   [1] = function()
@@ -189,6 +189,24 @@ local migrations = {
       for _, m in pairs(c.machines or {}) do
         m.priority = m.priority or 4
       end
+    end
+  end,
+  [31] = function()
+    -- Prune any entity-ghost that might have been registered in colony.machines or colony.crates
+    for _, c in pairs(storage.colonies or {}) do
+      for un, m in pairs(c.machines or {}) do
+        if not (m.entity and m.entity.valid and m.entity.type ~= "entity-ghost") then
+          if m.badge and m.badge.valid then m.badge.destroy() end
+          c.machines[un] = nil
+        end
+      end
+      for un, cr in pairs(c.crates or {}) do
+        if not (cr.entity and cr.entity.valid and cr.entity.type ~= "entity-ghost") then
+          c.crates[un] = nil
+        end
+      end
+      c.machine_dirty = true
+      c.machine_ids_cache = nil
     end
   end,
 }

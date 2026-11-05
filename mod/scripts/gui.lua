@@ -31,7 +31,7 @@ local MACHINE_GUIS = {
 M.MACHINE_GUIS = MACHINE_GUIS   -- selection tool (#35) opts in exactly the machines that have a panel
 
 local function colony_at(e) return colony_mod.colony_of(e) end
-local fill_crate, crate_ctx, fill_machine   -- defined with crate/machine panels below; click handler needs them
+local fill_crate, crate_ctx, machine_ctx, fill_machine   -- defined with crate/machine panels below; click handler needs them
 
 
 -- ---------- "what is holding it back" (model/advice.lua) ----------
@@ -654,23 +654,21 @@ events.on(defines.events.on_gui_click, function(ev)
         local frame = player.gui.relative[HUT_FRAME]
         if frame and frame.body then fill_hut(frame.body, h) end
       end
-    elseif prio_type == "crate" and colony.crates then
-      local c = colony.crates[e.unit_number]
+    elseif prio_type == "crate" then
+      local _, c, _, body, e = crate_ctx(ev)
       if c then
         local cur = c.priority or 3
         c.priority = math.max(1, math.min(5, cur + delta))
         if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.crate(c)) end
-        local frame = player.gui.relative[CRATE_FRAME]
-        if frame and frame.body then fill_crate(frame.body, c) end
+        if body then fill_crate(body, c) end
       end
-    elseif prio_type == "machine" and colony.machines then
-      local m = colony.machines[e.unit_number]
+    elseif prio_type == "machine" then
+      local player, e, colony, body, m = machine_ctx(ev)
       if m then
         local cur = m.priority or 4
         m.priority = math.max(1, math.min(5, cur + delta))
         if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.machine(m)) end
-        local frame = player.gui.relative[MACHINE_FRAME]
-        if frame and frame.body then fill_machine(frame.body, m, e) end
+        if body then fill_machine(body, m, e) end
       end
     end
     return
@@ -875,6 +873,14 @@ function fill_crate(frame, c)
   end
 end
 
+local function copy_rows(rows)
+  local out = {}
+  for row, r in pairs(rows or {}) do
+    if r and r.item then out[row] = {item = r.item, count = r.count} end
+  end
+  return out
+end
+
 local function open_crate(player, e)
   local old = player.gui.relative[CRATE_FRAME]; if old then old.destroy() end
   local name = (e.type == "entity-ghost") and e.ghost_name or e.name
@@ -888,16 +894,26 @@ local function open_crate(player, e)
       names = names}}
   local body = frame.add{type = "flow", name = "body", direction = "vertical"}
   local colony = colony_at(e)
-  local c = colony and colony.crates and colony.crates[e.unit_number]
-  if not c and e.type == "entity-ghost" and colony and colony_mod.CRATES[name] then
+  if not colony then body.add{type = "label", caption = {"colony-gui-crate.outside"}}; return end
+  local c
+  if e.type == "entity-ghost" then
+    local payload = e.tags and tags.decode(e.tags)
     local kind = colony_mod.CRATES[name]
-    c = {entity = e, kind = kind, colony_id = colony.id,
-      filters = {}, inflight = {}, logistics_enabled = true,
-      priority = 3,
-      accept_all = (kind == crates.WAREHOUSE and true or nil)}
-    colony.crates = colony.crates or {}
-    colony.crates[e.unit_number] = c
-    if e.tags then colony_mod.apply_tags(colony, e, e.tags) end
+    if payload and payload.crate then
+      c = {entity = e, kind = kind, colony_id = colony.id,
+        filters = copy_rows(payload.crate.filters),
+        accept_all = payload.crate.accept_all,
+        priority = payload.crate.priority or 3,
+        logistics_enabled = true}
+    else
+      c = {entity = e, kind = kind, colony_id = colony.id,
+        filters = {},
+        accept_all = (kind == crates.WAREHOUSE and true or nil),
+        priority = 3,
+        logistics_enabled = true}
+    end
+  else
+    c = colony.crates and colony.crates[e.unit_number]
   end
   if not c then body.add{type = "label", caption = {"colony-gui-crate.outside"}}; return end
   fill_crate(body, c)
@@ -908,7 +924,28 @@ function crate_ctx(ev)
   local e = player and player.opened
   if not (e and e.valid and player.opened_gui_type == defines.gui_type.entity) then return end
   local colony = colony_at(e)
-  local c = colony and colony.crates and colony.crates[e.unit_number]
+  if not colony then return end
+  local c
+  if e.type == "entity-ghost" then
+    local name = e.ghost_name
+    local payload = e.tags and tags.decode(e.tags)
+    local kind = colony_mod.CRATES[name]
+    if payload and payload.crate then
+      c = {entity = e, kind = kind, colony_id = colony.id,
+        filters = copy_rows(payload.crate.filters),
+        accept_all = payload.crate.accept_all,
+        priority = payload.crate.priority or 3,
+        logistics_enabled = true}
+    else
+      c = {entity = e, kind = kind, colony_id = colony.id,
+        filters = {},
+        accept_all = (kind == crates.WAREHOUSE and true or nil),
+        priority = 3,
+        logistics_enabled = true}
+    end
+  else
+    c = colony.crates and colony.crates[e.unit_number]
+  end
   if not c then return end
   local frame = player.gui.relative[CRATE_FRAME]
   return player, c, colony, frame and frame.body, e
@@ -967,9 +1004,15 @@ local function open_machine(player, e)
   local body = frame.add{type = "flow", name = "body", direction = "vertical"}
   local colony = colony_at(e)
   if not colony then body.add{type = "label", caption = {"colony-gui.supply-outside"}}; return end
-  local m = colony.machines and colony.machines[e.unit_number]
-  if not m and e.type == "entity-ghost" and e.tags then
-    colony_mod.apply_tags(colony, e, e.tags)
+  local m
+  if e.type == "entity-ghost" then
+    local payload = e.tags and tags.decode(e.tags)
+    if payload and payload.machine then
+      m = {entity = e, enabled = true, collect = payload.machine.collect ~= false,
+        requests = copy_rows(payload.machine.requests),
+        priority = payload.machine.priority or 4}
+    end
+  else
     m = colony.machines and colony.machines[e.unit_number]
   end
   fill_machine(body, m, e)
@@ -983,7 +1026,17 @@ scheduler.register("gui.refresh_machine", function(d)
   local e = player and player.opened
   if not (frame and frame.valid and frame.visible and e and e.valid and e.unit_number == d.un) then return end
   local colony = colony_at(e)
-  local m = colony and colony.machines and colony.machines[e.unit_number]
+  local m
+  if e.type == "entity-ghost" then
+    local payload = e.tags and tags.decode(e.tags)
+    if payload and payload.machine then
+      m = {entity = e, enabled = true, collect = payload.machine.collect ~= false,
+        requests = copy_rows(payload.machine.requests),
+        priority = payload.machine.priority or 4}
+    end
+  else
+    m = colony and colony.machines and colony.machines[e.unit_number]
+  end
   if m and m.enabled then
     for i = 1, M.REQUEST_ROWS do
       local row, req = frame.body["colony_req_row_" .. i], m.requests[i]
@@ -1007,14 +1060,25 @@ events.on(defines.events.on_gui_opened, function(ev)
   elseif MACHINE_GUIS[type] then open_machine(player, e) end
 end)
 
-local function machine_ctx(ev)
+machine_ctx = function(ev)
   local player = game.get_player(ev.player_index)
   local e = player and player.opened
   if not (e and e.valid and player.opened_gui_type == defines.gui_type.entity) then return end
   local colony = colony_at(e)
   if not colony then return end
+  local m
+  if e.type == "entity-ghost" then
+    local payload = e.tags and tags.decode(e.tags)
+    if payload and payload.machine then
+      m = {entity = e, enabled = true, collect = payload.machine.collect ~= false,
+        requests = copy_rows(payload.machine.requests),
+        priority = payload.machine.priority or 4}
+    end
+  else
+    m = colony.machines and colony.machines[e.unit_number]
+  end
   local frame = player.gui.relative[MACHINE_FRAME]
-  return player, e, colony, frame and frame.body
+  return player, e, colony, frame and frame.body, m
 end
 
 events.on(defines.events.on_gui_checked_state_changed, function(ev)
@@ -1066,14 +1130,25 @@ events.on(defines.events.on_gui_checked_state_changed, function(ev)
     return
   end
   if name ~= "colony_supply_enabled" and name ~= "colony_supply_collect" then return end
-  local player, e, colony, body = machine_ctx(ev)
+  local player, e, colony, body, m = machine_ctx(ev)
   if not body then return end
-  local m = colony.machines and colony.machines[e.unit_number]
   if name == "colony_supply_enabled" then
-    m = colony_mod.set_machine(colony, e, ev.element.state)
+    if e.type == "entity-ghost" then
+      if ev.element.state then
+        m = {entity = e, enabled = true, collect = true, priority = 4, requests = colony_mod.default_requests(e)}
+        e.tags = tags.dictionary(tags.machine(m))
+      else
+        m = nil
+        e.tags = nil
+      end
+    else
+      m = colony_mod.set_machine(colony, e, ev.element.state)
+    end
     fill_machine(body, m, e)
-  elseif m then m.collect = ev.element.state end
-  if e.type == "entity-ghost" and m then e.tags = tags.dictionary(tags.machine(m)) end
+  elseif m then
+    m.collect = ev.element.state
+    if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.machine(m)) end
+  end
 end)
 
 local function row_of(name) return tonumber(name:match("^colony_req_%a+_(%d+)$")) end
@@ -1091,15 +1166,14 @@ events.on(defines.events.on_gui_elem_changed, function(ev)
   end
   local i = row_of(ev.element.name)
   if not (i and ev.element.name:find("colony_req_item_", 1, true)) then return end
-  local _, e, colony = machine_ctx(ev)
-  local m = colony and colony.machines and colony.machines[e.unit_number]
+  local player, e, colony, body, m = machine_ctx(ev)
   if not m then return end
   local item = ev.element.elem_value
   if not item then m.requests[i] = nil
   else m.requests[i] = {item = item, count = m.requests[i] and m.requests[i].count or M.DEFAULT_COUNT} end
   if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.machine(m)) end
-  local frame = game.get_player(ev.player_index).gui.relative[MACHINE_FRAME]
-  if frame then fill_machine(frame.body, m, e) end
+  local frame = player and player.gui.relative[MACHINE_FRAME]
+  if frame and frame.body then fill_machine(frame.body, m, e) end
 end)
 
 events.on(defines.events.on_gui_text_changed, function(ev)
@@ -1114,8 +1188,7 @@ events.on(defines.events.on_gui_text_changed, function(ev)
   end
   local i = row_of(ev.element.name)
   if not (i and ev.element.name:find("colony_req_count_", 1, true)) then return end
-  local _, e, colony = machine_ctx(ev)
-  local m = colony and colony.machines and colony.machines[e.unit_number]
+  local player, e, colony, body, m = machine_ctx(ev)
   local req = m and m.requests[i]
   if req then
     req.count = tonumber(ev.element.text) or 0

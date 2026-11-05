@@ -111,18 +111,18 @@ end
 
 print("\n== Q9 (#41): bootstrap bill. What a new player must gather, in order, to run one of each hut.")
 local bill = {
-  {"colony-town-hall", {wood = 50, ["iron-plate"] = 50}},
-  {"colony-housing-tent", {wood = 20, ["iron-plate"] = 5}},
-  {"colony-forager-hut", {wood = 20, ["iron-plate"] = 5}},
-  {"colony-woodcutter-hut", {wood = 20, ["iron-plate"] = 5}},
-  {"colony-miner-hut", {wood = 20, ["iron-plate"] = 10}},
-  {"tools x3", {wood = 3 * 2 + 3 * 2, ["iron-plate"] = 3 * 3 + 3 * 3}},
+  {"colony-town-hall", {wood = 50, stone = 20}},
+  {"colony-housing-tent", {wood = 20}},
+  {"colony-forager-hut", {wood = 20}},
+  {"colony-woodcutter-hut", {wood = 20, stone = 5}},
+  {"colony-miner-hut", {wood = 20, stone = 10}},
+  {"tools (axe + pickaxe)", {wood = 2 + 2, ["iron-plate"] = 3 + 3}},
 }
-local total = {wood = 0, ["iron-plate"] = 0}
+local total = {wood = 0, stone = 0, ["iron-plate"] = 0}
 for _, b in ipairs(bill) do
-  for item, n in pairs(b[2]) do total[item] = total[item] + n end
+  for item, n in pairs(b[2]) do total[item] = (total[item] or 0) + n end
 end
-print("wood " .. total.wood .. ", iron plates " .. total["iron-plate"])
+print("wood " .. total.wood .. ", stone " .. total.stone .. ", iron plates " .. total["iron-plate"])
 print(("iron: %d plates = %d ore smelted at 3.2 s/plate in one stone furnace = %.1f player-minutes of smelting")
   :format(total["iron-plate"], total["iron-plate"], total["iron-plate"] * 3.2 / 60))
 print(("wood: %d = %d hand-chopped trees (4 wood each) = %.1f player-minutes")

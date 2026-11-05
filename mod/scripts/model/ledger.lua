@@ -39,6 +39,12 @@ function M.aggregate(data)
     return e
   end
 
+  if data.include_zero then
+    for item in pairs(data.include_zero) do
+      get_entry(item)
+    end
+  end
+
   for item, n in pairs(data.stock or {}) do
     if n > 0 then
       local e = get_entry(item)
@@ -70,7 +76,7 @@ function M.aggregate(data)
   local totals = {}
   local grand_total = 0
   for item, e in pairs(by_item) do
-    if e.total > 0 then
+    if e.total > 0 or (data.include_zero and data.include_zero[item]) then
       list[#list + 1] = e
       totals[item] = e.total
       grand_total = grand_total + e.total

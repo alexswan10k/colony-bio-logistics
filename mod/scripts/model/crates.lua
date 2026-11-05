@@ -14,14 +14,19 @@ local function by_item(a, b) return a.item < b.item end
 
 -- Targets for a demand crate: filters minus what the crate holds and what is already in flight.
 -- Only rows with an item count; an empty row is not a demand.
-function M.demands(filters, contents, inflight)
+-- Uses hysteresis: requests are triggered when have <= 50% target or deficit >= 10 (or force_reorder).
+function M.demands(filters, contents, inflight, force_reorder)
   local out = {}
   for i = 1, M.FILTER_ROWS do
     local f = filters and filters[i]
     if f and f.item then
-      local want = (f.count or M.DEFAULT_COUNT) - ((contents and contents[f.item]) or 0)
-        - ((inflight and inflight[f.item]) or 0)
-      if want >= 1 then out[#out + 1] = {item = f.item, count = want} end
+      local target = f.count or M.DEFAULT_COUNT
+      local have = ((contents and contents[f.item]) or 0) + ((inflight and inflight[f.item]) or 0)
+      local want = target - have
+      local threshold = math.max(0, math.floor(target * 0.5))
+      if want >= 1 and (force_reorder or have <= threshold or want >= 10) then
+        out[#out + 1] = {item = f.item, count = want}
+      end
     end
   end
   table.sort(out, by_item)   -- deterministic regardless of the order the player filled the rows

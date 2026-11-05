@@ -538,6 +538,7 @@ function M.ledger_snapshot(colony)
     stock = stock,
     huts = huts_data,
     transit = transit_data,
+    include_zero = quota.RESOURCES,
   }
   colony.ledger_cache, colony.ledger_tick = res, game.tick
   return res
@@ -555,8 +556,85 @@ function M.global_quotas()
   return g
 end
 
+-- Downstream demand for a resource: machine inputs, crate filters, hut inputs, heating, and food buffers.
+function M.resource_demand(colony, item)
+  if not colony then return 0 end
+  local demand = 0
+
+  -- 1. Downstream machine requests (marked smelters, assemblers)
+  for _, m in pairs(colony.machines or {}) do
+    if m.entity and m.entity.valid and m.enabled and m.requests then
+      for _, req in pairs(m.requests) do
+        if req.item == item then
+          demand = demand + (req.count or 0)
+        end
+      end
+    end
+  end
+
+  -- 2. Downstream demand crates
+  for _, c in ipairs(M.crate_list(colony, crates.DEMAND)) do
+    if c.filters then
+      for i = 1, crates.FILTER_ROWS do
+        local f = c.filters[i]
+        if f and f.item == item then
+          demand = demand + (f.count or crates.DEFAULT_COUNT)
+        end
+      end
+    end
+  end
+
+  -- 3. Downstream hut inputs (fertilizer, salt, etc.)
+  for _, h in pairs(colony.huts or {}) do
+    if h.entity and h.entity.valid then
+      local def = labour.HUTS[h.entity.name]
+      if def and def.inputs then
+        for _, inp in ipairs(def.inputs) do
+          if inp.item == item then demand = demand + inp.count end
+        end
+      end
+    end
+  end
+
+  -- 4. Heating demand for unpowered houses
+  if item == "wood" or item == "coal" then
+    for _, h in pairs(colony.houses or {}) do
+      if not M.is_powered(h) and (h.kind == "tent" or h.kind == "cabin" or h.kind == "homestead") then
+        local occ = h.occupants or 1
+        demand = demand + math.ceil(occ * 0.5 * 6)
+      end
+    end
+  end
+
+  -- 5. Food demand for colonists
+  if item == "colony-forage" or item == "colony-fish" or item == "colony-meat" or item == "colony-produce" then
+    local pop = colony.mouths or 0
+    if pop == 0 and colony.colonists then
+      for _ in pairs(colony.colonists) do pop = pop + 1 end
+    end
+    if pop > 0 then
+      demand = demand + math.ceil(pop * 6)
+    end
+  end
+
+  return demand
+end
+
+function M.base_quota_target(colony, item)
+  if colony and colony.quotas and colony.quotas[item] ~= nil then
+    return tonumber(colony.quotas[item]) or 0
+  end
+  local g = M.global_quotas()
+  if g and g[item] then return tonumber(g[item]) or 0 end
+  if quota.RESOURCES[item] then return quota.DEFAULT_QUOTA end
+  return 0
+end
+
 function M.quota_target(colony, item)
-  return quota.target(colony.quotas, M.global_quotas(), item)
+  local base = M.base_quota_target(colony, item)
+  if base <= 0 then return 0 end
+  local extra = M.resource_demand(colony, item)
+  return base + extra
 end
 
 function M.quota_met(colony, item)

@@ -2,7 +2,7 @@
 -- Determines whether a resource has reached its production cap.
 local M = {}
 
-M.DEFAULT_QUOTA = 200
+M.DEFAULT_QUOTA = 20
 
 M.RESOURCES = {
   ["iron-ore"] = {job = "mine"},

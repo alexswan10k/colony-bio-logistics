@@ -9,7 +9,16 @@ local M = {}
 -- output, carrying spoilage away to a compost bin (#78), and last of all topping up houses that are already fed.
 -- Compost used to be last, but once haulers had to walk to every pickup there was always a top-up waiting, so
 -- spoilage sat in the hall for good; it blocks storage slots, and a fed house loses nothing by waiting.
-M.PRIORITY = {critical = 1, tools = 2, hut_output = 3, request = 4, collect = 5, compost = 6, buffer = 7}
+M.PRIORITY = {
+  critical = 1,
+  tools = 2,
+  urgent_collect = 3,
+  request = 4,
+  collect = 5,
+  hut_output = 5,
+  compost = 6,
+  buffer = 7,
+}
 
 M.DEFAULT_CAP = 20
 

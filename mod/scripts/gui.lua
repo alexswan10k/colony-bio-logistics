@@ -16,6 +16,7 @@ local breeding = require("scripts.model.breeding")
 local garrison = require("scripts.model.garrison")
 local milestones = require("scripts.model.milestones")
 local tags = require("scripts.model.tags")
+local quota = require("scripts.model.quota")
 local work = require("scripts.work")
 local M = {}
 local colony_mod   -- injected via M.bind (runtime require is illegal)
@@ -340,16 +341,47 @@ local function fill_hut(frame, h)
     frame.add{type = "label", caption = {"colony-gui-hut.farm-fertilizer", fert_cnt}}
     frame.add{type = "label", caption = {"colony-gui-hut.farm-hint"}}
   end
+  local hut_res = (h.job == "forage" and "colony-forage")
+    or (h.job == "chop" and "wood")
+    or (h.job == "farm" and "colony-produce")
+    or (h.job == "hunt" and "colony-meat")
+    or (h.job == "fish" and "colony-fish")
+  if hut_res then
+    local colony = storage.colonies[h.colony_id]
+    if colony then
+      local q_row = frame.add{type = "flow", direction = "horizontal"}
+      q_row.style.vertical_align = "center"
+      q_row.add{type = "label", caption = {"colony-gui-hut.quota-target"}, style = "bold_label"}
+      local b_less = q_row.add{type = "button", name = "colony_quota_" .. hut_res .. "_less", caption = "-",
+        tooltip = {"colony-gui-hut.quota-less-tt"}}
+      b_less.style.width = 18; b_less.style.height = 20
+      local base_tgt = colony_mod.base_quota_target(colony, hut_res)
+      local eff_tgt = colony_mod.quota_target(colony, hut_res)
+      local extra = eff_tgt - base_tgt
+      local txt = (base_tgt == 0) and {"colony-gui-info.quota-unlimited"}
+        or (extra > 0 and (tostring(base_tgt) .. " (+" .. extra .. ")") or tostring(base_tgt))
+      local q_lbl = q_row.add{type = "label", caption = txt}
+      q_lbl.style.width = 68; q_lbl.style.horizontal_align = "center"
+      q_lbl.tooltip = {"colony-gui-info.quota-target-tt",
+        (base_tgt == 0) and {"colony-gui-info.quota-unlimited"} or tostring(eff_tgt),
+        (base_tgt == 0) and {"colony-gui-info.quota-unlimited"} or tostring(base_tgt),
+        tostring(extra)}
+      local b_more = q_row.add{type = "button", name = "colony_quota_" .. hut_res .. "_more", caption = "+",
+        tooltip = {"colony-gui-hut.quota-more-tt"}}
+      b_more.style.width = 18; b_more.style.height = 20
+    end
+  end
   if h.job == "mine" then
     -- Ore priority (#74): which rock this hut goes for first, instead of always the closest one.
     frame.add{type = "line"}
     frame.add{type = "label", caption = {"colony-gui-hut.ore-priority"}, style = "bold_label"}
     local ranks = mine_plan.effective(h.ores)
+    local colony = storage.colonies[h.colony_id]
     for _, ore in ipairs(mine_plan.ORES) do
       local row = frame.add{type = "flow", direction = "horizontal"}
       row.style.vertical_align = "center"
       local name = row.add{type = "label", caption = "[item=" .. ore .. "]"}
-      name.style.width = 96
+      name.style.width = 64
       row.add{type = "button", name = "colony_ore_" .. ore .. "_less", caption = "-",
         tooltip = {"colony-gui-hut.ore-less-tt"}}
       local rank = row.add{type = "label", caption = ranks[ore] > 0 and tostring(ranks[ore]) or {"colony-gui-info.off"}}
@@ -357,6 +389,25 @@ local function fill_hut(frame, h)
       rank.style.horizontal_align = "center"
       row.add{type = "button", name = "colony_ore_" .. ore .. "_more", caption = "+",
         tooltip = {"colony-gui-hut.ore-more-tt"}}
+      if colony then
+        local qb_less = row.add{type = "button", name = "colony_quota_" .. ore .. "_less", caption = "-",
+          tooltip = {"colony-gui-hut.quota-less-tt"}}
+        qb_less.style.width = 18; qb_less.style.height = 20
+        local base_tgt = colony_mod.base_quota_target(colony, ore)
+        local eff_tgt = colony_mod.quota_target(colony, ore)
+        local extra = eff_tgt - base_tgt
+        local txt = (base_tgt == 0) and {"colony-gui-info.quota-unlimited"}
+          or (extra > 0 and (tostring(base_tgt) .. " (+" .. extra .. ")") or tostring(base_tgt))
+        local q_lbl = row.add{type = "label", caption = txt}
+        q_lbl.style.width = 54; q_lbl.style.horizontal_align = "center"
+        q_lbl.tooltip = {"colony-gui-info.quota-target-tt",
+          (base_tgt == 0) and {"colony-gui-info.quota-unlimited"} or tostring(eff_tgt),
+          (base_tgt == 0) and {"colony-gui-info.quota-unlimited"} or tostring(base_tgt),
+          tostring(extra)}
+        local qb_more = row.add{type = "button", name = "colony_quota_" .. ore .. "_more", caption = "+",
+          tooltip = {"colony-gui-hut.quota-more-tt"}}
+        qb_more.style.width = 18; qb_more.style.height = 20
+      end
     end
     frame.add{type = "label", caption = {"colony-gui-hut.ore-hint"}}
   end
@@ -399,7 +450,7 @@ scheduler.register("gui.refresh_hut", function(d)
   local _, tools, allowed, workers = work.hut_info(h)
   local reason = M.hut_reason(h, labour.HUTS[h.entity.name], tools, workers)
   if not unchanged(frame, {tools, allowed, workers, h.limit, h.wear, h.inflight, h.ores, reason, work.site_count(h),
-      h.entity.get_item_count("colony-fertilizer"), h.logistics_enabled, h.priority}) then
+      h.entity.get_item_count("colony-fertilizer"), h.logistics_enabled, h.priority, colony and colony.quotas}) then
     fill_hut(frame.body, h)
   end
   draw_hut_range(h)
@@ -481,18 +532,20 @@ local function fill_info(frame, colony)
   else
     local scroll = frame.add{type = "scroll-pane", direction = "vertical"}
     scroll.style.maximal_height = 160
-    local table_gui = scroll.add{type = "table", column_count = 5, draw_horizontal_lines = true}
+    local table_gui = scroll.add{type = "table", column_count = 6, draw_horizontal_lines = true}
     table_gui.style.horizontal_spacing = 8
     local h1 = table_gui.add{type = "label", caption = {"colony-gui-info.res-item"}, style = "bold_label"}
     h1.style.width = 90
     local h2 = table_gui.add{type = "label", caption = {"colony-gui-info.res-stock"}, style = "bold_label"}
-    h2.style.width = 45; h2.style.horizontal_align = "right"
+    h2.style.width = 40; h2.style.horizontal_align = "right"
     local h3 = table_gui.add{type = "label", caption = {"colony-gui-info.res-huts"}, style = "bold_label"}
-    h3.style.width = 45; h3.style.horizontal_align = "right"
+    h3.style.width = 40; h3.style.horizontal_align = "right"
     local h4 = table_gui.add{type = "label", caption = {"colony-gui-info.res-transit"}, style = "bold_label"}
-    h4.style.width = 45; h4.style.horizontal_align = "right"
+    h4.style.width = 40; h4.style.horizontal_align = "right"
     local h5 = table_gui.add{type = "label", caption = {"colony-gui-info.res-total"}, style = "bold_label"}
     h5.style.width = 45; h5.style.horizontal_align = "right"
+    local h6 = table_gui.add{type = "label", caption = {"colony-gui-info.res-quota"}, style = "bold_label"}
+    h6.style.width = 110; h6.style.horizontal_align = "center"
 
     for _, it in ipairs(ledger_data.items) do
       local name_lbl = table_gui.add{type = "label", caption = {"", "[item=" .. it.item .. "] ", {"item-name." .. it.item}}}
@@ -514,13 +567,38 @@ local function fill_info(frame, colony)
       name_lbl.tooltip = tt
 
       local l_stock = table_gui.add{type = "label", caption = tostring(it.stock)}
-      l_stock.style.width = 45; l_stock.style.horizontal_align = "right"
+      l_stock.style.width = 40; l_stock.style.horizontal_align = "right"
       local l_huts = table_gui.add{type = "label", caption = it.huts > 0 and tostring(it.huts) or "-"}
-      l_huts.style.width = 45; l_huts.style.horizontal_align = "right"
+      l_huts.style.width = 40; l_huts.style.horizontal_align = "right"
       local l_trans = table_gui.add{type = "label", caption = it.transit > 0 and tostring(it.transit) or "-"}
-      l_trans.style.width = 45; l_trans.style.horizontal_align = "right"
+      l_trans.style.width = 40; l_trans.style.horizontal_align = "right"
       local l_tot = table_gui.add{type = "label", caption = tostring(it.total), style = "bold_label"}
       l_tot.style.width = 45; l_tot.style.horizontal_align = "right"
+
+      if quota.RESOURCES[it.item] then
+        local q_flow = table_gui.add{type = "flow", direction = "horizontal"}
+        q_flow.style.vertical_align = "center"
+        local b_less = q_flow.add{type = "button", name = "colony_quota_" .. it.item .. "_less", caption = "-",
+          tooltip = {"colony-gui-info.quota-less-tt"}}
+        b_less.style.width = 18; b_less.style.height = 20
+        local base_tgt = colony_mod.base_quota_target(colony, it.item)
+        local eff_tgt = colony_mod.quota_target(colony, it.item)
+        local extra = eff_tgt - base_tgt
+        local txt = (base_tgt == 0) and {"colony-gui-info.quota-unlimited"}
+          or (extra > 0 and (tostring(base_tgt) .. " (+" .. extra .. ")") or tostring(base_tgt))
+        local q_lbl = q_flow.add{type = "label", caption = txt}
+        q_lbl.style.width = 68; q_lbl.style.horizontal_align = "center"
+        q_lbl.tooltip = {"colony-gui-info.quota-target-tt",
+          (base_tgt == 0) and {"colony-gui-info.quota-unlimited"} or tostring(eff_tgt),
+          (base_tgt == 0) and {"colony-gui-info.quota-unlimited"} or tostring(base_tgt),
+          tostring(extra)}
+        local b_more = q_flow.add{type = "button", name = "colony_quota_" .. it.item .. "_more", caption = "+",
+          tooltip = {"colony-gui-info.quota-more-tt"}}
+        b_more.style.width = 18; b_more.style.height = 20
+      else
+        local dash = table_gui.add{type = "label", caption = "-"}
+        dash.style.width = 110; dash.style.horizontal_align = "center"
+      end
     end
   end
 
@@ -621,7 +699,7 @@ scheduler.register("gui.refresh_info", function(d)
   local counts = work.job_counts(colony)
   local ledger = colony_mod.ledger_snapshot(colony)
   if not unchanged(frame, {st, counts, ledger and ledger.items, M.colony_advice(colony, st, counts), colony.priority,
-      colony.job_targets, colony.accept_migrants, colony.storage_priority}) then
+      colony.job_targets, colony.accept_migrants, colony.storage_priority, colony.quotas}) then
     fill_info(frame.body, colony)
   end
   scheduler.after(30, "gui.refresh_info", d)
@@ -629,6 +707,33 @@ end)
 
 events.on(defines.events.on_gui_click, function(ev)
   local name = ev.element.name
+  local q_item, q_dir = name:match("^colony_quota_(.-)_(%a+)$")
+  if q_item and (q_dir == "more" or q_dir == "less") then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid) then return end
+    local colony = colony_at(e)
+    if not colony then return end
+    local base = colony_mod.base_quota_target(colony, q_item)
+    local step = ev.shift and 50 or 10
+    local new_tgt
+    if q_dir == "more" then
+      if base == 0 then new_tgt = 10
+      else new_tgt = base + step end
+    else
+      if base <= step then new_tgt = 0 -- 0 = unlimited
+      else new_tgt = base - step end
+    end
+    colony_mod.set_quota(colony, q_item, new_tgt)
+    local frame = player.gui.relative[INFO_FRAME]
+    if frame and frame.body then fill_info(frame.body, colony) end
+    local hut_frame = player.gui.relative[HUT_FRAME]
+    if hut_frame and hut_frame.body and colony.huts then
+      local h = colony.huts[e.unit_number]
+      if h then fill_hut(hut_frame.body, h) end
+    end
+    return
+  end
   local prio_type, prio_dir = name:match("^colony_(%a+)_prio_(%a+)$")
   if prio_type and (prio_dir == "more" or prio_dir == "less") then
     local player = game.get_player(ev.player_index)

@@ -734,6 +734,21 @@ describe("housing", function()
     local d = by_need(h.demand(h.TIERS.cabin, {}, {}, false, 2))
     eq(d.food.count, 12)
   end)
+  it("uses hysteresis for demands: only reorders below threshold unless forced", function()
+    -- Cabin (6 occupants, 1 food/eval, buffer 6 intervals = 36 target, reorder threshold 3 intervals = 18)
+    -- When stock has 30 food (deficit 6): no demand generated because stock > 18
+    local d_full = h.demand(h.TIERS.cabin, {["colony-forage"] = 30}, {}, true, 6)
+    eq(#d_full, 0)
+    -- When stock drops to 18 (threshold): generates demand for full deficit (36 - 18 = 18)
+    local d_low = by_need(h.demand(h.TIERS.cabin, {["colony-forage"] = 18}, {}, true, 6))
+    eq(d_low.food.count, 18)
+    -- When stock drops to 0: generates demand for 36
+    local d_zero = by_need(h.demand(h.TIERS.cabin, {}, {}, true, 6))
+    eq(d_zero.food.count, 36)
+    -- When forced (e.g. need is unmet), reorders even if stock > threshold
+    local d_forced = by_need(h.demand(h.TIERS.cabin, {["colony-forage"] = 30}, {}, true, 6, true))
+    eq(d_forced.food.count, 6)
+  end)
   it("distributes colonists", function()
     local o, homeless = h.distribute(7, {4, 4})
     eq(o[1], 4); eq(o[2], 3); eq(homeless, 0)
@@ -818,6 +833,20 @@ describe("crates", function()
     local d = c.demands({{item = "coal", count = 50}}, {coal = 20}, {coal = 5})
     eq(#d, 1); eq(d[1].item, "coal"); eq(d[1].count, 25)
     eq(#c.demands({{item = "coal", count = 10}}, {coal = 40}, {}), 0)
+  end)
+  it("uses hysteresis for demand crates: only requests when stock <= 50% or deficit >= 10", function()
+    -- Target 50: threshold is 25.
+    -- Have 45 (deficit 5 < 10, have > 25): no demand
+    eq(#c.demands({{item = "iron-ore", count = 50}}, {["iron-ore"] = 45}, {}), 0)
+    -- Have 40 (deficit 10 >= 10): generates demand for 10
+    local d10 = c.demands({{item = "iron-ore", count = 50}}, {["iron-ore"] = 40}, {})
+    eq(#d10, 1); eq(d10[1].count, 10)
+    -- Have 20 (deficit 30, have <= 25): generates demand for 30
+    local d30 = c.demands({{item = "iron-ore", count = 50}}, {["iron-ore"] = 20}, {})
+    eq(#d30, 1); eq(d30[1].count, 30)
+    -- Forced reorder requests small deficit even above threshold
+    local d_force = c.demands({{item = "iron-ore", count = 50}}, {["iron-ore"] = 48}, {}, true)
+    eq(#d_force, 1); eq(d_force[1].count, 2)
   end)
   it("empty filter rows are not demands", function()
     eq(#c.demands({{}, {item = nil, count = 5}}, {}, {}), 0)
@@ -1073,11 +1102,25 @@ describe("resource ledger (#82)", function()
     eq(res.items[2].item, "wood")
     eq(res.items[3].item, "colony-axe")
   end)
+  it("includes zero-count resources when include_zero is provided", function()
+    local res = ledger.aggregate{
+      stock = {},
+      huts = {},
+      transit = {},
+      include_zero = {["iron-ore"] = true, ["copper-ore"] = true},
+    }
+    eq(#res.items, 2)
+    eq(res.items[1].item, "iron-ore")
+    eq(res.items[1].total, 0)
+    eq(res.items[2].item, "copper-ore")
+    eq(res.items[2].total, 0)
+  end)
 end)
 
 describe("harvest quotas (#84)", function()
   local quota = require("scripts.model.quota")
-  it("defaults to 0 (unlimited)", function()
+  it("defaults to 0 (unlimited) when unconfigured, but DEFAULT_QUOTA is 20", function()
+    eq(quota.DEFAULT_QUOTA, 20)
     eq(quota.target(nil, nil, "iron-ore"), 0)
     eq(quota.met(0, 500), false)
   end)

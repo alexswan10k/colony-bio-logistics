@@ -928,14 +928,12 @@ function M.command_attack(e, animal)
 end
 
 -- Haul planning ----------------------------------------------------------------------------------
--- House demand: critical (already unmet / never evaluated) beats buffering a well-stocked house.
+-- House demand: critical (already unmet / empty) beats buffering a well-stocked house.
 local function house_offer(colony, h)
   if h.logistics_enabled == false then return nil end
   local tier = housing.TIERS[h.kind]
   local occupants = h.mouths or h.occupants or 0   -- children eat half (#88)
   local stock = colony_mod.house_stock_cached(h)
-  local demands = housing.demand(tier, stock, h.inflight, colony_mod.is_powered(h), occupants)
-  if #demands == 0 then return nil end
   local critical = false
   local unmet = false
   for _, need in ipairs(tier.needs) do
@@ -948,9 +946,21 @@ local function house_offer(colony, h)
       end
     end
   end
+  local avail = housing.available(tier, stock, colony_mod.is_powered(h))
+  for _, need in ipairs(tier.needs) do
+    if occupants > 0 and avail[need.id] == false then
+      if need.critical then
+        critical = true
+      else
+        unmet = true
+      end
+    end
+  end
+
+  local demands = housing.demand(tier, stock, h.inflight, colony_mod.is_powered(h), occupants, critical or unmet)
+  if #demands == 0 then return nil end
   local band = critical and haul_plan.PRIORITY.critical
-    or (unmet and haul_plan.PRIORITY.request)
-    or haul_plan.PRIORITY.buffer
+    or haul_plan.PRIORITY.request
   return {kind = "supply", house = h, entity = h.entity, pos = h.entity.position,
     priority = band,
     building_priority = h.priority or 3,
@@ -1013,7 +1023,9 @@ local function hut_offer(h)
       local have_ammo = inv and inv.get_item_count(ammo_item) or 0
       local inflight_ammo = h.inflight[ammo_item] or 0
       local ammo_deficit = ammo_target - have_ammo - inflight_ammo
-      if ammo_deficit > 0 and colony and colony_mod.stock_count(colony, ammo_item) > 0 then
+      local threshold = math.floor(ammo_target * 0.5)
+      local batch = is_gun and 3 or 10
+      if ammo_deficit > 0 and (have_ammo <= threshold or ammo_deficit >= batch or (h.priority and h.priority <= 2)) and colony and colony_mod.stock_count(colony, ammo_item) > 0 then
         return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
           priority = haul_plan.PRIORITY.request, building_priority = h.priority or 3, key = h.entity.unit_number,
           demands = {{item = ammo_item, count = ammo_deficit}}}
@@ -1023,8 +1035,13 @@ local function hut_offer(h)
       local demands = {}
       local contents = chest_contents(h.entity) or {}
       for _, inp in ipairs(def.inputs) do
-        local deficit = inp.count - (contents[inp.item] or 0) - (h.inflight[inp.item] or 0)
-        if deficit > 0 then demands[#demands + 1] = {item = inp.item, count = deficit} end
+        local target = inp.count
+        local have = (contents[inp.item] or 0) + (h.inflight[inp.item] or 0)
+        local deficit = target - have
+        local threshold = math.floor(target * 0.5)
+        if deficit > 0 and (have <= threshold or deficit >= 3 or (h.priority and h.priority <= 2)) then
+          demands[#demands + 1] = {item = inp.item, count = deficit}
+        end
       end
       if #demands > 0 then
         return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
@@ -1059,7 +1076,7 @@ end
 -- Finished goods sit in the hut until a hauler clears them, so the hut is the local stockpile and the
 -- colonist never walks every load home. Everything except the hut's own tool is fair game.
 -- For lab entities, collects from defines.inventory.lab_trash so spoilage is composted (#42).
-local function hut_collect_offer(h)
+local function hut_collect_offer(h, colony)
   if h.logistics_enabled == false then return nil end
   local def = labour.HUTS[h.entity.name]
   if h.job == "guard" then return nil end   -- a garrison produces nothing; its rifles are not output
@@ -1069,6 +1086,8 @@ local function hut_collect_offer(h)
   if not (def and inv and not inv.is_empty()) then return nil end
   local demands, available, keep = {}, {}, {}
   for _, item in ipairs(def.keep or {}) do keep[item] = true end
+  local total_available = 0
+  local has_food = false
   for _, c in ipairs(inv.get_contents()) do
     -- Inputs stay put: a Smokehouse's salt and raw food are not output to be hauled away (#81).
     local is_tool = (c.name == def.tool)
@@ -1078,11 +1097,32 @@ local function hut_collect_offer(h)
     if not is_tool and not keep[c.name] then
       demands[#demands + 1] = {item = c.name, count = c.count}
       available[c.name] = c.count
+      total_available = total_available + c.count
+      if c.name == "colony-fish" or c.name == "raw-fish" or c.name == "colony-meat"
+        or c.name == "colony-forage" or c.name == "colony-produce"
+        or c.name == "colony-bread" or c.name == "colony-preserved-fish"
+        or c.name == "colony-preserved-meat" then
+        has_food = true
+      end
     end
   end
   if #demands == 0 then return nil end
+
+  local priority = haul_plan.PRIORITY.hut_output
+  local is_critical = has_food and colony and (colony_mod.total_food(colony) == 0)
+  local is_full = inv.is_full and inv.is_full()
+  local is_urgent = is_full or ((h.priority or 3) <= 2) or ((h.limit or def.capacity or 1) <= 0)
+
+  if is_critical then
+    priority = haul_plan.PRIORITY.critical
+  elseif is_urgent then
+    priority = haul_plan.PRIORITY.urgent_collect
+  else
+    if total_available < 10 then return nil end
+  end
+
   return {kind = "collect", hut = h, entity = h.entity, pos = h.entity.position,
-    priority = haul_plan.PRIORITY.hut_output, building_priority = h.priority or 3, key = h.entity.unit_number,
+    priority = priority, building_priority = h.priority or 3, key = h.entity.unit_number,
     demands = demands, available = available}
 end
 
@@ -1102,21 +1142,29 @@ end
 
 -- A salt pan's contents, offered exactly like a supply crate's: evaporation is nobody's job, but hauling the
 -- salt away is (#81).
-local function salt_offer(pan)
+local function salt_offer(pan, colony)
   local n = pan.entity.get_item_count(salt.ITEM)
   if n < 1 then return nil end
+  local has_salt = colony and colony_mod.stock_count(colony, salt.ITEM) > 0
+  if has_salt and n < 4 and not salt.full(n) and ((pan.priority or 3) > 2) then return nil end
+  local is_urgent = salt.full(n) or ((pan.priority or 3) <= 2)
+  local priority = is_urgent and haul_plan.PRIORITY.urgent_collect or haul_plan.PRIORITY.collect
   return {kind = "collect", pan = pan, entity = pan.entity, pos = pan.entity.position,
-    priority = haul_plan.PRIORITY.collect, building_priority = 3, key = pan.entity.unit_number,
+    priority = priority, building_priority = pan.priority or 3, key = pan.entity.unit_number,
     demands = {{item = salt.ITEM, count = n}}, available = {[salt.ITEM] = n}}
 end
 
 -- A well's water, offered like a salt pan's: generation is nobody's job, but hauling the water
 -- away is (#43).
-local function well_offer(w)
+local function well_offer(w, colony)
   local n = w.entity.get_item_count(well.ITEM)
   if n < 1 then return nil end
+  local has_water = colony and colony_mod.stock_count(colony, well.ITEM) > 0
+  if has_water and n < 6 and not well.full(n) and ((w.priority or 3) > 2) then return nil end
+  local is_urgent = well.full(n) or ((w.priority or 3) <= 2)
+  local priority = is_urgent and haul_plan.PRIORITY.urgent_collect or haul_plan.PRIORITY.collect
   return {kind = "collect", well = w, entity = w.entity, pos = w.entity.position,
-    priority = haul_plan.PRIORITY.collect, building_priority = 3, key = w.entity.unit_number,
+    priority = priority, building_priority = w.priority or 3, key = w.entity.unit_number,
     demands = {{item = well.ITEM, count = n}}, available = {[well.ITEM] = n}}
 end
 
@@ -1134,18 +1182,26 @@ end
 local function crate_demand_offer(c)
   if c.logistics_enabled == false then return nil end
   local contents = crate_contents(c) or {}
-  local demands = crates.demands(c.filters, contents, c.inflight)
+  local demands = crates.demands(c.filters, contents, c.inflight, (c.priority or 3) <= 2)
   if #demands == 0 then return nil end
+  local priority = (c.priority and c.priority <= 2) and haul_plan.PRIORITY.urgent_collect or haul_plan.PRIORITY.request
   return {kind = "supply", crate = c, entity = c.entity, pos = c.entity.position,
-    priority = haul_plan.PRIORITY.request, building_priority = c.priority or 3, key = c.entity.unit_number,
+    priority = priority, building_priority = c.priority or 3, key = c.entity.unit_number,
     demands = demands}
 end
 
 local function machine_demands(m)
   local out = {}
   for _, req in pairs(m.requests or {}) do
-    local want = req.count - m.entity.get_item_count(req.item) - (m.inflight[req.item] or 0)
-    if want >= 1 then out[#out + 1] = {item = req.item, count = want} end
+    local target = req.count
+    local current = m.entity.get_item_count(req.item)
+    local have = current + (m.inflight[req.item] or 0)
+    local want = target - have
+    local threshold = math.max(0, math.floor(target * 0.5))
+    if want >= 1 and (have <= threshold or want >= 10 or (m.priority and m.priority <= 2)) then
+      local deficit = target - current
+      out[#out + 1] = {item = req.item, count = deficit}
+    end
   end
   table.sort(out, function(a, b) return a.item < b.item end)
   return out
@@ -1176,12 +1232,19 @@ local function collect_offer(colony, m)
     return nil
   end
   local demands, available = {}, {}
+  local total = 0
   for _, c in ipairs(inv.get_contents()) do
     demands[#demands + 1] = {item = c.name, count = c.count}
     available[c.name] = (available[c.name] or 0) + c.count
+    total = total + c.count
   end
+  if total == 0 then return nil end
+  local is_full = inv.is_full and inv.is_full()
+  local is_urgent = is_full or ((m.priority or 4) <= 2)
+  if not is_urgent and total < 10 then return nil end
+  local priority = is_urgent and haul_plan.PRIORITY.urgent_collect or haul_plan.PRIORITY.collect
   return {kind = "collect", machine = m, entity = m.entity, pos = m.entity.position,
-    priority = haul_plan.PRIORITY.collect, building_priority = m.priority or 4, key = m.entity.unit_number,
+    priority = priority, building_priority = m.priority or 4, key = m.entity.unit_number,
     demands = demands, available = available}
 end
 
@@ -1289,7 +1352,7 @@ local function find_haul_task(colony, cap, hauler_pos)
   end
   for _, h in ipairs(hut_list(colony)) do
     local o = hut_offer(h); if o then requesters[#requesters + 1] = o end
-    local c = hut_collect_offer(h); if c then providers[#providers + 1] = c end
+    local c = hut_collect_offer(h, colony); if c then providers[#providers + 1] = c end
   end
   for _, c in ipairs(colony_mod.crate_list(colony, crates.SUPPLY)) do
     local o = crate_supply_offer(c); if o then providers[#providers + 1] = o end
@@ -1298,10 +1361,10 @@ local function find_haul_task(colony, cap, hauler_pos)
     local o = crate_demand_offer(c); if o then requesters[#requesters + 1] = o end
   end
   for _, p in ipairs(colony_mod.salt_pan_list(colony)) do
-    local o = salt_offer(p); if o then providers[#providers + 1] = o end
+    local o = salt_offer(p, colony); if o then providers[#providers + 1] = o end
   end
   for _, w in ipairs(colony_mod.well_list(colony)) do
-    local o = well_offer(w); if o then providers[#providers + 1] = o end
+    local o = well_offer(w, colony); if o then providers[#providers + 1] = o end
   end
   for _, p in ipairs(colony_mod.pool_list(colony)) do
     local o = pool_offer(colony, p); if o then requesters[#requesters + 1] = o end

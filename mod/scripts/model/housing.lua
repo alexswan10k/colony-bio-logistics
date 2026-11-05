@@ -123,11 +123,16 @@ function M.available(tier, stock, powered)
   return out
 end
 
+M.REORDER_INTERVALS = 3
+
 -- What to haul to this house: {{need=, count=, items={...}}} - `items` are interchangeable options
 -- (food = forage OR fish), so the hauler brings whatever the hall actually has.
 -- `occupants` (default: full capacity) sizes the buffer, so an empty house does not hoard supplies
 -- that machines and other houses are waiting for.
-function M.demand(tier, stock, inflight, powered, occupants)
+-- Uses high/low watermark hysteresis: requests are only made when stock drops to or below the reorder
+-- threshold (default: 3 intervals / 50% buffer), but fills back up to the full buffer (6 intervals).
+-- If `force_reorder` is true (e.g. need is unmet or critical), hysteresis is bypassed.
+function M.demand(tier, stock, inflight, powered, occupants, force_reorder)
   local out = {}
   local n = occupants or tier.capacity
   for _, need in ipairs(tier.needs) do
@@ -142,8 +147,12 @@ function M.demand(tier, stock, inflight, powered, occupants)
       end
     end
     if not skip and first and n > 0 then
-      local want = math.ceil(n * first.per * tier.buffer_intervals) - have
-      if want >= 1 then out[#out + 1] = {need = need.id, count = want, items = items} end
+      local target = math.ceil(n * first.per * tier.buffer_intervals)
+      local threshold = math.max(0, math.min(target - 1, math.ceil(n * first.per * (tier.reorder_intervals or M.REORDER_INTERVALS))))
+      local want = target - have
+      if want >= 1 and (force_reorder or have <= threshold) then
+        out[#out + 1] = {need = need.id, count = want, items = items}
+      end
     end
   end
   return out

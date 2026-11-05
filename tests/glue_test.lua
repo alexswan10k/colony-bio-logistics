@@ -914,3 +914,132 @@ describe("colony logistics network", function()
     truthy(colonist_ent.valid, "colonist stayed alive")
   end)
 end)
+
+describe("blueprint construction and carried item safety", function()
+  local function make_chest(contents)
+    local items = {}
+    for k, v in pairs(contents) do items[k] = v end
+    return {
+      is_empty = function() return next(items) == nil end,
+      is_full = function() return false end,
+      get_item_count = function(name) return items[name] or 0 end,
+      get_contents = function()
+        local list = {}
+        for k, v in pairs(items) do list[#list + 1] = {name = k, count = v} end
+        return list
+      end,
+      insert = function(stack) items[stack.name] = (items[stack.name] or 0) + stack.count; return stack.count end,
+      remove = function(stack)
+        local have = items[stack.name] or 0
+        local take = math.min(have, stack.count)
+        items[stack.name] = (have - take > 0) and (have - take) or nil
+        return take
+      end,
+    }
+  end
+
+  it("take_stock never re-entrantly runs worker assignment", function()
+    local env = mock.install(); env = env.reset()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+
+    local hall_inv = make_chest({["stone-furnace"] = 5})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1}, force = {print = function() end},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+      remove_item = function(stack) return hall_inv.remove(stack) end,
+      insert = function(stack) return hall_inv.insert(stack) end,
+    }
+    local colony = {id = 1, hall = hall_ent, surface_index = 1, huts = {}, warehouses = {}, colonists = {}}
+    storage.colonies = {[1] = colony}
+
+    local taken = colony_mod.take_stock(colony, "stone-furnace", 2)
+    eq(taken, 2)
+    eq(hall_inv.get_item_count("stone-furnace"), 3)
+  end)
+
+  it("job_slots calculates construct capacity and slots without double subtraction", function()
+    local env = mock.install(); env = env.reset()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+
+    local g1 = {valid = true, surface = {index = 1}, position = {x = 5, y = 0}}
+    local g2 = {valid = true, surface = {index = 1}, position = {x = 7, y = 0}}
+    local colony = {
+      id = 1,
+      ghosts = {["1:5,0"] = g1, ["1:7,0"] = g2},
+      repairs = {},
+      claimed = {["1:5,0"] = true}, -- 1 ghost claimed by an active builder
+      ghost_blocked = {},
+      huts = {},
+      colonists = {[10] = {valid = true}},
+    }
+    storage.colonies = {[1] = colony}
+    storage.unit_state = {
+      [10] = {colony_id = 1, job = "construct", state = "to_construct"},
+    }
+
+    local slots, cap = work.job_slots(colony)
+    eq(slots.construct, 1, "exactly 1 unclaimed ghost slot remains")
+    eq(cap.construct, 2, "total capacity is 1 open + 1 active builder = 2")
+  end)
+
+  it("work.assign protects active delivery and construction trips from state wipe", function()
+    local env = mock.install(); env = env.reset()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+
+    local c_ent = {
+      valid = true, name = "colony-colonist", unit_number = 20, position = {x = 1, y = 1},
+      surface = {index = 1, dark_fraction = 0}, force = {print = function() end},
+      commandable = {set_command = function() end},
+    }
+    local hall_ent = {valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0}}
+    local colony = {
+      id = 1, hall = hall_ent, surface_index = 1, colonists = {[20] = c_ent},
+      huts = {}, claimed = {},
+    }
+    storage.colonies = {[1] = colony}
+    storage.unit_state = {
+      [20] = {colony_id = 1, job = "construct", state = "to_construct", carry = {{item = "stone-furnace", count = 1}}},
+    }
+
+    -- Ambient assign trigger must NOT wipe to_construct state!
+    work.assign(colony, 20)
+    eq(storage.unit_state[20].state, "to_construct", "state was preserved")
+    eq(#storage.unit_state[20].carry, 1, "carried items were preserved")
+    eq(storage.unit_state[20].carry[1].item, "stone-furnace")
+  end)
+
+  it("releasing a colonist refunds carried goods to the hall", function()
+    local env = mock.install(); env = env.reset()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+
+    local hall_inv = make_chest({})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1}, force = {print = function() end},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+      insert = function(stack) return hall_inv.insert(stack) end,
+    }
+    local colony = {
+      id = 1, hall = hall_ent, surface_index = 1, huts = {}, warehouses = {}, claimed = {["1:5,0"] = true},
+    }
+    storage.colonies = {[1] = colony}
+
+    local st = {colony_id = 1, job = "construct", site_key = "1:5,0", carry = {{item = "stone-furnace", count = 1}}}
+    work.release(st)
+
+    eq(st.carry, nil, "carried items cleared from unit state")
+    eq(colony.claimed["1:5,0"], nil, "site claim released")
+    eq(hall_inv.get_item_count("stone-furnace"), 1, "furnace returned to town hall")
+  end)
+end)

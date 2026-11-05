@@ -20,7 +20,7 @@ M.WORK_TICKS = 480          -- ticks of work animation per trip (8 s)
 M.CARRY_CAP = 20            -- items a colonist can carry
 
 -- --- tools -----------------------------------------------------------------------------------------------
-M.TOOL_USES = 12            -- trips before one tool in the hut wears out
+M.TOOL_USES = 30            -- trips before one tool in the hut wears out
 
 -- --- salt + preservation ---------------------------------------------------------------------------------
 M.SALT_TICKS = 1800         -- ticks per salt from one pan (30 s), worker-free

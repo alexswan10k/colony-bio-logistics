@@ -72,7 +72,7 @@ end
 
 function M.job_counts(colony)
   local counts = {}
-  for un, c in pairs(colony.colonists) do
+  for un, c in pairs(colony.colonists or {}) do
     local st = storage.unit_state[un]
     if c.valid and st and st.job and st.job ~= "child" then counts[st.job] = (counts[st.job] or 0) + 1 end
   end
@@ -330,7 +330,9 @@ local function construct_open(colony)
   for _, k in ipairs(sorted_keys(colony.ghosts or {})) do
     local g = colony.ghosts[k]
     if g.valid then
-      if not colony.claimed[k] then ghosts = ghosts + 1 end
+      if not colony.claimed[k] and (colony.ghost_blocked[k] or 0) <= game.tick then
+        ghosts = ghosts + 1
+      end
     else colony.ghosts[k] = nil end
   end
   for _, k in ipairs(sorted_keys(colony.repairs or {})) do
@@ -575,9 +577,11 @@ local function job_slots(colony)
   end
   local slots = labour.free_slots(list)
   local capacity = labour.capacity_by_job(list)
-  -- Construction has no hut: its slots are the open ghosts/repairs in the registry, minus current builders.
-  capacity.construct = construct_open(colony)
-  slots.construct = math.max(capacity.construct - (job_counts(colony).construct or 0), 0)
+  -- Construction has no hut: construct_open already counts unclaimed ghosts + needed repairs.
+  local open_construct = construct_open(colony)
+  local active_builders = (job_counts(colony).construct or 0)
+  capacity.construct = open_construct + active_builders
+  slots.construct = open_construct
   return slots, capacity, list, active
 end
 M.job_slots = job_slots
@@ -1154,7 +1158,7 @@ local function hut_collect_offer(h, colony)
   end
 
   local priority = haul_plan.PRIORITY.hut_output
-  local is_critical = has_food and colony and (colony_mod.total_food(colony) == 0)
+  local is_critical = has_food and colony and (colony_mod.food_in(colony) < 10)
   local is_full = inv.is_full and inv.is_full()
   local is_urgent = is_full or ((h.priority or 3) <= 2) or ((h.limit or def.capacity or 1) <= 0)
 
@@ -1165,7 +1169,7 @@ local function hut_collect_offer(h, colony)
   elseif is_urgent then
     priority = haul_plan.PRIORITY.urgent_collect
   else
-    if total_available < 10 then return nil end
+    if total_available < 4 then return nil end
   end
 
   return {kind = "collect", hut = h, entity = h.entity, pos = h.entity.position,
@@ -1604,11 +1608,11 @@ end
 -- A `unit` standing inside a ghost blocks `revive` outright (the engine will not place an entity where a
 -- character stands). `go(..., 2)` can leave the builder on its own site, and an idle colonist never steps off
 -- by itself, so a blocked site used to be retried forever with the builder standing on it.
-local function unit_blocking(site)
+local function unit_blocking(site, exclude_un)
   local box = site.bounding_box
-  local r = math.max(box.right_bottom.x - box.left_top.x, box.right_bottom.y - box.left_top.y) / 2 + 1
+  local r = math.max(box.right_bottom.x - box.left_top.x, box.right_bottom.y - box.left_top.y) / 2 + 0.5
   for _, o in ipairs(site.surface.find_entities_filtered{position = site.position, radius = r, type = "unit"}) do
-    if o.valid then return o end
+    if o.valid and o.unit_number ~= exclude_un then return o end
   end
 end
 
@@ -1628,11 +1632,13 @@ end
 local function start_construct(colony, un, e)
   local site = find_construct_site(colony, e.position)
   if not site then return false end
+  colony.claimed[site.key] = true
   local carry, got = {}, 0
   if site.kind == "build" then
     for _, s in ipairs(site.cost) do
       local n = colony_mod.take_stock(colony, s.item, s.count)
       if n < s.count then                      -- someone else bought it first: put ours back and wait
+        colony.claimed[site.key] = nil
         if n > 0 then colony_mod.put_stock(colony, s.item, n) end
         if #carry > 0 and colony.hall.valid then return_to_hall(colony, carry) end
         return false
@@ -1642,12 +1648,17 @@ local function start_construct(colony, un, e)
     end
   else
     local n = colony_mod.take_stock(colony, construct.REPAIR_PACK, 1)
-    if n < 1 then return false end
+    if n < 1 then
+      colony.claimed[site.key] = nil
+      return false
+    end
     carry[1] = {item = construct.REPAIR_PACK, count = n}
     got = n
   end
-  if got <= 0 then return false end
-  colony.claimed[site.key] = true
+  if got <= 0 then
+    colony.claimed[site.key] = nil
+    return false
+  end
   storage.unit_state[un] = {colony_id = colony.id, job = "construct", state = "to_construct",
     kind = site.kind, site = site.target, site_key = site.key, carry = carry}
   set_label(e, M.LABELS.construct)
@@ -1712,6 +1723,7 @@ local function idle(colony, un, e)
   -- real assignment replaces this state and starts over, and a hut, priority or target change wakes the town
   -- through reassign_workforce regardless of the timer.
   local prev = storage.unit_state[un]
+  if prev and prev.carry then M.release(prev) end
   -- A young colony stays snappy (its few idle colonists must notice new work quickly); only a big town backs off.
   local pop = colony_mod.live_colonists(colony)
   local cap = math.min(1 + math.floor(pop / M.RETRY_BACKOFF_POP), M.RETRY_BACKOFF_MAX)
@@ -2040,6 +2052,15 @@ function M.assign(colony, un)
       and alarm.covers(colony.alarms, st.fled_from) then return end
   if M.take_cover and colony.alarms and #colony.alarms > 0 and M.take_cover(colony, un, e) then return end
   if st and st.state == "sheltered" then e.destructible = true end   -- its alarm is gone: out and back to work
+
+  -- Colonists actively delivering or constructing must NOT have their state wiped by an asynchronous assignment!
+  if st and (st.state == "to_construct" or st.state == "building" or st.state == "repairing"
+      or st.state == "to_house" or st.state == "to_hut" or st.state == "to_machine"
+      or st.state == "to_crate" or st.state == "to_pool" or st.state == "to_tavern"
+      or st.state == "to_bin" or st.state == "to_site" or st.state == "working") then
+    return
+  end
+  if st and st.carry then M.release(st) end
   local lock = colony.locks and colony.locks[un]
 
   -- Night time: colonists return to their house to sleep. Children (#88) sleep with the household too.
@@ -2257,6 +2278,7 @@ function M.release(st)
     local def = labour.HUTS[st.hut.entity.name]
     update_lab_status(st.hut.entity, worker_count(st.hut), def and def.capacity or 2)
   end
+  st.state = "idle"
 end
 
 scheduler.register("garrison.scan", function(d)
@@ -2492,34 +2514,33 @@ scheduler.register("construct.finish", function(d)
   if st.site_key then colony.claimed[st.site_key] = nil end
   local site = st.site
   if st.kind == "build" then
-    -- Clear colliding trees and rocks on the ghost footprint before reviving!
-    if site and site.valid and site.type == "entity-ghost" then
-      local box = site.bounding_box
-      local search_area = {
-        {box.left_top.x - 0.8, box.left_top.y - 0.8},
-        {box.right_bottom.x + 0.8, box.right_bottom.y + 0.8}
-      }
-      for _, blocker in ipairs(site.surface.find_entities_filtered{area = search_area, type = {"tree", "simple-entity"}}) do
-        if blocker.valid then blocker.destroy() end
-      end
-      -- Teleport any units, players or vehicles standing on or encroaching the ghost's footprint out of the way!
-      for _, blocker_unit in ipairs(site.surface.find_entities_filtered{area = search_area, type = {"unit", "character", "car", "spider-vehicle"}}) do
-        if blocker_unit.valid then
-          local aside = aside_from(site, blocker_unit.position)
-          local safe = site.surface.find_non_colliding_position(blocker_unit.name, aside, 5, 0.2) or aside
-          blocker_unit.teleport(safe)
+    -- `revive` consumes the ghost, so capture what we need for the message first.
+    local is_ghost = site and site.valid and site.type == "entity-ghost"
+    local pos = is_ghost and {x = site.position.x, y = site.position.y}
+    local ghost_name = is_ghost and site.ghost_name
+    local ghost_tags = is_ghost and site.tags
+    local built = nil
+    if is_ghost then
+      local _, new_ent = site.revive{raise_revive = true}
+      built = new_ent
+      if not built and site.valid then
+        -- Initial revive failed: clear trees and rocks on the ghost footprint
+        local box = site.bounding_box
+        for _, blocker in ipairs(site.surface.find_entities_filtered{area = box, type = {"tree", "simple-entity"}}) do
+          if blocker.valid then blocker.destroy() end
         end
+        -- Only nudge units that are actually inside the ghost footprint (excluding the builder itself)
+        for _, blocker_unit in ipairs(site.surface.find_entities_filtered{area = box, type = {"unit", "character", "car", "spider-vehicle"}}) do
+          if blocker_unit.valid and blocker_unit.unit_number ~= d.un then
+            local aside = aside_from(site, blocker_unit.position)
+            local safe = site.surface.find_non_colliding_position(blocker_unit.name, aside, 4, 0.2) or aside
+            blocker_unit.teleport(safe)
+          end
+        end
+        local _, retry_ent = site.revive{raise_revive = true}
+        built = retry_ent
       end
     end
-    -- `revive` consumes the ghost, so capture what we need for the message first.
-    local pos = site and site.valid and {x = site.position.x, y = site.position.y}
-    local ghost_name = site and site.valid and site.ghost_name
-    local ghost_tags = site and site.valid and site.tags
-    -- `revive` returns (items it collided with, the new entity, the item request proxy): the entity is the
-    -- second value, so take it explicitly rather than testing the item list for truthiness. `raise_revive`
-    -- also re-delivers the ghost's blueprint tags to `on_built`, which is how a revived opt-in machine is
-    -- registered again (#36).
-    local built = site and site.valid and site.type == "entity-ghost" and select(2, site.revive{raise_revive = true})
     if built then
       if ghost_tags then colony_mod.apply_tags(colony, built, ghost_tags) end
       for _, s in ipairs(st.carry or {}) do stats.consumed(colony, s.item, s.count) end
@@ -2528,7 +2549,7 @@ scheduler.register("construct.finish", function(d)
       popup(e.surface, pos or e.position, {"", "Built ", item_name(ghost_name)})
     else
       local attempts = st.attempts or 0
-      local blocker = site and site.valid and unit_blocking(site)
+      local blocker = site and site.valid and unit_blocking(site, d.un)
       if attempts < 3 and (blocker or (site and site.valid)) then
         st.attempts = attempts + 1
         colony.claimed[st.site_key] = true       -- the site is still ours, just not reachable yet
@@ -2558,6 +2579,9 @@ scheduler.register("construct.finish", function(d)
     end
     if packs > 0 then return_to_hall(colony, {{item = construct.REPAIR_PACK, count = packs}}) end
   end
+  st.state = "idle"
+  st.site = nil
+  st.kind = nil
   wake_idle_colonists(colony)
   M.assign(colony, d.un)
 end)
@@ -2634,6 +2658,24 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   -- A truck heading home parks wherever it gave up, rather than looping on an unreachable pool.
   if st.state == "to_park" then truck_home(colony, ev.unit_number); return end
   if ev.result ~= defines.behavior_result.success and st.job ~= "hunt" and st.state ~= "to_bed" then
+    if st.state == "to_construct" and (st.path_attempts or 0) < 3 then
+      st.path_attempts = (st.path_attempts or 0) + 1
+      local e = unit_entity(colony, ev.unit_number)
+      if e and e.valid and st.site and st.site.valid then
+        local dest_rad = (st.kind == "build" and st.site.valid) and site_radius(st.site) or 1
+        local dest_target = st.site.valid and st.site.position or st.site_pos
+        if dest_target and dist2(e.position, dest_target) <= (dest_rad + 1.5) * (dest_rad + 1.5) then
+          st.state = st.kind == "build" and "building" or "repairing"
+          e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
+          work_ring(e, st.site.position)
+          scheduler.after(construct.WORK_TICKS, "construct.finish", {un = ev.unit_number})
+          return
+        elseif dest_target then
+          go(e, dest_target, dest_rad + 0.5)
+          return
+        end
+      end
+    end
     M.release(st)
     M.assign(colony, ev.unit_number)
     return
@@ -2767,6 +2809,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
         return
       end
     else M.release(st) end
+    st.state = "idle"
     wake_idle_colonists(colony)
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_bin" then
@@ -2785,6 +2828,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     -- can be rebuilt, and the next delivery clears it out again.
     if #leftover > 0 then return_to_hall(colony, leftover) end
     if dropped > 0 and e and e.valid then popup(e.surface, e.position, {"", "Composted ", tostring(dropped)}) end
+    st.state = "idle"
     wake_idle_colonists(colony)
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_site" then
@@ -2833,6 +2877,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
         end
       end
     end
+    st.state = "idle"
     wake_idle_colonists(colony)
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_hall" then
@@ -2851,6 +2896,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     end
     st.carry = nil
     colony.ledger_cache = nil
+    st.state = "idle"
     wake_idle_colonists(colony)
     M.assign(colony, ev.unit_number)
   end

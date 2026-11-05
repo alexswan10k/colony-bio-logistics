@@ -175,7 +175,8 @@ local migrations = {
       c.storage_priority = c.storage_priority or 3
       for _, h in pairs(c.huts or {}) do
         if h.logistics_enabled == nil then h.logistics_enabled = true end
-        h.priority = h.priority or 3
+        local default_p = (h.entity and h.entity.valid and h.entity.name == "colony-toolsmith") and 2 or 3
+        h.priority = h.priority or default_p
       end
       for _, h in pairs(c.houses or {}) do
         if h.logistics_enabled == nil then h.logistics_enabled = true end

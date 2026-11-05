@@ -729,7 +729,6 @@ function M.take_stock(colony, item, count)
         h.quota_met = nil
       end
     end
-    work.wake_idle_colonists(colony)
   end
   return taken
 end
@@ -1495,8 +1494,9 @@ local function on_built(ev)
           return
         end
       end
+      local default_priority = (name == "colony-toolsmith") and 2 or 3
       local hut = {entity = e, job = labour.HUTS[name].job, colony_id = colony.id, workers = {}, inflight = {}, wear = 0,
-        logistics_enabled = true, priority = 3}
+        logistics_enabled = true, priority = default_priority}
       if hut.job == "research" then
         e.custom_status = {
           diode = defines.entity_status_diode.red,

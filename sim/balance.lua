@@ -135,3 +135,32 @@ for _, shelf in ipairs({15, 45}) do
   print(("shelf %2d min  waste %5.1f%%  unmet %5.1f%%  avg_age %5.1f"):format(
     shelf, 100 * r.waste_frac, 100 * r.unmet_frac, r.avg_age))
 end
+
+print("\n== Q11 (#90): what does the colony want when it only asks for packs? (transitive demand)")
+local sg = require("scripts.model.supply_graph")
+local tree = sg.build({
+  {name = "colony-frontier-pack", products = {{"colony-frontier-pack", 1}},
+    ingredients = {{"wood", 1}, {"iron-plate", 1}, {"colony-forage", 2}}},
+  {name = "iron-plate", products = {{"iron-plate", 1}}, ingredients = {{"iron-ore", 1}}},
+  {name = "copper-plate", products = {{"copper-plate", 1}}, ingredients = {{"copper-ore", 1}}},
+  {name = "iron-gear-wheel", products = {{"iron-gear-wheel", 1}}, ingredients = {{"iron-plate", 2}}},
+  {name = "copper-cable", products = {{"copper-cable", 2}}, ingredients = {{"copper-plate", 1}}},
+  {name = "electronic-circuit", products = {{"electronic-circuit", 1}},
+    ingredients = {{"iron-plate", 1}, {"copper-cable", 3}}},
+  {name = "colony-civic-pack", products = {{"colony-civic-pack", 1}},
+    ingredients = {{"electronic-circuit", 1}, {"iron-gear-wheel", 1}, {"colony-produce", 1}}},
+})
+local function show(label, seeds)
+  local d = sg.whole(sg.merge(seeds, sg.propagate(tree, seeds)))
+  local keys = {}
+  for k in pairs(d) do keys[#keys + 1] = k end
+  table.sort(keys)
+  local parts = {}
+  for _, k in ipairs(keys) do parts[#parts + 1] = k .. " " .. d[k] end
+  print(("%-22s %s"):format(label, table.concat(parts, ", ")))
+end
+show("10 packs", {["colony-frontier-pack"] = 10})
+show("10 civic packs", {["colony-civic-pack"] = 10})
+show("20 gears (assembler)", {["iron-gear-wheel"] = 20})
+print(("damping %.2f over %d steps; a deeper chain adds less, and the direct request is never double-counted")
+  :format(sg.DAMPING, sg.DEPTH))

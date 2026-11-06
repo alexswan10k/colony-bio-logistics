@@ -9,6 +9,8 @@ local M = {}
 -- output, carrying spoilage away to a compost bin (#78), and last of all topping up houses that are already fed.
 -- Compost used to be last, but once haulers had to walk to every pickup there was always a top-up waiting, so
 -- spoilage sat in the hall for good; it blocks storage slots, and a fed house loses nothing by waiting.
+-- A house that is merely low on food asks at `request` (work.house_offer), and a nearby hut that holds what it
+-- wants answers it directly, so `buffer` is now only the floor the backlog count compares against (#93).
 M.PRIORITY = {
   critical = 1,
   tools = 2,
@@ -118,6 +120,14 @@ local function has_any_demanded(available, demands)
   return false
 end
 
+function M.storage_accepts(s, item)
+  if not s then return false end
+  if s.accept_all ~= false and s.accept_all ~= nil then return true end
+  if s.allowed_items then return s.allowed_items[item] == true end
+  if s.accepts_item then return s.accepts_item(item) end
+  return true
+end
+
 -- Match requesters, active providers, storages and compost offers into an optimal haul task.
 -- Requesters are served from active providers first (direct transfer), then storage.
 -- Active providers push unmatched output to the nearest storage with space.
@@ -143,10 +153,13 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
       end
     end
     if #direct_providers > 0 then
+      -- Nearest source *on the way to the destination*, not nearest to the destination: a hauler standing on
+      -- the far side of town should not walk past a full hut to reach a marginally closer one (#93).
       table.sort(direct_providers, function(a, b)
         local pa = a.pos or (a.entity and a.entity.position) or {x = 0, y = 0}
         local pb = b.pos or (b.entity and b.entity.position) or {x = 0, y = 0}
-        local da, db = dist2(pa, r_pos), dist2(pb, r_pos)
+        local da = dist2(hauler_pos or pa, pa) + dist2(pa, r_pos)
+        local db = dist2(hauler_pos or pb, pb) + dist2(pb, r_pos)
         if da ~= db then return da < db end
         return (a.key or 0) < (b.key or 0)
       end)
@@ -200,7 +213,9 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
         if spa ~= spb then return spa < spb end
         local sa = a.pos or (a.entity and a.entity.position) or {x = 0, y = 0}
         local sb = b.pos or (b.entity and b.entity.position) or {x = 0, y = 0}
-        local da, db = dist2(sa, r_pos), dist2(sb, r_pos)
+        -- Route distance from where the hauler actually stands (#93), not distance to the destination alone.
+        local da = dist2(hauler_pos or sa, sa) + dist2(sa, r_pos)
+        local db = dist2(hauler_pos or sb, sb) + dist2(sb, r_pos)
         if da ~= db then return da < db end
         return (a.key or 0) < (b.key or 0)
       end)
@@ -234,14 +249,6 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
       end
     end
   end
-
-function M.storage_accepts(s, item)
-  if not s then return false end
-  if s.accept_all ~= false and s.accept_all ~= nil then return true end
-  if s.allowed_items then return s.allowed_items[item] == true end
-  if s.accepts_item then return s.accepts_item(item) end
-  return true
-end
 
   -- 2. Active providers: push finished output to nearest storage with space that accepts the items
   for _, p in ipairs(providers) do

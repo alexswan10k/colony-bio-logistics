@@ -48,6 +48,19 @@ describe("desirability", function()
     local private = desirability.compute({food_ratio = 0.5, free_housing_ratio = 0.5, privacy = 1})
     near(private - base, desirability.defaults.w_privacy)
   end)
+  it("a short commute is a small bonus and a long one loses it (#93)", function()
+    local base = desirability.compute({food_ratio = 0.5, free_housing_ratio = 0.5})
+    local near_work = desirability.compute({food_ratio = 0.5, free_housing_ratio = 0.5, commute = 1})
+    local far_away = desirability.compute({food_ratio = 0.5, free_housing_ratio = 0.5, commute = 0})
+    near(near_work - base, desirability.defaults.w_commute)
+    near(far_away, base, 1e-9, "no commute bonus is never a penalty")
+  end)
+  it("commute_score falls from 1 at the door to 0 at commute_far", function()
+    near(desirability.commute_score(0), 1)
+    near(desirability.commute_score(desirability.defaults.commute_far), 0)
+    near(desirability.commute_score(desirability.defaults.commute_far / 2), 0.5)
+    near(desirability.commute_score(desirability.defaults.commute_far * 4), 0)
+  end)
 end)
 
 describe("entity tags (#36)", function()
@@ -726,6 +739,16 @@ describe("haul_plan", function()
     truthy(task)
     eq(task.kind, "direct")
     eq(task.load[1].count, 3)
+  end)
+  it("picks the source on the way from the hauler, not the one nearest the destination (#93)", function()
+    local house = {key = 1, priority = hp.PRIORITY.request, pos = {x = 100, y = 0}, demands = {{item = "wood", count = 10}}}
+    local next_door = {key = 2, pos = {x = 100, y = 5}, available = {wood = 10}, has_space = true}
+    local on_the_way = {key = 3, pos = {x = 50, y = 5}, available = {wood = 10}, has_space = true}
+    -- Hauler at the origin: next_door = 100.12 + 5 = 105.12, on_the_way = 50.25 + 50.25 = 100.5.
+    local task = hp.match({house}, {}, {next_door, on_the_way}, nil, 20, {x = 0, y = 0})
+    truthy(task)
+    eq(task.kind, "supply")
+    eq(task.source.key, 3)
   end)
 end)
 
@@ -1891,5 +1914,118 @@ describe("breeding (#88)", function()
     truthy(r1 >= 0 and r1 < 1)
     local other = breeding.roll(42, 1001, 3)
     truthy(r1 ~= other)
+  end)
+end)
+
+describe("supply graph (#90)", function()
+  local sg = require("scripts.model.supply_graph")
+  local recipes = sg.build({
+    {name = "iron-plate", products = {{"iron-plate", 1}}, ingredients = {{"iron-ore", 1}}},
+    {name = "copper-plate", products = {{"copper-plate", 1}}, ingredients = {{"copper-ore", 1}}},
+    {name = "iron-gear-wheel", products = {{"iron-gear-wheel", 1}}, ingredients = {{"iron-plate", 2}}},
+    {name = "copper-cable", products = {{"copper-cable", 2}}, ingredients = {{"copper-plate", 1}}},
+    {name = "electronic-circuit", products = {{"electronic-circuit", 1}},
+      ingredients = {{"iron-plate", 1}, {"copper-cable", 3}}},
+  })
+  it("keeps one recipe per product", function()
+    truthy(recipes["iron-plate"])
+    truthy(recipes["electronic-circuit"])
+    local n = 0
+    for _ in pairs(recipes) do n = n + 1 end
+    eq(n, 5)
+  end)
+  it("picks the recipe with the fewest ingredient types, ties by name", function()
+    local r = sg.build({
+      {name = "b-alternate", products = {{"widget", 1}}, ingredients = {{"a", 1}, {"b", 1}, {"c", 1}}},
+      {name = "a-base", products = {{"widget", 1}}, ingredients = {{"a", 1}}},
+    })
+    eq(#r.widget.ingredients, 1)
+    eq(r.widget.ingredients[1][1], "a")
+  end)
+  it("walks demand up one floor per recipe step, damped", function()
+    local up = sg.propagate(recipes, {["electronic-circuit"] = 10})
+    local d = sg.DAMPING
+    near(up["iron-plate"], 10 * 1 * d)                    -- floor 1
+    near(up["copper-cable"], 10 * 3 * d)                  -- floor 1
+    near(up["copper-plate"], 10 * 3 * d / 2 * d * d)      -- floor 2, and a cable recipe yields 2
+    near(up["copper-ore"], 10 * 3 * d / 2 * d * d * d * d * d, 1e-9) -- floor 3
+    near(up["iron-ore"], 10 * 1 * d * d * d)              -- floor 2 through the plate
+  end)
+  it("reports the floors above a seed, and the seed only if a recipe feeds it back", function()
+    local up = sg.propagate(recipes, {["iron-plate"] = 10})
+    eq(up["iron-plate"], nil, "nothing produces a plate from a plate")
+    near(up["iron-ore"], 10 * sg.DAMPING)
+    -- Ore demanded in its own right (a crate) still pulls nothing, but a chain that consumes it adds up.
+    local both = sg.merge({["iron-ore"] = 20}, sg.propagate(recipes, {["iron-ore"] = 20, ["iron-plate"] = 10}))
+    near(both["iron-ore"], 20 + 10 * sg.DAMPING, 1e-9)
+  end)
+  it("stops at the depth limit and terminates on a cycle", function()
+    local cyclic = sg.build({
+      {name = "a", products = {{"a", 1}}, ingredients = {{"b", 1}}},
+      {name = "b", products = {{"b", 1}}, ingredients = {{"a", 1}}},
+    })
+    local up = sg.propagate(cyclic, {a = 100})
+    truthy(up.b and up.b > 0)
+    truthy(up.b < 200, "a cycle stays bounded instead of exploding")
+    truthy(up.a and up.a < 100, "a seed fed back through a cycle is damped, not doubled")
+    local shallow = sg.propagate(cyclic, {a = 100}, 1)
+    near(shallow.b, 100 * sg.DAMPING)
+    truthy(shallow.a == nil, "one step only reaches b")
+  end)
+  it("merges the floors into the direct demand and rounds to whole items", function()
+    local merged = sg.whole(sg.merge({["iron-gear-wheel"] = 10}, sg.propagate(recipes, {["iron-gear-wheel"] = 10})))
+    eq(merged["iron-gear-wheel"], 10)
+    local plate = 10 * 2 * sg.DAMPING
+    eq(merged["iron-plate"], math.floor(plate + 0.5))          -- 2 plates per gear
+    eq(merged["iron-ore"], math.floor(plate * sg.DAMPING * sg.DAMPING + 0.5))
+    for _, v in pairs(merged) do truthy(v == math.floor(v)) end
+  end)
+  it("ignores seeds with no recipe and zero or negative counts", function()
+    eq(next(sg.propagate(recipes, {["raw-fish"] = 10})), nil)
+    eq(next(sg.propagate(recipes, {["iron-plate"] = 0, wood = -4})), nil)
+    eq(next(sg.propagate(nil, {["iron-plate"] = 10})), nil)
+  end)
+end)
+
+describe("site picking (#93)", function()
+  local sites = require("scripts.model.sites")
+  local function node(un, x, y, extra)
+    local n = {unit_number = un, position = {x = x, y = y}, valid = true}
+    for k, v in pairs(extra or {}) do n[k] = v end
+    return n
+  end
+  local hut = {x = 0, y = 0}
+
+  it("picks the nearest site and breaks exact ties by unit number", function()
+    local far = node(9, 10, 0)
+    local near_a = node(7, 3, 0)
+    local near_b = node(5, 0, 3)
+    eq(sites.best({far, near_a, near_b}, hut).unit_number, 5, "same distance: lower unit number wins")
+  end)
+  it("within the same distance band, prefers the site nearest home", function()
+    -- Both within the 8-tile band of the hut; the one by the house wins.
+    local away = node(1, 7, 0)
+    local by_home = node(2, 0, 5)
+    eq(sites.best({away, by_home}, hut, nil, {x = 0, y = 8}).unit_number, 2)
+    -- ...the other way round when the house is on the other side.
+    eq(sites.best({away, by_home}, hut, nil, {x = 9, y = 0}).unit_number, 1)
+  end)
+  it("a site in a nearer band always beats a distant one that suits the house", function()
+    local by_hut = node(1, 2, 0)     -- band 0
+    local by_house = node(2, 30, 0)  -- band 2, right next to home
+    eq(sites.best({by_house, by_hut}, hut, nil, {x = 30, y = 1}).unit_number, 1)
+  end)
+  it("skips invalid candidates and anything the predicate rejects", function()
+    local dead = node(1, 1, 0, {valid = false})
+    local claimed = node(2, 2, 0)
+    local ok = node(3, 9, 0)
+    local picked = sites.best({dead, claimed, ok}, hut, function(c) return c.unit_number ~= 2 end)
+    eq(picked.unit_number, 3)
+    eq(sites.best({dead}, hut), nil)
+  end)
+  it("is deterministic for the same set in any order", function()
+    local a, b, c = node(3, 4, 0), node(1, 4, 0), node(2, 4, 0)
+    eq(sites.best({a, b, c}, hut, nil, {x = 0, y = 0}).unit_number, 1)
+    eq(sites.best({c, a, b}, hut, nil, {x = 0, y = 0}).unit_number, 1)
   end)
 end)

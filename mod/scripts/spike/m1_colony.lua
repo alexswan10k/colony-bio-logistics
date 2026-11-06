@@ -524,9 +524,19 @@ core.register("m1_colony", {
       local problems = gui.colony_advice(c, colony.stats(c), work.job_counts(c))
       local asm = s.create_entity{name = "assembling-machine-1", position = {p.x - 12, p.y + 12}, force = "player"}
       asm.set_recipe("iron-gear-wheel")
+      local ore_before = colony.resource_demand(c, "iron-ore")
       local am = colony.set_machine(c, asm, true)
       ctx.check("opting an assembler in reads its recipe", am.requests[1] and am.requests[1].item == "iron-plate"
         and am.requests[1].count == 10, am.requests[1] and (am.requests[1].item .. " x" .. am.requests[1].count) or "none")
+      -- Transitive demand (#90): the plate request pulls ore up the *real* recipe graph (1 iron ore -> 1 plate),
+      -- so the miner's quota for ore rises without the player setting one.
+      local graph = colony.recipe_graph(asm.force) or {}
+      local plate = graph["iron-plate"]
+      ctx.check("the recipe graph comes from data.raw", plate and #plate.ingredients == 1
+        and plate.ingredients[1][1] == "iron-ore", plate and plate.ingredients[1][1] or "no plate recipe")
+      local ore_after = colony.resource_demand(c, "iron-ore")
+      ctx.check("demand walks up the real recipe graph to ore", ore_after - ore_before >= 7,
+        string.format("iron ore wanted %d -> %d", ore_before, ore_after))
       colony.set_machine(c, asm, false); asm.destroy()
       ctx.check("colony advice computes", type(problems) == "table", #problems)
 

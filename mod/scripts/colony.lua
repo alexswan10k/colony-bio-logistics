@@ -22,6 +22,7 @@ local labour = require("scripts.model.labour")
 local tags = require("scripts.model.tags")
 local ledger = require("scripts.model.ledger")
 local quota = require("scripts.model.quota")
+local supply_graph = require("scripts.model.supply_graph")
 local headcount = require("scripts.model.headcount")
 local milestones = require("scripts.model.milestones")
 local work = require("scripts.work")
@@ -556,47 +557,93 @@ function M.global_quotas()
   return g
 end
 
--- Downstream demand for a resource: machine inputs, crate filters, hut inputs, heating, and food buffers.
-function M.resource_demand(colony, item)
-  if not colony then return 0 end
-  local demand = 0
+-- The recipe map is derived from the force's unlocked recipes, so it does not belong in storage's schema:
+-- it is rebuilt lazily (and after a research finishes it is at most `GRAPH_TTL` ticks stale).
+M.GRAPH_TTL = 1800
 
-  -- 1. Downstream machine requests (marked smelters, assemblers)
+-- {product -> {ingredients, yield}} for what this force can actually make (#90). One recipe per product,
+-- chosen by `supply_graph.build` (fewest ingredient types). Fluids are kept: they are inert in the quota
+-- tables, but they are what a real chain passes through.
+local function recipe_graph(force)
+  if not (force and force.valid) then return nil end
+  M.recipe_graph_cache = M.recipe_graph_cache or {}
+  local cached = M.recipe_graph_cache[force.index]
+  if cached and cached.recipes and cached.tick and game.tick - cached.tick < M.GRAPH_TTL then
+    return cached.recipes
+  end
+  local list = {}
+  for name, r in pairs(prototypes.recipe) do
+    local fr = force.recipes[name]
+    if fr and fr.enabled and not r.hidden then
+      local products, ingredients = {}, {}
+      for _, p in pairs(r.products or {}) do
+        products[#products + 1] = {p.name, p.amount or p.amount_min or 1}
+      end
+      for _, i in pairs(r.ingredients or {}) do
+        ingredients[#ingredients + 1] = {i.name, i.amount or i.amount_min or 1}
+      end
+      if #products > 0 and #ingredients > 0 then
+        list[#list + 1] = {name = name, products = products, ingredients = ingredients}
+      end
+    end
+  end
+  local recipes = supply_graph.build(list)
+  M.recipe_graph_cache[force.index] = {recipes = recipes, tick = game.tick}
+  return recipes
+end
+M.recipe_graph = recipe_graph
+
+-- Whole-colony demand: the direct seeds plus everything their recipes pull from one floor down (#90).
+-- Cached for a short while because `quota_target` is asked for many items on every assignment, and the
+-- propagation is a graph walk. `M.invalidate_demand` drops it when the colony's shape changes.
+M.DEMAND_TTL = 30
+local demand_cache = {}   -- [colony.id] = {tick =, table =}
+
+function M.invalidate_demand(colony)
+  if colony then demand_cache[colony.id] = nil end
+end
+
+function M.demand_table(colony)
+  if not colony then return {} end
+  local c = demand_cache[colony.id]
+  if c and c.tick and game.tick - c.tick < M.DEMAND_TTL then return c.table end
+
+  local seeds = {}
+  -- Machine requests and demand crates, collected in one pass so the graph walk happens once.
   for _, m in pairs(colony.machines or {}) do
     if m.entity and m.entity.valid and m.enabled and m.requests then
       for _, req in pairs(m.requests) do
-        if req.item == item then
-          demand = demand + (req.count or 0)
-        end
+        if req.item then seeds[req.item] = (seeds[req.item] or 0) + (req.count or 0) end
       end
     end
   end
-
-  -- 2. Downstream demand crates
-  for _, c in ipairs(M.crate_list(colony, crates.DEMAND)) do
-    if c.filters then
-      for i = 1, crates.FILTER_ROWS do
-        local f = c.filters[i]
-        if f and f.item == item then
-          demand = demand + (f.count or crates.DEFAULT_COUNT)
-        end
-      end
+  for _, crate in ipairs(M.crate_list(colony, crates.DEMAND)) do
+    for i = 1, crates.FILTER_ROWS do
+      local f = crate.filters and crate.filters[i]
+      if f and f.item then seeds[f.item] = (seeds[f.item] or 0) + (f.count or crates.DEFAULT_COUNT) end
     end
   end
-
-  -- 3. Downstream hut inputs (fertilizer, salt, etc.)
   for _, h in pairs(colony.huts or {}) do
     if h.entity and h.entity.valid then
       local def = labour.HUTS[h.entity.name]
-      if def and def.inputs then
-        for _, inp in ipairs(def.inputs) do
-          if inp.item == item then demand = demand + inp.count end
-        end
+      for _, inp in ipairs(def and def.inputs or {}) do
+        if inp.item then seeds[inp.item] = (seeds[inp.item] or 0) + inp.count end
       end
     end
   end
 
-  return demand
+  local recipes = recipe_graph(colony.hall and colony.hall.force)
+  local upstream = supply_graph.whole(supply_graph.propagate(recipes, seeds))
+  local table_ = supply_graph.merge(seeds, upstream)
+  demand_cache[colony.id] = {tick = game.tick, table = table_}
+  return table_
+end
+
+-- Downstream demand for a resource, including everything that is produced from it (#90).
+function M.resource_demand(colony, item)
+  if not colony then return 0 end
+  local t = M.demand_table(colony)
+  return t[item] or 0
 end
 
 function M.base_quota_target(colony, item)
@@ -628,6 +675,7 @@ function M.set_quota(colony, item, target)
   colony.quotas = colony.quotas or {}
   colony.quotas[item] = target
   colony.ledger_cache = nil
+  M.invalidate_demand(colony)
   for _, h in pairs(colony.huts or {}) do
     h.quota_met = nil
     h.quota_item = nil
@@ -1123,13 +1171,39 @@ function M.evaluate(data)
     for i = 1, #houses do sum = sum + (occ[i] == 0 and 1 or 1 / occ[i]) end
     privacy = sum / #houses
   end
+  -- Commute (#93): the mean walk from a colonist's house to the hut they work at. Only workers count, so a
+  -- town with nothing to do scores 0 (no bonus, never a penalty). Unit numbers are sorted before summing
+  -- because float addition is order-sensitive and two runs of the same save must agree to the last bit.
+  local work_walk = 0
+  do
+    local units = {}
+    for un, c in pairs(colony.colonists or {}) do
+      local st = storage.unit_state and storage.unit_state[un]
+      local hut = st and st.hut
+      if c.valid and hut and hut.entity and hut.entity.valid then units[#units + 1] = un end
+    end
+    table.sort(units)
+    local sum, n = 0, 0
+    for _, un in ipairs(units) do
+      local home = M.house_of_colonist(colony, un)
+      local hut = storage.unit_state[un].hut
+      if home and home.valid then
+        local a, b = home.position, hut.entity.position
+        local dx, dy = a.x - b.x, a.y - b.y
+        sum = sum + math.sqrt(dx * dx + dy * dy)
+        n = n + 1
+      end
+    end
+    if n > 0 then work_walk = desirability.commute_score(sum / n) end
+  end
+  colony.commute = work_walk
   local d, parts = desirability.compute({
     food_ratio = M.total_food(colony) / target,
     free_housing_ratio = capacity > 0 and math.max(capacity - pop - (colony.away or 0), 0) / capacity or 0,
     scenic = colony.scenic or 0, leisure = rated > 0 and score_sum / rated or 0, recreation = colony.recreation or 0,
     pollution = pollution, deaths = colony.deaths,
     sickness = pop > 0 and (colony.sick_count or 0) / pop or 0,
-    tents = tents, open_jobs = open_jobs, privacy = privacy,
+    tents = tents, open_jobs = open_jobs, privacy = privacy, commute = work_walk,
     death_halflife = mortality_model.halflife(desirability.defaults.death_halflife, #M.cemetery_list(colony) > 0),
   })
   colony.d, colony.d_parts = d, parts
@@ -1743,6 +1817,7 @@ function M.set_machine(colony, e, enabled)
     colony.machines[e.unit_number] = m
     if next(m.requests) == nil then m.requests = M.default_requests(e) end
     colony.machine_dirty = true
+    M.invalidate_demand(colony)          -- the new request changes what the whole chain wants (#90)
     script.register_on_object_destroyed(e)   -- so the registry (and the cached list) is pruned
     if not (m.badge and m.badge.valid) then
       m.badge = rendering.draw_sprite{sprite = M.BADGE_SPRITE, target = {entity = e, offset = {0, -1.3}},
@@ -1752,6 +1827,7 @@ function M.set_machine(colony, e, enabled)
     m.enabled = false
     m.need, m.has_output = nil, nil
     colony.machine_dirty = true
+    M.invalidate_demand(colony)
     if m.badge and m.badge.valid then m.badge.destroy() end
     m.badge = nil
   end

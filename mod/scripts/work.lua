@@ -12,6 +12,7 @@ local labour = require("scripts.model.labour")
 local alarm = require("scripts.model.alarm")
 local commute = require("scripts.model.commute")
 local haul_plan = require("scripts.model.haul_plan")
+local sites = require("scripts.model.sites")
 local farm = require("scripts.model.farm")
 local mine_plan = require("scripts.model.mine_plan")
 local crates = require("scripts.model.crates")
@@ -674,16 +675,10 @@ M.colony_missing_jobs = colony_missing_jobs
 -- Sites ------------------------------------------------------------------------------------------
 local function dist2(a, b) local dx, dy = a.x - b.x, a.y - b.y; return dx * dx + dy * dy end
 
--- Nearest valid candidate, ties broken by unit_number so the choice is deterministic.
-local function nearest(list, pos, accept)
-  local best, best_d
-  for _, e in ipairs(list) do
-    if e.valid and (not accept or accept(e)) then
-      local d = dist2(e.position, pos)
-      if not best_d or d < best_d or (d == best_d and (e.unit_number or 0) < (best.unit_number or 0)) then best, best_d = e, d end
-    end
-  end
-  return best
+-- Nearest valid site; within the same distance band the site nearest the colonist's house wins (#93).
+-- Rules live in `model/sites.lua`; this only supplies the validity predicate.
+local function nearest(list, pos, accept, home)
+  return sites.best(list, pos, accept, home)
 end
 
 -- Rocks (rock-huge, rock-big, sand-rock-big...) are `simple-entity`s, not resource patches, but mining one gives
@@ -753,7 +748,7 @@ end
 -- Harvest only in range and never on another colony's land (design §2.1), preferring the nearest site so
 -- colonists visibly work the forest / berry patch / ore next to their hut instead of walking to a random
 -- tree on the far edge of the radius.
-local function find_site(colony, e, hut, is_overflow)
+local function find_site(colony, e, hut, is_overflow, home)
   local s, base = e.surface, hut.entity.position
   local radius = hut.job == "forage" and colony_mod.FORAGE_RADIUS or colony_mod.HUT_RADIUS
   local in_territory = function(t) return harvestable(colony, t) end
@@ -762,12 +757,12 @@ local function find_site(colony, e, hut, is_overflow)
     if not (is_overflow and colony_mod.overflow_allowed(colony, "colony-forage")) and colony_mod.quota_met(colony, "colony-forage") then
       return nil, "colony-forage"
     end
-    return nearest(s.find_entities_filtered{name = "colony-forage-patch", position = base, radius = radius}, base, free)
+    return nearest(s.find_entities_filtered{name = "colony-forage-patch", position = base, radius = radius}, base, free, home)
   elseif hut.job == "chop" then
     if not (is_overflow and colony_mod.overflow_allowed(colony, "wood")) and colony_mod.quota_met(colony, "wood") then
       return nil, "wood"
     end
-    return nearest(s.find_entities_filtered{position = base, radius = radius, type = "tree"}, base, free)
+    return nearest(s.find_entities_filtered{position = base, radius = radius, type = "tree"}, base, free, home)
   elseif hut.job == "mine" then
     -- Ore priority: work the best-ranked ore that is actually in range.
     -- Ores sharing a rank round robin or follow downstream demand.
@@ -781,8 +776,8 @@ local function find_site(colony, e, hut, is_overflow)
           any_met = true
           last_met = ore
         else
-          local site = nearest(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = ore}, base, in_territory)
-          local rock = nearest(find_rocks(s, base, radius, ore), base, in_territory)
+          local site = nearest(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = ore}, base, in_territory, home)
+          local rock = nearest(find_rocks(s, base, radius, ore), base, in_territory, home)
           if site and rock then
             if dist2(rock.position, base) < dist2(site.position, base) then site = rock end
           else
@@ -867,19 +862,22 @@ local function find_site(colony, e, hut, is_overflow)
     if not (is_overflow and colony_mod.overflow_allowed(colony, "colony-produce")) and colony_mod.quota_met(colony, "colony-produce") then
       return nil, "colony-produce"
     end
-    -- Ripe plots first (food now), then fallow plots (plant for later); nearest wins, ties by unit_number.
-    local best, best_ripe, best_d, r2 = nil, false, nil, radius * radius
+    -- Ripe plots first (food now), then fallow plots (plant for later); then the same site order as anywhere
+    -- else: nearest the hut, home breaking ties inside a distance band (#93).
+    local best, best_ripe, best_key, r2 = nil, false, nil, radius * radius
     for un, plot in pairs(colony.plots or {}) do
       local pe = plot.entity
       if not pe.valid then
         colony.plots[un] = nil
       elseif (plot.stage == farm.FALLOW or plot.stage == farm.RIPE) and not colony.claimed[key(pe)]
           and in_territory(pe) and dist2(pe.position, base) <= r2 then
-        local ripe, d = plot.stage == farm.RIPE, dist2(pe.position, base)
-        if not best or (ripe and not best_ripe) or (ripe == best_ripe and
-            (d < best_d or (d == best_d and un < best.unit_number))) then
-          best, best_ripe, best_d = pe, ripe, d
-        end
+        local ripe = plot.stage == farm.RIPE
+        local k = sites.key(pe, base, home)
+        local better
+        if not best then better = true
+        elseif ripe ~= best_ripe then better = ripe
+        else better = sites.less(k, best_key) end
+        if better then best, best_ripe, best_key = pe, ripe, k end
       end
     end
     return best
@@ -1269,11 +1267,14 @@ M.machine_demands = machine_demands
 
 -- A produced intermediate the player capped in the ledger stops being collected at the cap (#84): the
 -- machine's output backs up and it stalls until demand or a higher cap moves the line. A cap of 0 means
--- unlimited, so untouched colonies behave exactly as before.
+-- unlimited, so untouched colonies behave exactly as before. The *base* target is the cap: downstream demand
+-- (#90) raises the collection target, never a ceiling the player set on purpose.
 local function supply_capped(colony, item)
   local def = quota.RESOURCES[item]
   if not (def and def.category == "supply") then return false end
-  return colony_mod.quota_met(colony, item)
+  local tgt = colony_mod.base_quota_target(colony, item)
+  if tgt <= 0 then return false end
+  return colony_mod.stock_count(colony, item) >= tgt
 end
 M.supply_capped = supply_capped
 
@@ -1706,7 +1707,9 @@ M.start_construct = start_construct
 
 local function start_trip(colony, un, hut, is_overflow)
   local e = colony.colonists[un]
-  local site, quota_item, target_ore = find_site(colony, e, hut, is_overflow)
+  -- The colonist's house (or the hall when they have none) breaks ties between equally close sites (#93).
+  local home = colony_mod.house_of_colonist(colony, un)
+  local site, quota_item, target_ore = find_site(colony, e, hut, is_overflow, home and home.position)
   if not site then
     hut.workers[un] = nil
     if quota_item then

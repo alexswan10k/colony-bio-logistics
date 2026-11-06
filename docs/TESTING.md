@@ -108,17 +108,17 @@ Three headless gates cover the things the unit tests and the playable spike cann
   the budget is read directly instead of being inferred from a delta.
 
   Measured on the reference Mac (500 colonists, 83 cabins, 20 huts, 2000 opted-in furnaces, 3600 ticks), run
-  2026-11-03 at commit 12c0854 (`scripts/bench-colony.sh`):
+  2026-11-06 at commit a50af55 (`scripts/bench-colony.sh`, quiet re-baseline #54):
 
   | save | total ms/tick | script ms/tick |
   |---|---|---|
-  | vanilla, no mod | 0.096 | - |
-  | mod on, no colony built | 0.101 | 0.002 |
-  | inert control (same entities, nothing registered) | 0.201 | 0.008 |
-  | colony, machines collect only | 0.557 | **0.333** |
-  | colony, machines also demand ore | 0.582 | **0.357** |
+  | vanilla, no mod | 0.113 | - |
+  | mod on, no colony built | 0.097 | 0.001 |
+  | inert control (same entities, nothing registered) | 0.223 | 0.024 |
+  | colony, machines collect only | 1.258 | **0.686** |
+  | colony, machines also demand ore | 1.323 | **0.722** |
 
-  Budget is <1 ms of Lua per tick, so the gate **passes** with ~60% headroom, and "mod enabled, no colony"
+  Budget is <1 ms of Lua per tick, so the gate **passes** with ~28% headroom, and "mod enabled, no colony"
   costs 2 microseconds of script time. An earlier run (before the milestone and feedback work) saw a median tick of
   0.2 ms and a p99 tail of ~8 ms from assignment bursts; the percentiles have not been re-measured since.
 
@@ -133,6 +133,13 @@ Three headless gates cover the things the unit tests and the playable spike cann
   `has_output` / `need` / `damaged` on each machine, assignment looks at a 16-machine window rotated by a
   cursor, and population / food / stock are cached with a short TTL instead of being recomputed per
   assignment. `construct.scan` also used to read health for every machine every 300 ticks (a 13 ms tick).
+  The #54 quiet re-baseline (2026-11-06) re-ran the same harness after a 1.1-1.2 ms FAIL: short-circuit
+  attribution (demand save, 1800 ticks, baseline 0.943 ms) isolated `M.assign` (0.92 ms), split into
+  `find_haul_task` (0.32 ms), `job_slots`/`hut_info` inventory reads (0.31 ms) and `colony_missing_*`
+  quota fan-out (0.19 ms, `global_quotas` rebuilt a 25-item table nine times per assignment). Fixes are
+  TTL caches only: `global_quotas` 300 ticks, `hut_info` tool counts 20 ticks (cleared on break/delivery),
+  `storage_list` 30 ticks — all deterministic on `game.tick`. Result 0.506 ms at 1800 ticks,
+  0.722 ms full 3600-tick gate: **PASS** back under budget with ~28% headroom.
 
 ## Engine behaviour worth remembering (learned the expensive way)
 

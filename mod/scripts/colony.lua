@@ -391,7 +391,12 @@ function M.storage_accepts(s, item)
   return s.allowed_items ~= nil and s.allowed_items[item] == true
 end
 
+M.STORAGE_TTL = 30           -- ticks a storage_list snapshot may be reused by find_haul_task (#54 bench)
+
 function M.storage_list(colony)
+  if colony.storage_cache and game.tick - (colony.storage_tick or -1e9) < M.STORAGE_TTL then
+    return colony.storage_cache
+  end
   local list = {}
   local hall = colony.hall
   if hall and hall.valid then
@@ -454,6 +459,7 @@ function M.storage_list(colony)
       colony.towers[un] = nil
     end
   end
+  colony.storage_cache, colony.storage_tick = list, game.tick
   return list
 end
 
@@ -548,6 +554,11 @@ end
 
 -- --- harvest quotas (#84) --------------------------------------------------------------------------------
 function M.global_quotas()
+  -- Settings change rarely; a 300-tick cache stops base_quota_target from rebuilding a 25-item table
+  -- (and reading every setting) nine times per assignment (#54 bench).
+  if M._global_quotas_cache and game.tick - (M._global_quotas_tick or -1e9) < 300 then
+    return M._global_quotas_cache
+  end
   local g = {}
   if settings and settings.global then
     for item in pairs(quota.RESOURCES) do
@@ -555,6 +566,7 @@ function M.global_quotas()
       if s and s.value and s.value > 0 then g[item] = s.value end
     end
   end
+  M._global_quotas_cache, M._global_quotas_tick = g, game.tick
   return g
 end
 

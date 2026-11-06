@@ -224,6 +224,7 @@ local function use_tool(hut, specific)
       end
     end
     if tool_item and hut.entity.remove_item{name = tool_item, count = 1} > 0 then
+      hut.tool_cache, hut.tool_tick = nil, nil   -- tool left the hut: force a fresh count (#54)
       local colony = hut.colony_id and storage.colonies and storage.colonies[hut.colony_id]
       if colony then stats.consumed(colony, tool_item, 1) end
       popup(hut.entity.surface, hut.entity.position, {"", "Tool broke: ", item_name(tool_item)})
@@ -320,18 +321,30 @@ local function worker_count(h)
   return n
 end
 
+M.HUT_TOOL_TTL = 20           -- ticks a hut's tool count may be reused (#54 bench: hut_info reads inventory per hut per assignment)
+
 function M.hut_info(h)
   local def = labour.HUTS[h.entity.name]
   -- A hut with no `tool` is gated by its inputs instead (#81): report its capacity as the allowance, and let
   -- the job itself refuse to start when there is nothing to work on.
   local tools
   if def.tools then
-    tools = 0
-    for _, t in ipairs(def.tools) do
-      tools = tools + (h.entity.valid and h.entity.get_item_count(t) or 0)
+    if h.tool_cache ~= nil and game.tick - (h.tool_tick or -1e9) < M.HUT_TOOL_TTL then
+      tools = h.tool_cache
+    else
+      tools = 0
+      for _, t in ipairs(def.tools) do
+        tools = tools + (h.entity.valid and h.entity.get_item_count(t) or 0)
+      end
+      h.tool_cache, h.tool_tick = tools, game.tick
     end
   elseif def.tool then
-    tools = h.entity.valid and h.entity.get_item_count(def.tool) or 0
+    if h.tool_cache ~= nil and game.tick - (h.tool_tick or -1e9) < M.HUT_TOOL_TTL then
+      tools = h.tool_cache
+    else
+      tools = h.entity.valid and h.entity.get_item_count(def.tool) or 0
+      h.tool_cache, h.tool_tick = tools, game.tick
+    end
   else
     tools = def.capacity
   end
@@ -2967,6 +2980,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     local e = unit_entity(colony, ev.unit_number)
     local hut_entity = st.hut and st.hut.entity
     local refused = {}
+    if st.hut then st.hut.tool_cache, st.hut.tool_tick = nil, nil end   -- new tools may have arrived (#54)
     if hut_entity and hut_entity.valid then
       colony.no_site[hut_entity.unit_number] = nil
       if st.carry then

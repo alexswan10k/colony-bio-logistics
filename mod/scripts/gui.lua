@@ -1404,15 +1404,19 @@ function fill_machine(frame, m, e)
         local eff = colony and colony_mod.quota_target(colony, item) or 0
         local capped = colony and work.supply_capped(colony, item) or false
         if eff <= 0 then
-          frame.add{type = "label", caption = {"", "[item=" .. item .. "] ", n, " in machine · stock ", stock,
-            " (no cap) · collecting"},
+          frame.add{type = "label",
+            caption = {"", "[item=" .. item .. "] " .. tostring(n) .. " in machine, " .. tostring(stock)
+              .. " in Town Hall (no cap). Haulers are collecting it."},
             tooltip = {"colony-gui.supply-output-tt"}}
         else
           local extra = math.max(0, eff - base)
           local cap_txt = tostring(base) .. (extra > 0 and " (+" .. extra .. ")" or "")
+          local tail = capped
+            and " Haulers leave it here: cap is full with no consumer eating it."
+            or " Haulers are collecting it."
           frame.add{type = "label",
-            caption = {"", "[item=" .. item .. "] ", n, " in machine · stock ", stock, " / cap ", cap_txt,
-              capped and " · capped (no consumer — left here)" or " · collecting"},
+            caption = {"", "[item=" .. item .. "] " .. tostring(n) .. " in machine, " .. tostring(stock)
+              .. " in Town Hall (cap " .. cap_txt .. ")." .. tail},
             tooltip = {"colony-gui.supply-output-tt"}}
         end
       end

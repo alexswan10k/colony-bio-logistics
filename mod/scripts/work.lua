@@ -36,6 +36,7 @@ local quota = require("scripts.model.quota")
 local motor = require("scripts.model.motor")
 local recreation = require("scripts.model.recreation")
 local jobs = require("scripts.model.jobs")
+local material_priority = require("scripts.model.material_priority")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
@@ -672,6 +673,40 @@ local function colony_missing_jobs(colony)
 end
 M.colony_missing_jobs = colony_missing_jobs
 
+-- Each harvest job's products, so a colony-wide material rank can be resolved to the role that makes it.
+local JOB_ITEMS = {
+  forage = {"colony-forage"}, farm = {"colony-produce"}, chop = {"wood"},
+  mine = {"iron-ore", "copper-ore", "coal", "stone"}, hunt = {"colony-meat"}, fish = {"colony-fish"},
+}
+M.JOB_ITEMS = JOB_ITEMS
+
+local HARVEST_INDEX = {}
+for i, job in ipairs(work_plan.HARVEST) do HARVEST_INDEX[job] = i end
+
+-- The ranked missing-jobs list (#91): the same missing set as `colony_missing_jobs`, decorated with each
+-- job's best material rank and the demand standing behind that material, best first (rank 1 = most
+-- wanted, then bigger demand, then HARVEST order). work_plan.choose consumes this list, so iron goes
+-- before copper before everything else, while the unstaffed-first-worker guarantees stay intact.
+local function colony_missing_list(colony)
+  local set = colony_missing_jobs(colony)
+  local ratings = colony and colony.ratings
+  local demand = colony_mod.demand_table(colony)
+  local rows = {}
+  for _, job in ipairs(work_plan.HARVEST) do
+    if set[job] then
+      local best_r, best_d = material_priority.best(JOB_ITEMS[job], ratings, demand)
+      rows[#rows + 1] = {job = job, rank = best_r, demand = best_d}
+    end
+  end
+  table.sort(rows, function(a, b)
+    if a.rank ~= b.rank then return a.rank < b.rank end
+    if a.demand ~= b.demand then return a.demand > b.demand end
+    return (HARVEST_INDEX[a.job] or 0) < (HARVEST_INDEX[b.job] or 0)
+  end)
+  return rows
+end
+M.colony_missing_list = colony_missing_list
+
 -- Sites ------------------------------------------------------------------------------------------
 local function dist2(a, b) local dx, dy = a.x - b.x, a.y - b.y; return dx * dx + dy * dy end
 
@@ -720,29 +755,35 @@ local function harvestable(colony, t)
   return owner == nil or owner == colony.id
 end
 
--- Downstream demand for ore from marked machines (e.g. smelters) and demand crates, less colony stock.
+-- Downstream pull on this ore: the demand table includes the #90 propagation, so an ore the pack chain
+-- wants counts here too, not just ore a furnace asks for line-by-line (#91).
 local function colony_ore_demand(colony, ore)
-  local want = 0
-  for _, m in pairs(colony.machines or {}) do
-    if m.entity and m.entity.valid and m.enabled and m.need then
-      for _, d in ipairs(m.need) do
-        if d.item == ore then want = want + d.count end
-      end
-    end
-  end
-  for _, c in ipairs(colony_mod.crate_list(colony, crates.DEMAND)) do
-    if c.filters then
-      for i = 1, crates.FILTER_ROWS do
-        local f = c.filters[i]
-        if f and f.item == ore then
-          local needed = (f.count or crates.DEFAULT_COUNT) - c.entity.get_item_count(ore) - (c.inflight[ore] or 0)
-          if needed > 0 then want = want + needed end
-        end
-      end
-    end
-  end
   local stock = colony_mod.stock_count(colony, ore)
-  return math.max(0, want - stock)
+  return math.max(0, (colony_mod.resource_demand(colony, ore) or 0) - stock)
+end
+
+-- Ore groups for a hut, the same shape `mine_plan.by_rank` returns (groups of ores sharing a rank,
+-- lowest rank first), but with the colony material rank supplying any rank the hut itself has not set
+-- (#91), so a town that cares about iron starts on iron without the player clicking every hut.
+-- Ranks can exceed `mine_plan.MAX_RANK` (a worst-ranked colony ore is 5, a disabled one 6), so grouping
+-- is by value rather than going through `by_rank`, which only knows ranks 1..4.
+local function eff_ore_groups(colony, hut)
+  local by = {}
+  for _, ore in ipairs(mine_plan.ORES) do
+    local r = hut.ores and hut.ores[ore]
+    if r == nil then r = material_priority.mine_rank(colony and colony.ratings, ore) end
+    if r == nil then r = mine_plan.DEFAULT end
+    if r > 0 then
+      if not by[r] then by[r] = {rank = r, ores = {}} end
+      by[r].ores[#by[r].ores + 1] = ore
+    end
+  end
+  local keys = {}
+  for r in pairs(by) do keys[#keys + 1] = r end
+  table.sort(keys)
+  local groups = {}
+  for _, r in ipairs(keys) do groups[#groups + 1] = by[r] end
+  return groups
 end
 
 -- Harvest only in range and never on another colony's land (design §2.1), preferring the nearest site so
@@ -768,7 +809,9 @@ local function find_site(colony, e, hut, is_overflow, home)
     -- Ores sharing a rank round robin or follow downstream demand.
     -- Quota check (#84): skip any ore that has reached its quota; switch to the next open ore.
     local any_met, last_met = false, nil
-    for _, group in ipairs(mine_plan.by_rank(hut.ores)) do
+    -- Ore priority: the hut's own ranks where it has set them; the colony material rank fills in the
+    -- gaps (#91), so a town that cares about iron starts on iron without the player clicking the hut.
+    for _, group in ipairs(eff_ore_groups(colony, hut)) do
       local available = {}
       for _, ore in ipairs(group.ores) do
         local met = colony_mod.quota_met(colony, ore)
@@ -1528,7 +1571,8 @@ local function find_haul_task(colony, cap, hauler_pos)
     end
   end
 
-  return haul_plan.match(requesters, providers, storages, compost_offers, cap or M.CARRY_CAP, hauler_pos)
+  local rank_ctx = {ratings = colony.ratings, demand = colony_mod.demand_table(colony)}
+  return haul_plan.match(requesters, providers, storages, compost_offers, cap or M.CARRY_CAP, hauler_pos, rank_ctx)
 end
 M.find_haul_task = find_haul_task
 
@@ -2138,7 +2182,7 @@ function M.assign(colony, un)
   end
 
   local pop = math.max(colony_mod.live_colonists(colony) - 1, 0)
-  local missing
+  local missing_set
 
   -- Keep the current post while its hut stands, still holds a slot for us and matches the player's lock.
   -- This is the common case by far, and it is the difference between an O(1) assignment and rebuilding the
@@ -2151,7 +2195,7 @@ function M.assign(colony, un)
     -- keeping the post must stay O(1) (#22).
     local should_switch = false
     if not lock and HARVEST_JOB[prev_hut.job] then
-      missing = M.colony_missing_jobs(colony)
+      missing_set = M.colony_missing_jobs(colony)
       local mates = 0
       for _ in pairs(prev_hut.workers or {}) do mates = mates + 1 end
       -- Never strip a hut of its last worker for another resource (see work_plan.choose).
@@ -2160,7 +2204,7 @@ function M.assign(colony, un)
       local starving = colony_mod.total_food(colony) == 0
       if starving and not FOOD_JOB[prev_hut.job] then
         should_switch = true
-      elseif next(missing) and (st.overflow or not missing[prev_hut.job] or mates >= 2) then
+      elseif next(missing_set) and (st.overflow or not missing_set[prev_hut.job] or mates >= 2) then
         -- Another role is short, and leaving will not empty this hut: switch. Keeping the post is only
         -- mandatory when this hut's own resource is the missing one.
         should_switch = true
@@ -2189,7 +2233,7 @@ function M.assign(colony, un)
   if st and st.job then counts[st.job] = math.max((counts[st.job] or 1) - 1, 0) end
   local slots, capacity, slot_list, hut_count = M.job_slots(colony)
   local task, backlog = M.find_haul_task(colony, nil, e.position)
-  missing = missing or M.colony_missing_jobs(colony)
+  local missing_list = M.colony_missing_list(colony)
 
   local target = math.max(colony_mod.live_colonists(colony) * colony_mod.FOOD_PER_COLONIST * colony_mod.TARGET_STOCK_INTERVALS, 1)
   local choose_state = {
@@ -2203,7 +2247,7 @@ function M.assign(colony, un)
     backlog = backlog,
     priority = colony.priority,
     targets = colony.job_targets,
-    missing = missing,
+    missing = missing_list,  -- ordered rows {job=, rank=, demand=}, best material first (#91)
     cursor = colony.harvest_cursor or 0,
   }
 

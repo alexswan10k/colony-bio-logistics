@@ -25,6 +25,7 @@ local quota = require("scripts.model.quota")
 local supply_graph = require("scripts.model.supply_graph")
 local headcount = require("scripts.model.headcount")
 local milestones = require("scripts.model.milestones")
+local material_priority = require("scripts.model.material_priority")
 local work = require("scripts.work")
 local gui = require("scripts.gui")
 local feedback = require("scripts.feedback")
@@ -680,6 +681,42 @@ function M.set_quota(colony, item, target)
     h.quota_met = nil
     h.quota_item = nil
   end
+  work.wake_idle_colonists(colony)
+end
+
+-- Colony-wide material priorities (#91): [item] = {rank = 1..5, enabled = bool}
+function M.material_rank(colony, item)
+  if not colony then return material_priority.DEFAULT end
+  return material_priority.rank(colony.ratings, item)
+end
+
+function M.material_enabled(colony, item)
+  if not colony then return true end
+  return material_priority.enabled(colony.ratings, item)
+end
+
+function M.set_material_rank(colony, item, rank)
+  if not colony then return end
+  colony.ratings = colony.ratings or {}
+  colony.ratings[item] = colony.ratings[item] or {rank = material_priority.DEFAULT, enabled = true}
+  local r = math.floor(tonumber(rank) or material_priority.DEFAULT)
+  if r < 1 then r = 1 end
+  if r > material_priority.MAX_RANK then r = material_priority.MAX_RANK end
+  colony.ratings[item].rank = r
+  work.wake_idle_colonists(colony)
+end
+
+function M.shift_material_rank(colony, item, delta)
+  if not colony then return end
+  colony.ratings = colony.ratings or {}
+  material_priority.shift(colony.ratings, item, delta)
+  work.wake_idle_colonists(colony)
+end
+
+function M.set_material_enabled(colony, item, on)
+  if not colony then return end
+  colony.ratings = colony.ratings or {}
+  material_priority.set_enabled(colony.ratings, item, on)
   work.wake_idle_colonists(colony)
 end
 
@@ -1411,7 +1448,7 @@ local function on_built(ev)
     if owner then refund(ev, e, name, {"colony-message.hall-too-close"}); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, overflow = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, overflow = {}, ratings = {},
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, storage_priority = 3}
     storage.colonies[id] = colony
     M.seed_forage(colony)   -- the claimed land already has berries on it

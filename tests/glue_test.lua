@@ -15,7 +15,7 @@ describe("store migrations", function()
   it("initialises the current schema layout", function()
     local env = mock.install(); env = env.reset()
     require("scripts.store").init()
-    eq(storage.schema, 33); eq(storage.colony_chunks, nil); truthy(storage.scheduled)
+    eq(storage.schema, 34); eq(storage.colony_chunks, nil); truthy(storage.scheduled)
     truthy(storage.cursor_overlays)
     truthy(storage.age)
   end)
@@ -24,7 +24,7 @@ describe("store migrations", function()
     storage.schema = 6
     storage.colonies = {[1] = {id = 1}}
     require("scripts.store").init()
-    eq(storage.schema, 33); truthy(storage.colonies[1].cemeteries); truthy(storage.age); truthy(storage.colonies[1].alarms); truthy(storage.colonies[1].canteens); truthy(storage.commuters); truthy(storage.sick); eq(storage.colonies[1].fallen, 0); truthy(storage.colonies[1].pools); truthy(storage.colonies[1].taverns); truthy(storage.colonies[1].platforms); truthy(storage.coaches); truthy(storage.trucks); truthy(storage.colonies[1].towers); truthy(storage.colonies[1].locks)
+    eq(storage.schema, 34); truthy(storage.colonies[1].cemeteries); truthy(storage.age); truthy(storage.colonies[1].alarms); truthy(storage.colonies[1].canteens); truthy(storage.commuters); truthy(storage.sick); eq(storage.colonies[1].fallen, 0); truthy(storage.colonies[1].pools); truthy(storage.colonies[1].taverns); truthy(storage.colonies[1].platforms); truthy(storage.coaches); truthy(storage.trucks); truthy(storage.colonies[1].towers); truthy(storage.colonies[1].locks)
     truthy(storage.colonies[1].plots); truthy(storage.colonies[1].crates); truthy(storage.colonies[1].bins)
     truthy(storage.colonies[1].animals)
     truthy(storage.colonies[1].salt_pans)
@@ -33,6 +33,7 @@ describe("store migrations", function()
     truthy(storage.colonies[1].quotas)
     truthy(storage.colonies[1].job_targets)
     truthy(storage.colonies[1].overflow)
+    truthy(storage.colonies[1].ratings)
     truthy(storage.cursor_overlays)
     eq(storage.colonies[1].machine_dirty, true, "machine index rebuilt on load")
   end)
@@ -71,7 +72,7 @@ describe("store migrations", function()
       },
     }}
     require("scripts.store").init()
-    eq(storage.schema, 33)
+    eq(storage.schema, 34)
     eq(storage.colonies[1].machines[10], nil)
     truthy(storage.colonies[1].machines[20])
     eq(destroyed_badge, true)
@@ -96,7 +97,7 @@ describe("store migrations", function()
       nested = {fn2 = function() end, data = "ok"},
     }
     require("scripts.store").init()
-    eq(storage.schema, 33)
+    eq(storage.schema, 34)
     eq(storage.unit_state[100].target.accepts_item, nil)
     eq(storage.random_leak.fn, nil)
     eq(storage.random_leak.nested.fn2, nil)
@@ -107,10 +108,19 @@ describe("store migrations", function()
     storage.schema = 32
     storage.colonies = {[1] = {id = 1}}
     require("scripts.store").init()
-    eq(storage.schema, 33)
+    eq(storage.schema, 34)
     truthy(storage.colonies[1].overflow)
     eq(storage.colonies[1].overflow["wood"], true)
     eq(storage.colonies[1].overflow["iron-ore"], true)
+  end)
+  it("initializes colony.ratings (schema 34)", function()
+    local env = mock.install(); env = env.reset()
+    storage.schema = 33
+    storage.colonies = {[1] = {id = 1}}
+    require("scripts.store").init()
+    eq(storage.schema, 34)
+    truthy(storage.colonies[1].ratings)
+    eq(next(storage.colonies[1].ratings), nil)
   end)
 end)
 
@@ -1041,5 +1051,124 @@ describe("blueprint construction and carried item safety", function()
     eq(st.carry, nil, "carried items cleared from unit state")
     eq(colony.claimed["1:5,0"], nil, "site claim released")
     eq(hall_inv.get_item_count("stone-furnace"), 1, "furnace returned to town hall")
+  end)
+end)
+
+describe("material priorities GUI (#91)", function()
+  local function mock_gui_elem()
+    local elem
+    elem = {
+      style = {},
+      clear = function() end,
+      add = function() return mock_gui_elem() end,
+    }
+    return elem
+  end
+  local function mock_ent(name, un, pos)
+    return {
+      valid = true, name = name, unit_number = un or 100, position = pos or {x = 0, y = 0},
+      surface = {
+        index = 1,
+        find_entities_filtered = function() return {} end,
+        count_tiles_filtered = function() return 0 end,
+        count_entities_filtered = function() return 0 end,
+        get_pollution = function() return 0 end,
+      },
+      force = {technologies = {}},
+      get_item_count = function() return 0 end,
+      get_inventory = function() return {get_item_count = function() return 0 end, get_contents = function() return {} end} end,
+    }
+  end
+  local function setup()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local hall_ent = mock_ent(colony_mod.HALL, 100)
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, houses = {}, machines = {}, huts = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {},
+      taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {},
+      canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, colonists = {},
+      deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {},
+      ratings = {},
+    }
+    storage.colonies = {[1] = c}
+    storage.next_colony_id = 2
+    require("scripts.gui")
+    local player = {
+      index = 1, valid = true, opened = hall_ent,
+      gui = {relative = {colony_info_frame = {valid = true, body = mock_gui_elem()}}}
+    }
+    _G.game.get_player = function(idx) return player end
+    return env, c
+  end
+  it("round-trips the material rank (more = higher priority = lower number)", function()
+    local env, c = setup()
+    local mp = require("scripts.model.material_priority")
+    eq(mp.rank(c.ratings, "iron-ore"), 3)
+    env.fire(defines.events.on_gui_click, {player_index = 1, element = {name = "colony_mat_iron-ore_more"}})
+    eq(mp.rank(c.ratings, "iron-ore"), 2, "more should raise priority 3 -> 2")
+    env.fire(defines.events.on_gui_click, {player_index = 1, element = {name = "colony_mat_iron-ore_less"}})
+    eq(mp.rank(c.ratings, "iron-ore"), 3, "less should lower 2 -> 3")
+    env.fire(defines.events.on_gui_click, {player_index = 1, element = {name = "colony_mat_reset"}})
+    eq(mp.rank(c.ratings, "iron-ore"), 3, "reset clears the rating")
+    eq(next(c.ratings), nil)
+  end)
+  it("toggles enabled separately from rank", function()
+    local env, c = setup()
+    local mp = require("scripts.model.material_priority")
+    env.fire(defines.events.on_gui_checked_state_changed, {player_index = 1, element = {name = "colony_mat_enabled_iron-ore", state = false}})
+    eq(mp.enabled(c.ratings, "iron-ore"), false)
+    eq(mp.score(c.ratings, "iron-ore"), mp.DISABLED)
+    eq(mp.rank(c.ratings, "iron-ore"), 3, "disabling preserves rank")
+    env.fire(defines.events.on_gui_checked_state_changed, {player_index = 1, element = {name = "colony_mat_enabled_iron-ore", state = true}})
+    eq(mp.enabled(c.ratings, "iron-ore"), true)
+    eq(mp.score(c.ratings, "iron-ore"), 3)
+  end)
+end)
+
+describe("colony_missing_list ranks jobs (#91)", function()
+  it("orders missing chop before mine when wood outranks ore", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+    -- need stub for stock and quotas: use minimal colony with hall inventory counts
+    local function make_chest(contents)
+      local items = {}
+      for k, v in pairs(contents or {}) do items[k] = v end
+      return {
+        get_item_count = function(name) return items[name] or 0 end,
+        get_contents = function()
+          local list = {}
+          for k, v in pairs(items) do list[#list + 1] = {name = k, count = v} end
+          return list
+        end,
+      }
+    end
+    local hall_inv = make_chest({})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1, find_entities_filtered = function() return {} end}, force = {},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+    }
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {}, houses = {}, machines = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {},
+      taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {},
+      canteens = {}, away = 0, locks = {}, quotas = {wood = 100, ["iron-ore"] = 100, ["copper-ore"] = 100, coal = 100, stone = 100},
+      job_targets = {}, overflow = {}, ratings = {wood = {rank = 1, enabled = true}, ["iron-ore"] = {rank = 5, enabled = true}},
+      colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {},
+    }
+    storage.colonies = {[1] = c}
+    local rows = work.colony_missing_list(c)
+    eq(rows[1].job, "chop", "wood rank 1 is most wanted")
+    local mine_pos = nil
+    for i, r in ipairs(rows) do if r.job == "mine" then mine_pos = i end end
+    truthy(mine_pos, "mine is among the missing")
+    -- mine (iron rank 5) sorts after the rank-3 food jobs, not before them
+    truthy(mine_pos > 2, "iron rank 5 sorts last among the missing")
   end)
 end)

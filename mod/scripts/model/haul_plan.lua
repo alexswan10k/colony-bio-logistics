@@ -1,6 +1,7 @@
 -- PURE: what a hauler carries, and which destination it serves first.
 -- One trip serves ONE destination, but it may carry several item types (e.g. ore + fuel for a furnace),
 -- so a machine with two requests is filled in one visit instead of starving one of them.
+local material_priority = require("scripts.model.material_priority")
 local M = {}
 
 -- Lower number = served first. An unmet critical need (food/heat) always comes first or colonists die
@@ -84,13 +85,25 @@ function M.deficit(offer)
   return n
 end
 
--- Stable order: priority, then building priority, then largest deficit, then `key` (caller supplies a stable id).
-function M.order(offers)
+-- Stable order: priority, then building priority, then the material-rank tie-break (#91: iron before
+-- copper when everything else is equal), then largest deficit, then `key` (caller supplies a stable id).
+-- `rank_ctx` is nil for legacy callers, or {ratings=, demand=} from the colony. Rank 1 = most wanted
+-- wins; unrated materials read 3, so an untouched town keeps the old order.
+function M.order(offers, rank_ctx)
+  local function mat_rank(offer)
+    if offer.mat_rank ~= nil then return offer.mat_rank end
+    if not rank_ctx then return material_priority.DEFAULT end
+    local items = offer.load or offer.demands or {}
+    local r = material_priority.best(items, rank_ctx.ratings, rank_ctx.demand)
+    return r
+  end
   table.sort(offers, function(a, b)
     if a.priority ~= b.priority then return a.priority < b.priority end
     local bpa = a.building_priority or 3
     local bpb = b.building_priority or 3
     if bpa ~= bpb then return bpa < bpb end
+    local ra, rb = mat_rank(a), mat_rank(b)
+    if ra ~= rb then return ra < rb end
     local da, db = a.deficit or M.deficit(a), b.deficit or M.deficit(b)
     if da ~= db then return da > db end
     return (a.key or 0) < (b.key or 0)
@@ -131,7 +144,9 @@ end
 -- Match requesters, active providers, storages and compost offers into an optimal haul task.
 -- Requesters are served from active providers first (direct transfer), then storage.
 -- Active providers push unmatched output to the nearest storage with space.
-function M.match(requesters, providers, storages, compost_offers, cap, hauler_pos)
+-- `rank_ctx` ({ratings=, demand=}) applies the colony material priority as a tie-break within the same
+-- band so iron beats copper at equal quotas; nil keeps the legacy only-distance order.
+function M.match(requesters, providers, storages, compost_offers, cap, hauler_pos, rank_ctx)
   cap = cap or M.DEFAULT_CAP
   requesters = requesters or {}
   providers = providers or {}
@@ -357,11 +372,20 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
 
   if #candidates == 0 then return nil, backlog end
 
+  local function mat_rank(cand)
+    if cand.mat_rank ~= nil then return cand.mat_rank end
+    if not rank_ctx then return material_priority.DEFAULT end
+    local r = material_priority.best(cand.load or cand.demands or {}, rank_ctx.ratings, rank_ctx.demand)
+    cand.mat_rank = r
+    return r
+  end
   table.sort(candidates, function(a, b)
     if a.priority ~= b.priority then return a.priority < b.priority end
     local bpa = a.building_priority or 3
     local bpb = b.building_priority or 3
     if bpa ~= bpb then return bpa < bpb end
+    local ra, rb = mat_rank(a), mat_rank(b)
+    if ra ~= rb then return ra < rb end
     if a.is_direct ~= b.is_direct then return a.is_direct end
     if a.deficit ~= b.deficit then return a.deficit > b.deficit end
     if a.dist ~= b.dist then return a.dist < b.dist end

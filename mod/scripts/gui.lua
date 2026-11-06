@@ -9,6 +9,7 @@ local jobs = require("scripts.model.jobs")
 local mine_plan = require("scripts.model.mine_plan")
 local crates = require("scripts.model.crates")
 local haul_plan = require("scripts.model.haul_plan")
+local material_priority = require("scripts.model.material_priority")
 local farm = require("scripts.model.farm")
 local advice = require("scripts.model.advice")
 local desirability = require("scripts.model.desirability")
@@ -580,6 +581,45 @@ local function build_info(body, colony)
   btn_row.add{type = "button", name = "colony_target_reset", caption = {"colony-gui-info.reset-target"}}
   body.add{type = "label", name = "wf_hint", caption = {"colony-gui-info.workforce-hint"}}
 
+  -- 6. Colony-wide material priorities (#91): 1 = most wanted, 3 = neutral, 5 = least.
+  -- A rank orders work (which harvest job / ore / haul goes first); quotas and caps still rule volume.
+  body.add{type = "line", name = "mat_line"}
+  body.add{type = "label", name = "mat_title", caption = {"colony-gui-info.material-title"}, style = "bold_label"}
+  body.add{type = "label", name = "mat_hint", caption = {"colony-gui-info.material-hint"}}
+  local mat_scrol = body.add{type = "scroll-pane", name = "mat_scroll", direction = "vertical"}
+  mat_scrol.style.maximal_height = 200
+  local mat_table = mat_scrol.add{type = "table", name = "mat_table", column_count = 4, draw_horizontal_lines = false}
+  mat_table.style.horizontal_spacing = 6
+  local mh1 = mat_table.add{type = "label", caption = {"colony-gui-info.res-item"}, style = "bold_label"}
+  mh1.style.width = 110
+  local mh2 = mat_table.add{type = "label", caption = {"colony-gui-info.mat-on"}, style = "bold_label"}
+  mh2.style.width = 46; mh2.style.horizontal_align = "center"
+  local mh3 = mat_table.add{type = "label", caption = {"colony-gui-info.wf-priority"}, style = "bold_label"}
+  mh3.style.width = 66; mh3.style.horizontal_align = "center"
+  local mh4 = mat_table.add{type = "label", caption = {"colony-gui-info.mat-demand"}, style = "bold_label"}
+  mh4.style.width = 60; mh4.style.horizontal_align = "right"
+  for _, item in ipairs(material_priority.RANKABLE) do
+    local name_lbl = mat_table.add{type = "label", caption = {"", "[item=" .. item .. "] ", {"item-name." .. item}}}
+    name_lbl.style.width = 110
+    local cb = mat_table.add{type = "checkbox", name = "colony_mat_enabled_" .. item, state = true,
+      tooltip = {"colony-gui-info.mat-on-tt"}}
+    cb.style.horizontal_align = "center"
+    local flow = mat_table.add{type = "flow", name = "mat_flow_" .. item, direction = "horizontal"}
+    flow.style.vertical_align = "center"
+    local less = flow.add{type = "button", name = "colony_mat_" .. item .. "_less", caption = "-",
+      tooltip = {"colony-gui-info.less-tt"}}
+    less.style.width = 18; less.style.height = 20
+    local rank_lbl = flow.add{type = "label", name = "mat_rank_" .. item, caption = "3"}
+    rank_lbl.style.width = 24; rank_lbl.style.horizontal_align = "center"
+    local more = flow.add{type = "button", name = "colony_mat_" .. item .. "_more", caption = "+",
+      tooltip = {"colony-gui-info.more-tt"}}
+    more.style.width = 18; more.style.height = 20
+    local demand_lbl = mat_table.add{type = "label", name = "mat_demand_" .. item, caption = "0"}
+    demand_lbl.style.width = 60; demand_lbl.style.horizontal_align = "right"
+  end
+  local mat_reset_row = body.add{type = "flow", name = "mat_reset_row", direction = "horizontal"}
+  mat_reset_row.add{type = "button", name = "colony_mat_reset", caption = {"colony-gui-info.reset-material"}}
+
   body.add{type = "line", name = "roster_line"}
   body.add{type = "label", name = "roster_moved", caption = {"colony-gui-info.roster-moved"}}
 end
@@ -822,6 +862,25 @@ local function update_info(body, colony)
   if body.wf_haul_off then
     body.wf_haul_off.visible = (p.haul == 0)
   end
+
+  -- 6. Material priorities (#91)
+  local mat_scrol = body.mat_scroll
+  local mat_table = mat_scrol and mat_scrol.mat_table
+  if mat_table then
+    local demand = colony_mod.demand_table(colony)
+    for _, item in ipairs(material_priority.RANKABLE) do
+      local flow = mat_table["mat_flow_" .. item]
+      local rank_lbl = flow and flow["mat_rank_" .. item]
+      if rank_lbl then
+        local r = material_priority.score(colony.ratings, item)
+        rank_lbl.caption = r == material_priority.DISABLED and {"colony-gui-info.off"} or tostring(r)
+      end
+      local cb = mat_table["colony_mat_enabled_" .. item]
+      if cb then cb.state = material_priority.enabled(colony.ratings, item) end
+      local d_lbl = mat_table["mat_demand_" .. item]
+      if d_lbl then d_lbl.caption = tostring((demand and demand[item]) or 0) end
+    end
+  end
 end
 
 local function fill_info(frame, colony)
@@ -855,7 +914,7 @@ scheduler.register("gui.refresh_info", function(d)
   local counts = work.job_counts(colony)
   local ledger = colony_mod.ledger_snapshot(colony)
   if not unchanged(frame, {st, counts, ledger and ledger.items, M.colony_advice(colony, st, counts), colony.priority,
-      colony.job_targets, colony.accept_migrants, colony.storage_priority, colony.quotas}) then
+      colony.job_targets, colony.accept_migrants, colony.storage_priority, colony.quotas, colony.ratings}) then
     fill_info(frame.body, colony)
   end
   scheduler.after(30, "gui.refresh_info", d)
@@ -1035,6 +1094,55 @@ events.on(defines.events.on_gui_click, function(ev)
       elseif cur == jobs.MAX_RANK then jobs.set(colony.priority, job, 0) end
     end
   end
+  colony_mod.reassign_workforce(colony)
+  local frame = player.gui.relative[INFO_FRAME]
+  if frame and frame.body then fill_info(frame.body, colony) end
+  return
+end)
+
+-- Colony-wide material priorities (#91): 1 = most wanted .. 5 = least, enabled is separate from rank.
+events.on(defines.events.on_gui_click, function(ev)
+  local name = ev.element.name
+  if name == "colony_mat_reset" then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid and e.name == colony_mod.HALL) then return end
+    local colony = colony_at(e)
+    if not colony then return end
+    colony.ratings = {}
+    colony_mod.reassign_workforce(colony)
+    local frame = player.gui.relative[INFO_FRAME]
+    if frame and frame.body then fill_info(frame.body, colony) end
+    return
+  end
+  local mat_item, mat_dir = name:match("^colony_mat_(.-)_(%a+)$")
+  if not (mat_item and material_priority.is_rankable(mat_item) and (mat_dir == "more" or mat_dir == "less")) then return end
+  local player = game.get_player(ev.player_index)
+  local e = player and player.opened
+  if not (e and e.valid and e.name == colony_mod.HALL) then return end
+  local colony = colony_at(e)
+  if not colony then return end
+  colony.ratings = colony.ratings or {}
+  -- "more" = higher priority = lower rank number (1 = most wanted), matching the job matrix.
+  local delta = mat_dir == "more" and -1 or 1
+  material_priority.shift(colony.ratings, mat_item, delta)
+  colony_mod.reassign_workforce(colony)
+  local frame = player.gui.relative[INFO_FRAME]
+  if frame and frame.body then fill_info(frame.body, colony) end
+end)
+
+events.on(defines.events.on_gui_checked_state_changed, function(ev)
+  local name = ev.element.name
+  local item = name:match("^colony_mat_enabled_(.+)$")
+  if not item then return end
+  if not material_priority.is_rankable(item) then return end
+  local player = game.get_player(ev.player_index)
+  local e = player and player.opened
+  if not (e and e.valid and e.name == colony_mod.HALL) then return end
+  local colony = colony_at(e)
+  if not colony then return end
+  colony.ratings = colony.ratings or {}
+  material_priority.set_enabled(colony.ratings, item, ev.element.state)
   colony_mod.reassign_workforce(colony)
   local frame = player.gui.relative[INFO_FRAME]
   if frame and frame.body then fill_info(frame.body, colony) end

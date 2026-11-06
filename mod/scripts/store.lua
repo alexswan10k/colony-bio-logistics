@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 33
+local SCHEMA = 34
 
 local migrations = {
   [1] = function()
@@ -247,6 +247,12 @@ local migrations = {
           end
         end
       end
+    end
+  end,
+  [34] = function()
+    -- colony-wide material priorities (#91): [item] = {rank = 1..5, enabled = bool}
+    for _, c in pairs(storage.colonies or {}) do
+      c.ratings = c.ratings or {}
     end
   end,
 }

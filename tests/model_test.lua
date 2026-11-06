@@ -2029,3 +2029,145 @@ describe("site picking (#93)", function()
     eq(sites.best({c, a, b}, hut, nil, {x = 0, y = 0}).unit_number, 1)
   end)
 end)
+
+describe("material_priority (#91)", function()
+  local mp = require("scripts.model.material_priority")
+  it("defaults every rankable material to 3 and enabled", function()
+    eq(mp.rank(nil, "iron-ore"), 3)
+    eq(mp.rank({}, "iron-ore"), 3)
+    eq(mp.enabled(nil, "iron-ore"), true)
+    eq(mp.score(nil, "iron-ore"), 3)
+    eq(mp.rank(nil, "stone"), 3)
+    eq(mp.score(nil, "wood"), 3)
+  end)
+  it("respects explicit ranks and clamps to 1..5", function()
+    local r = {["iron-ore"] = {rank = 1, enabled = true}, ["copper-ore"] = {rank = 5, enabled = true}}
+    eq(mp.rank(r, "iron-ore"), 1)
+    eq(mp.rank(r, "copper-ore"), 5)
+    eq(mp.score(r, "iron-ore"), 1)
+    eq(mp.score(r, "copper-ore"), 5)
+    local r2 = {}
+    mp.shift(r2, "iron-ore", -1)
+    eq(mp.rank(r2, "iron-ore"), 2)
+    mp.shift(r2, "iron-ore", -3)
+    eq(mp.rank(r2, "iron-ore"), 1)
+    mp.shift(r2, "iron-ore", 10)
+    eq(mp.rank(r2, "iron-ore"), 5)
+    mp.shift(r2, "iron-ore", 1)
+    eq(mp.rank(r2, "iron-ore"), 5)
+  end)
+  it("disabled sorts after every enabled material, but does not stop", function()
+    local r = {["iron-ore"] = {rank = 1, enabled = false}, ["copper-ore"] = {rank = 5, enabled = true}}
+    eq(mp.score(r, "iron-ore"), mp.DISABLED)
+    eq(mp.score(r, "copper-ore"), 5)
+    eq(mp.enabled(r, "iron-ore"), false)
+    eq(mp.mine_rank(r, "iron-ore"), mp.DISABLED)
+    eq(mp.rank(r, "iron-ore"), 1, "rank is preserved while disabled")
+    mp.set_enabled(r, "iron-ore", true)
+    eq(mp.score(r, "iron-ore"), 1)
+  end)
+  it("knows which items are rankable (quota + intermediates, not tools)", function()
+    truthy(mp.is_rankable("iron-ore"))
+    truthy(mp.is_rankable("iron-plate"))
+    truthy(mp.is_rankable("wood"))
+    eq(mp.is_rankable("colony-axe"), false)
+    eq(mp.is_rankable("colony-rifle"), false)
+    eq(mp.is_rankable("repair-pack"), false)
+  end)
+  it("best picks the lowest rank, demand breaks ties", function()
+    local r = {["iron-ore"] = {rank = 2, enabled = true}, ["copper-ore"] = {rank = 2, enabled = true}}
+    local rank, dem = mp.best({"iron-ore", "copper-ore"}, r, {["iron-ore"] = 10, ["copper-ore"] = 20})
+    eq(rank, 2); eq(dem, 20)
+    -- even demand cannot beat a better rank
+    local r2 = {["iron-ore"] = {rank = 1, enabled = true}, ["copper-ore"] = {rank = 2, enabled = true}}
+    local rank2, dem2 = mp.best({"iron-ore", "copper-ore"}, r2, {["iron-ore"] = 0, ["copper-ore"] = 100})
+    eq(rank2, 1); eq(dem2, 0)
+  end)
+  it("order sorts most-wanted first, then demand, then RANKABLE order", function()
+    local r = {["stone"] = {rank = 1, enabled = true}}
+    local rows = mp.order(r, {["stone"] = 0, ["wood"] = 100, ["iron-ore"] = 50})
+    eq(rows[1].item, "stone")
+    -- stone at 1 beats wood at 3 despite wood having more demand
+    eq(rows[2].item, "wood")
+    eq(rows[3].item, "iron-ore")
+  end)
+  it("mine_rank mirrors rank but disabled reads DISABLED (6)", function()
+    eq(mp.mine_rank(nil, "iron-ore"), 3)
+    local r = {["iron-ore"] = {rank = 2, enabled = true}}
+    eq(mp.mine_rank(r, "iron-ore"), 2)
+    local r2 = {["iron-ore"] = {rank = 2, enabled = false}}
+    eq(mp.mine_rank(r2, "iron-ore"), 6)
+  end)
+end)
+
+describe("work_plan ranked missing (#91)", function()
+  local wp = require("scripts.model.work_plan")
+  local function s(t) local b = {pop = 3, counts = {}, slots = {chop = 2, mine = 2, forage = 2}, capacity = {chop = 2, mine = 2, forage = 2}, priority = {haul = 1, forage = 2, chop = 2, mine = 2, farm = 2, hunt = 2, fish = 2}}; for k, v in pairs(t or {}) do b[k] = v end; return b end
+  it("staffs the best-ranked missing job first (iron before copper via rank)", function()
+    -- ranked list: chop (wood) rank 1, mine rank 5; both missing, counts 0
+    local state = s{pop = 3, missing = {{job = "chop", rank = 1, demand = 0}, {job = "mine", rank = 5, demand = 0}}}
+    eq(wp.choose(state), "chop")
+  end)
+  it("prefers demand when material ranks tie", function()
+    local state = s{pop = 3, missing = {{job = "chop", rank = 3, demand = 5}, {job = "mine", rank = 3, demand = 50}}}
+    eq(wp.choose(state), "mine", "mine has bigger demand at same rank")
+  end)
+  it("keeps the unstaffed-first rule: an unstaffed low rank still beats doubling a staffed best rank", function()
+    -- chop is best ranked and already staffed; mine is worse ranked but unstaffed
+    local state = s{pop = 3, counts = {chop = 1, mine = 0}, missing = {{job = "chop", rank = 1, demand = 0}, {job = "mine", rank = 5, demand = 0}}}
+    eq(wp.choose(state), "mine")
+  end)
+  it("doubles up on the best missing rank once every missing role is staffed", function()
+    -- forage has no slot here, so once chop and mine are staffed the best missing rank doubles
+    local state = s{pop = 3, counts = {chop = 1, mine = 1}, slots = {chop = 2, mine = 2}, capacity = {chop = 2, mine = 2}, missing = {{job = "chop", rank = 1, demand = 0}, {job = "mine", rank = 5, demand = 0}}}
+    eq(wp.choose(state), "chop", "best rank doubles, not the worse one")
+  end)
+  it("ignores missing jobs whose job-matrix rank is worse than the best harvest rank", function()
+    -- chop is rank 1 in the job matrix, mine is rank 4; material rank alone cannot pull mine ahead
+    local state = s{pop = 3, priority = {haul = 1, forage = 2, chop = 1, mine = 4, farm = 2, hunt = 2, fish = 2}, missing = {{job = "mine", rank = 1, demand = 0}}}
+    eq(wp.choose(state), "chop", "job matrix wins over material rank")
+  end)
+end)
+
+describe("haul_plan material tie-break (#91)", function()
+  local hp = require("scripts.model.haul_plan")
+  it("order prefers the higher-ranked material within the same band", function()
+    local rank_ctx = {ratings = {["iron-ore"] = {rank = 1, enabled = true}, ["copper-ore"] = {rank = 5, enabled = true}}, demand = {}}
+    local offers = {
+      {priority = hp.PRIORITY.request, building_priority = 3, key = 1, demands = {{item = "copper-ore", count = 10}}},
+      {priority = hp.PRIORITY.request, building_priority = 3, key = 2, demands = {{item = "iron-ore", count = 10}}},
+    }
+    hp.order(offers, rank_ctx)
+    eq(offers[1].key, 2, "iron first")
+    eq(offers[2].key, 1)
+  end)
+  it("order without rank_ctx keeps the old deficit order", function()
+    local offers = {
+      {priority = hp.PRIORITY.request, building_priority = 3, key = 1, deficit = 5, demands = {{item = "copper-ore", count = 5}}},
+      {priority = hp.PRIORITY.request, building_priority = 3, key = 2, deficit = 20, demands = {{item = "iron-ore", count = 20}}},
+    }
+    hp.order(offers)
+    eq(offers[1].key, 2, "bigger deficit still wins without ranks")
+    local rank_ctx = {ratings = {["iron-ore"] = {rank = 5, enabled = true}, ["copper-ore"] = {rank = 1, enabled = true}}, demand = {}}
+    -- re-sort with ranks: copper (rank 1) now beats iron (rank 5) despite smaller deficit
+    hp.order(offers, rank_ctx)
+    eq(offers[1].key, 1)
+  end)
+  it("match picks the higher-ranked haul when bands and buildings tie", function()
+    local rank_ctx = {ratings = {["iron-ore"] = {rank = 1, enabled = true}, ["copper-ore"] = {rank = 5, enabled = true}}, demand = {}}
+    local storage = {key = 99, pos = {x = 0, y = 0}, available = {["iron-ore"] = 20, ["copper-ore"] = 20}, has_space = true}
+    local r_iron = {key = 1, priority = hp.PRIORITY.request, building_priority = 3, pos = {x = 10, y = 10}, demands = {{item = "iron-ore", count = 10}}}
+    local r_copper = {key = 2, priority = hp.PRIORITY.request, building_priority = 3, pos = {x = 12, y = 10}, demands = {{item = "copper-ore", count = 10}}}
+    local task = hp.match({r_iron, r_copper}, {}, {storage}, {}, 20, {x = 0, y = 0}, rank_ctx)
+    truthy(task)
+    eq(task.load[1].item, "iron-ore")
+    eq(task.target.key, 1)
+  end)
+  it("match without rank_ctx keeps distance order", function()
+    local storage = {key = 99, pos = {x = 0, y = 0}, available = {["iron-ore"] = 20, ["copper-ore"] = 20}, has_space = true}
+    local near = {key = 1, priority = hp.PRIORITY.request, building_priority = 3, pos = {x = 2, y = 0}, demands = {{item = "copper-ore", count = 10}}}
+    local far = {key = 2, priority = hp.PRIORITY.request, building_priority = 3, pos = {x = 40, y = 0}, demands = {{item = "iron-ore", count = 10}}}
+    local task = hp.match({near, far}, {}, {storage}, {}, 20, {x = 0, y = 0})
+    eq(task.target.key, 1, "near copper still wins without ranks")
+  end)
+end)

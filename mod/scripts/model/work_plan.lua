@@ -16,6 +16,9 @@ M.RESEARCH_SHARE = 0.15     -- scholars investigating history and science
 M.HARVEST = {"forage", "farm", "chop", "mine", "hunt", "fish"}
 M.FOOD = {"forage", "farm", "hunt", "fish"}
 
+local HARVEST_INDEX = {}
+for i, job in ipairs(M.HARVEST) do HARVEST_INDEX[job] = i end
+
 function M.preserve_workers(pop) return math.max(1, math.floor((pop or 0) * M.PRESERVE_SHARE)) end
 function M.research_workers(pop) return math.max(1, math.floor((pop or 0) * M.RESEARCH_SHARE)) end
 
@@ -149,13 +152,29 @@ function M.choose(s)
 
   -- Check harvest rank
   if harvest_rank then
-    -- Missing resources first (empty stock, or below a player quota), round-robin between them.
+    -- Missing resources first (empty stock, or below a player quota), ranked by material priority (#91).
+    -- Two shapes: the legacy map {job -> bool} (old tests, round-robin) and the ranked list
+    -- { {job=, rank=, demand=}, ... } (work.colony_missing_list, iron before copper deterministically).
     if s.missing then
+      local is_ranked = type(s.missing) == "table" and s.missing[1] ~= nil and type(s.missing[1]) == "table" and s.missing[1].job ~= nil
+      local missing_set, missing_rank, missing_demand = {}, {}, {}
+      if is_ranked then
+        for _, row in ipairs(s.missing) do
+          if row.job then
+            missing_set[row.job] = true
+            missing_rank[row.job] = row.rank
+            missing_demand[row.job] = row.demand
+          end
+        end
+      else
+        missing_set = s.missing
+      end
+
       local missing_candidates = {}
       for _, job in ipairs(M.HARVEST) do
         if (eligible_harvest_slots[job] or 0) > 0 and jobs.rank(priority, job) == harvest_rank then
           local wanted_by_target = targets and targets[job] and (counts[job] or 0) < targets[job]
-          if s.missing[job] or wanted_by_target then
+          if missing_set[job] or wanted_by_target then
             missing_candidates[#missing_candidates + 1] = job
           end
         end
@@ -171,8 +190,31 @@ function M.choose(s)
           unstaffed[#unstaffed + 1] = job
         end
       end
-      for _, list in ipairs{unstaffed_missing, unstaffed, missing_candidates} do
-        if #list > 0 then return list[((s.cursor or 0) % #list) + 1] end
+      if is_ranked then
+        -- Ranked missing: best material rank first (rank 1 = most wanted), then bigger demand,
+        -- then HARVEST order for determinism. The tiers still hold, but within each tier the order
+        -- replaces the round-robin: iron is staffed before copper, never alternating.
+        local function by_mat(a, b)
+          local ra, rb = missing_rank[a], missing_rank[b]
+          ra = ra == nil and 3 or ra
+          rb = rb == nil and 3 or rb
+          if ra ~= rb then return ra < rb end
+          local da, db = missing_demand[a] or 0, missing_demand[b] or 0
+          if da ~= db then return da > db end
+          return (HARVEST_INDEX[a] or 0) < (HARVEST_INDEX[b] or 0)
+        end
+        table.sort(missing_candidates, by_mat)
+        table.sort(unstaffed_missing, by_mat)
+        -- `unstaffed` mixes missing and non-missing jobs; order it by the same key so a
+        -- high-rank unstaffed job is not beaten by a low-rank one on HARVEST order alone.
+        table.sort(unstaffed, by_mat)
+        for _, list in ipairs{unstaffed_missing, unstaffed, missing_candidates} do
+          if #list > 0 then return list[1] end
+        end
+      else
+        for _, list in ipairs{unstaffed_missing, unstaffed, missing_candidates} do
+          if #list > 0 then return list[((s.cursor or 0) % #list) + 1] end
+        end
       end
     end
     -- Otherwise the usual shares. A hut whose quota is met already has no slots (work.job_slots), so this

@@ -13,6 +13,22 @@ M.WORK_MULT = 3
 
 -- Input stock a Toolsmith asks for, in a fixed order. Enough for the largest tool (a rifle) once over.
 M.STOCK = {{item = "wood", n = 8}, {item = "iron-plate", n = 12}, {item = "copper-plate", n = 4}}
+-- Steel buffer (#95): only asked for while a steel tool is actually wanted (see M.wants), enough for
+-- a few steel tools at 1 steel each. Keeps the Toolsmith from hoarding steel before Steel Tools unlocks.
+M.STEEL_STOCK = {item = "steel-plate", n = 4}
+
+-- Steel ladders (#95): tier-1 -> tier-2, best-first. The Toolsmith covers tier-1 gaps before it asks
+-- for tier-2 upgrades (M.wanted suppresses steel while its tier-1 gap exists).
+M.LADDER = {
+  ["colony-axe"] = {"colony-steel-axe", "colony-axe"},
+  ["colony-pickaxe"] = {"colony-steel-pickaxe", "colony-pickaxe"},
+  ["colony-hoe"] = {"colony-steel-hoe", "colony-hoe"},
+}
+M.TIER1_OF = {
+  ["colony-steel-axe"] = "colony-axe", ["colony-steel-pickaxe"] = "colony-pickaxe",
+  ["colony-steel-hoe"] = "colony-hoe",
+}
+M.STEEL = {["colony-steel-axe"] = true, ["colony-steel-pickaxe"] = true, ["colony-steel-hoe"] = true}
 
 function M.work_ticks(base)
   return base * M.WORK_MULT
@@ -33,8 +49,16 @@ end
 -- each tool a built hut uses (built_tools), or up to the configured quota. A tool only goes on the list while the colony
 -- stock is below target, and only when colony stock holds its ingredients: a rifle with no copper in the colony is not
 -- wanted (the advice for that hut is `gap`, not a request). stock = colony stock {item -> n}.
+-- Tier-1 first (#95): a steel tool is not wanted as a spare or quota while its tier-1 gap exists, so the
+-- Toolsmith fills empty huts before it upgrades them.
 function M.wanted(gap_tools, built_tools, stock, quotas)
   local out, seen = {}, {}
+  local gap_set = {}
+  for _, tool in ipairs(gap_tools or {}) do gap_set[tool] = true end
+  local function suppressed(tool)
+    local t1 = M.TIER1_OF[tool]
+    return t1 ~= nil and gap_set[t1] == true
+  end
   local function target_for(tool)
     if quotas and quotas[tool] ~= nil then
       return tonumber(quotas[tool]) or 0
@@ -54,11 +78,13 @@ function M.wanted(gap_tools, built_tools, stock, quotas)
   end
 
   for _, tool in ipairs(gap_tools) do add(tool, 1) end
-  for _, tool in ipairs(built_tools) do add(tool, 0) end
+  for _, tool in ipairs(built_tools) do
+    if not suppressed(tool) then add(tool, 0) end
+  end
   if quotas then
     local sorted = {}
     for tool, tgt in pairs(quotas) do
-      if tonumber(tgt) and tonumber(tgt) > 0 and not seen[tool] then
+      if tonumber(tgt) and tonumber(tgt) > 0 and not seen[tool] and not suppressed(tool) then
         sorted[#sorted + 1] = tool
       end
     end
@@ -69,10 +95,22 @@ function M.wanted(gap_tools, built_tools, stock, quotas)
 end
 
 -- Input stock a Toolsmith wants delivered: wood, iron and copper up to the buffer, counting what is already there
--- and on the way.
-function M.wants(counts, inflight)
+-- and on the way. `wanted` is the Toolsmith wanted list: steel-plate is only buffered while a steel tool
+-- is wanted (#95), so the Toolsmith does not hoard steel before the upgrade is due.
+function M.wants(counts, inflight, wanted)
   local out = {}
   for _, want in ipairs(M.STOCK) do
+    local n = want.n - (counts[want.item] or 0) - ((inflight and inflight[want.item]) or 0)
+    if n > 0 then out[#out + 1] = {item = want.item, count = n} end
+  end
+  local wants_steel = false
+  if wanted then
+    for _, tool in ipairs(wanted) do
+      if M.STEEL[tool] then wants_steel = true; break end
+    end
+  end
+  if wants_steel then
+    local want = M.STEEL_STOCK
     local n = want.n - (counts[want.item] or 0) - ((inflight and inflight[want.item]) or 0)
     if n > 0 then out[#out + 1] = {item = want.item, count = n} end
   end

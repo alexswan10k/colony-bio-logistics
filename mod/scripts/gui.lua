@@ -284,13 +284,32 @@ local function fill_hut(frame, h)
   if def.tool then
     frame.add{type = "label", caption = {"colony-gui-hut.tools", tools}}
     if tools > 0 then
-      frame.add{type = "label", caption = {"colony-gui-hut.condition", labour.uses_left(h.wear), labour.TOOL_USES}}
+      -- Steel ladders (#95): the condition follows the best tool present (steel 45, tier-1 30).
+      local in_service = def.tool
+      if def.tools then
+        local counts = {}
+        for _, t in ipairs(def.tools) do counts[t] = h.entity.valid and h.entity.get_item_count(t) or 0 end
+        in_service = labour.best_tool(counts, def.tools) or def.tool
+      end
+      frame.add{type = "label", caption = {"colony-gui-hut.condition", labour.uses_left(h.wear, in_service), labour.uses_for(in_service)}}
     end
     frame.add{type = "label", caption = {"colony-gui-hut.tool-need", def.tool}}
     if def.capacity > tools then
-      local want = def.capacity - tools - (h.inflight[def.tool] or 0)
+      local inflight = 0
+      if def.tools then
+        for _, t in ipairs(def.tools) do inflight = inflight + (h.inflight[t] or 0) end
+      else
+        inflight = h.inflight[def.tool] or 0
+      end
+      local want = def.capacity - tools - inflight
       if want > 0 then
-        frame.add{type = "label", caption = {"colony-gui-hut.delivering", def.tool, want}}
+        local deliver_item = def.tool
+        if def.tools and (def.job == "chop" or def.job == "mine" or def.job == "farm") then
+          for _, t in ipairs(def.tools) do
+            if labour.STEEL[t] and (h.inflight[t] or 0) > 0 then deliver_item = t; break end
+          end
+        end
+        frame.add{type = "label", caption = {"colony-gui-hut.delivering", deliver_item, want}}
       end
     end
     if def.keep and #def.keep > 0 then

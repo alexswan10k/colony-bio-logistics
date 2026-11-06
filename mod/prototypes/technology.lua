@@ -81,6 +81,12 @@ data:extend({
     {"colony-logistics"}, {
     unlock("colony-warehouse"),
   }),
+  -- Steel tools (#95): steel axes/pickaxes/hoes cost steel + iron (no wood), last 45 trips and work 20%
+  -- faster than the tier-1 wooden/iron tools. The Toolsmith covers tier-1 first, then upgrades.
+  tech("colony-steel-tools", "icon-axe.png", 30, {"colony-frontier-pack"}, 15,
+    {"colony-logistics"}, {
+    unlock("colony-steel-axe"), unlock("colony-steel-pickaxe"), unlock("colony-steel-hoe"),
+  }),
   tech("colony-cemetery", "icon-cemetery.png", 10, {"colony-frontier-pack"}, 10,
     {"colony-frontier-charter"}, {
     unlock("colony-cemetery"),

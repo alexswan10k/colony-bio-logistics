@@ -8,6 +8,11 @@ M.RECIPES = {
   ["colony-axe"] = {wood = 2, ["iron-plate"] = 3},
   ["colony-pickaxe"] = {wood = 2, ["iron-plate"] = 3},
   ["colony-hoe"] = {wood = 2, ["iron-plate"] = 3},
+  -- Tier-2 steel (#95): no wood, costs steel + iron. Mirrors prototypes/buildings.lua. Lasts 45 trips
+  -- at 0.8x work ticks (yields.STEEL_*), so the town shifts demand from trees to plates.
+  ["colony-steel-axe"] = {["iron-plate"] = 2, ["steel-plate"] = 1},
+  ["colony-steel-pickaxe"] = {["iron-plate"] = 2, ["steel-plate"] = 1},
+  ["colony-steel-hoe"] = {["iron-plate"] = 2, ["steel-plate"] = 1},
   ["colony-rod"] = {wood = 3, ["iron-plate"] = 2},
   ["colony-bow"] = {wood = 4},
   ["colony-arrow"] = {wood = 1},

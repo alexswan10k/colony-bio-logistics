@@ -1038,6 +1038,35 @@ describe("labour", function()
   it("reports remaining uses for the hut GUI", function()
     eq(l.uses_left(0), l.TOOL_USES); eq(l.uses_left(l.TOOL_USES - 2), 2); eq(l.uses_left(nil), l.TOOL_USES)
   end)
+  it("steel tiers last 45 trips and work 20% faster (#95)", function()
+    eq(l.uses_for("colony-steel-axe"), 45)
+    eq(l.uses_for("colony-steel-pickaxe"), 45)
+    eq(l.uses_for("colony-steel-hoe"), 45)
+    eq(l.uses_for("colony-axe"), l.TOOL_USES)
+    eq(l.uses_for(nil), l.TOOL_USES)
+    local c, broke = 0, false
+    for _ = 1, 30 do c, broke = l.wear(c, "colony-steel-axe") end
+    eq(broke, false)  -- steel is not done at the tier-1 count
+    for _ = 1, 15 do c, broke = l.wear(c, "colony-steel-axe") end
+    eq(broke, true); eq(c, 0)
+    eq(l.uses_left(0, "colony-steel-axe"), 45)
+    eq(l.work_ticks(480, "colony-steel-axe"), 384)
+    eq(l.work_ticks(480, "colony-steel-pickaxe"), 384)
+    eq(l.work_ticks(480, "colony-axe"), 480)
+    eq(l.work_ticks(480, nil), 480)
+  end)
+  it("steel ladders pick best for service and worst for consumption (#95)", function()
+    local def = l.HUTS["colony-woodcutter-hut"]
+    eq(table.concat(def.tools, ","), "colony-steel-axe,colony-axe")
+    eq(table.concat(l.HUTS["colony-miner-hut"].tools, ","), "colony-steel-pickaxe,colony-pickaxe")
+    eq(table.concat(l.HUTS["colony-farm-hut"].tools, ","), "colony-steel-hoe,colony-hoe")
+    eq(l.best_tool({["colony-steel-axe"] = 1, ["colony-axe"] = 2}, def.tools), "colony-steel-axe")
+    eq(l.best_tool({["colony-axe"] = 2}, def.tools), "colony-axe")
+    eq(l.best_tool({}, def.tools), nil)
+    eq(l.worst_tool({["colony-steel-axe"] = 1, ["colony-axe"] = 2}, def.tools), "colony-axe")
+    eq(l.worst_tool({["colony-steel-axe"] = 1}, def.tools), "colony-steel-axe")
+    eq(l.worst_tool({}, def.tools), nil)
+  end)
   it("sums free slots by job", function()
     local f = l.free_slots({{job = "mine", allowed = 3, workers = 1}, {job = "mine", allowed = 1, workers = 1}, {job = "chop", allowed = 0, workers = 0}})
     eq(f.mine, 2); eq(f.chop, nil)
@@ -1450,6 +1479,15 @@ describe("toolsmith (tool recipes and the Toolsmith hut)", function()
     eq(w.RECIPES["colony-bow"].wood, 4)
     eq(w.RECIPES["colony-arrow"].wood, 1)
   end)
+  it("steel tools cost steel + iron and no wood (#95)", function()
+    eq(next(w.missing("colony-steel-axe", {["iron-plate"] = 2, ["steel-plate"] = 1})), nil)
+    eq(w.missing("colony-steel-axe", {["iron-plate"] = 2})["steel-plate"], 1)
+    eq(w.RECIPES["colony-steel-axe"].wood, nil)
+    eq(w.RECIPES["colony-steel-axe"]["steel-plate"], 1)
+    eq(w.RECIPES["colony-steel-axe"]["iron-plate"], 2)
+    eq(w.RECIPES["colony-steel-pickaxe"]["steel-plate"], 1)
+    eq(w.RECIPES["colony-steel-hoe"]["steel-plate"], 1)
+  end)
   it("makes the first wanted tool it has the stock and the recipe for", function()
     local wanted = {"colony-axe", "colony-basket"}
     eq(t.pick(wanted, {wood = 10}, {["colony-axe"] = true, ["colony-basket"] = true}), "colony-basket")
@@ -1468,7 +1506,20 @@ describe("toolsmith (tool recipes and the Toolsmith hut)", function()
     eq(by.wood, 5)
     eq(by["iron-plate"], 7)
     eq(by["copper-plate"], 4)
+    eq(by["steel-plate"], nil)  -- no steel wanted -> no steel buffer
     eq(#t.wants({wood = 8, ["iron-plate"] = 12, ["copper-plate"] = 4}, {}), 0)
+  end)
+  it("buffers steel only while a steel tool is wanted (#95)", function()
+    local by = {}
+    for _, item in ipairs(t.wants({}, {}, {"colony-steel-axe"})) do by[item.item] = item.count end
+    eq(by["steel-plate"], 4)
+    eq(by.wood, 8)
+    for _, item in ipairs(t.wants({["steel-plate"] = 2}, {["steel-plate"] = 1}, {"colony-steel-hoe"})) do
+      if item.item == "steel-plate" then eq(item.count, 1) end
+    end
+    local by2 = {}
+    for _, item in ipairs(t.wants({}, {}, {"colony-axe"})) do by2[item.item] = item.count end
+    eq(by2["steel-plate"], nil)
   end)
   it("keeps one spare of each tool a hut uses, once the colony has none of it", function()
     local gaps = {"colony-rod", "colony-axe"}
@@ -1498,6 +1549,27 @@ describe("toolsmith (tool recipes and the Toolsmith hut)", function()
       "colony-rod")
     eq(table.concat(t.wanted({"colony-rifle"}, {}, {wood = 20, ["iron-plate"] = 20, ["copper-plate"] = 2}), ","),
       "colony-rifle")
+  end)
+  it("asks for steel only when tier-1 is covered (#95)", function()
+    local stock = {wood = 20, ["iron-plate"] = 20, ["steel-plate"] = 5}
+    -- Tier-1 gap exists: steel upgrade suppressed even though stock holds steel.
+    eq(table.concat(t.wanted({"colony-axe"}, {"colony-axe", "colony-steel-axe"}, stock), ","),
+      "colony-axe")
+    -- Tier-1 covered (one in stock): steel is wanted as the upgrade spare.
+    stock["colony-axe"] = 1
+    eq(table.concat(t.wanted({}, {"colony-axe", "colony-steel-axe"}, stock), ","),
+      "colony-steel-axe")
+    -- Steel already covered if one is in stock.
+    stock["colony-steel-axe"] = 1
+    eq(#t.wanted({}, {"colony-axe", "colony-steel-axe"}, stock), 0)
+    -- Steel quota is also suppressed while tier-1 is short.
+    stock["colony-axe"] = 0
+    eq(table.concat(t.wanted({"colony-axe"}, {}, stock, {["colony-steel-axe"] = 3}), ","),
+      "colony-axe")
+    -- A steel gap itself is never suppressed.
+    stock["colony-steel-axe"] = 0
+    eq(table.concat(t.wanted({"colony-steel-axe"}, {}, stock), ","),
+      "colony-steel-axe")
   end)
   it("takes three work spells per tool", function()
     eq(t.work_ticks(480), 1440)

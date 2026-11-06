@@ -21,6 +21,8 @@ M.CARRY_CAP = 20            -- items a colonist can carry
 
 -- --- tools -----------------------------------------------------------------------------------------------
 M.TOOL_USES = 30            -- trips before one tool in the hut wears out
+M.STEEL_TOOL_USES = 45      -- steel-axe/pickaxe/hoe (#95): 1.5x trips per tool
+M.STEEL_WORK_MULT = 0.8     -- steel-axe/pickaxe/hoe (#95): 20% faster work spells (480 -> 384 ticks)
 
 -- --- salt + preservation ---------------------------------------------------------------------------------
 M.SALT_TICKS = 1800         -- ticks per salt from one pan (30 s), worker-free

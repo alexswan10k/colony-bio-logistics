@@ -191,18 +191,35 @@ M.update_lab_status = update_lab_status
 
 -- One completed trip = one use of the hut's tool. Shared by `work.finish` (harvest) and the hunter, which
 -- completes its trip the moment the animal dies rather than after a work animation.
+-- Steel ladders (#95): wear threshold follows the best tool present (steel 45, tier-1 30), and a mixed
+-- hut consumes its tier-1 first so a steel upgrade sticks instead of being spent immediately.
 local function use_tool(hut, specific)
   local def = hut and hut.entity and hut.entity.valid and labour.HUTS[hut.entity.name]
   if not (def and (def.tools or def.tool)) then return end
+  local steel_ladder = def.tools and (def.job == "chop" or def.job == "mine" or def.job == "farm") or false
+  local in_service = specific
+  if not in_service and def.tools and steel_ladder then
+    local counts = {}
+    for _, t in ipairs(def.tools) do counts[t] = hut.entity.get_item_count(t) end
+    in_service = labour.best_tool(counts, def.tools) or def.tool
+  elseif not in_service then
+    in_service = def.tool
+  end
   local broke
-  hut.wear, broke = labour.wear(hut.wear or 0)
+  hut.wear, broke = labour.wear(hut.wear or 0, in_service)
   if broke then
     local tool_item = specific
     if not tool_item then
-      tool_item = def.tool
-      if def.tools then
-        for _, t in ipairs(def.tools) do
-          if hut.entity.get_item_count(t) > 0 then tool_item = t; break end
+      if steel_ladder then
+        local counts = {}
+        for _, t in ipairs(def.tools) do counts[t] = hut.entity.get_item_count(t) end
+        tool_item = labour.worst_tool(counts, def.tools) or def.tool
+      else
+        tool_item = def.tool
+        if def.tools then
+          for _, t in ipairs(def.tools) do
+            if hut.entity.get_item_count(t) > 0 then tool_item = t; break end
+          end
         end
       end
     end
@@ -1080,7 +1097,13 @@ local function hut_offer(h)
     local primary_tool = def.tool
     if def.tools then
       local stock = colony and colony_mod.stock_table(colony) or {}
-      primary_tool = garrison.best_weapon(stock) or garrison.best_weapon(contents) or def.tool
+      if def.job == "chop" or def.job == "mine" or def.job == "farm" then
+        -- Steel ladder (#95): best tier in colony stock, else best already in the hut, else tier-1.
+        -- Haul delivers steel when steel is in stock; the Toolsmith still covers tier-1 gaps first.
+        primary_tool = labour.best_tool(stock, def.tools) or labour.best_tool(contents, def.tools) or def.tool
+      else
+        primary_tool = garrison.best_weapon(stock) or garrison.best_weapon(contents) or def.tool
+      end
     end
     local inflight = 0
     if def.tools then
@@ -1147,8 +1170,10 @@ local function hut_offer(h)
     demands = illness.wants(h.entity.get_item_count(illness.MEDICINE), h.inflight[illness.MEDICINE])
   elseif h.entity.name == toolsmith.NAME then
     -- Materials only while there is a tool to make: an idle Toolsmith does not hoard wood and iron.
+    -- Steel buffer is only asked for while a steel tool is wanted (#95), passed via `wanted`.
     local colony = storage.colonies[h.colony_id]
-    demands = (colony and #toolsmith_wanted(colony) > 0) and toolsmith.wants(chest_contents(h.entity) or {}, h.inflight) or {}
+    local wanted_list = colony and toolsmith_wanted(colony) or {}
+    demands = (#wanted_list > 0) and toolsmith.wants(chest_contents(h.entity) or {}, h.inflight, wanted_list) or {}
   elseif h.entity.name == "colony-kitchen" then
     demands = kitchen.wants(chest_contents(h.entity) or {}, h.inflight)
   else
@@ -2925,8 +2950,16 @@ events.on(defines.events.on_ai_command_completed, function(ev)
       update_lab_status(st.hut.entity, worker_count(st.hut), def and def.capacity or 2)
     end
     -- Inspired colonists (served by a Tavern, #48) finish each job sooner.
+    -- Steel tools (#95): a steel axe/pickaxe/hoe works its spell 20% faster (480 -> 384 ticks).
     local base = M.WORK_TICKS
-    if st.hut and st.hut.entity.valid and st.hut.entity.name == toolsmith.NAME then base = toolsmith.work_ticks(base) end
+    if st.hut and st.hut.entity.valid and st.hut.entity.name == toolsmith.NAME then base = toolsmith.work_ticks(base)
+    elseif st.hut and st.hut.entity.valid and (st.hut.job == "chop" or st.hut.job == "mine" or st.hut.job == "farm") then
+      local def = labour.HUTS[st.hut.entity.name]
+      if def and def.tools then
+        local best = labour.best_tool(chest_contents(st.hut.entity) or {}, def.tools)
+        base = labour.work_ticks(base, best)
+      end
+    end
     local ticks = recreation.work_ticks(base, colony_mod.is_inspired(colony, ev.unit_number))
     ticks = illness.work_ticks(ticks, colony_mod.is_sick(ev.unit_number))   -- the sick work at half speed (#47)
     scheduler.after(ticks + (ev.unit_number * 23) % 240, "work.finish", {un = ev.unit_number})

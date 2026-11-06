@@ -4,9 +4,12 @@ local yields = require("scripts.model.yields")
 local M = {}
 M.HUTS = {
   ["colony-forager-hut"] = {job = "forage", tool = "colony-basket", capacity = 3},
-  ["colony-woodcutter-hut"] = {job = "chop", tool = "colony-axe", capacity = 3},
-  ["colony-miner-hut"] = {job = "mine", tool = "colony-pickaxe", capacity = 3},
-  ["colony-farm-hut"] = {job = "farm", tool = "colony-hoe", capacity = 3,
+  ["colony-woodcutter-hut"] = {job = "chop", tool = "colony-axe",
+    tools = {"colony-steel-axe", "colony-axe"}, capacity = 3},
+  ["colony-miner-hut"] = {job = "mine", tool = "colony-pickaxe",
+    tools = {"colony-steel-pickaxe", "colony-pickaxe"}, capacity = 3},
+  ["colony-farm-hut"] = {job = "farm", tool = "colony-hoe",
+    tools = {"colony-steel-hoe", "colony-hoe"}, capacity = 3,
     keep = {"colony-fertilizer"}, inputs = {{item = "colony-fertilizer", count = 6}}},
   ["colony-hunting-lodge"] = {job = "hunt", tool = "colony-bow",
     tools = {"pistol", "submachine-gun", "colony-bow", "colony-rifle"},
@@ -40,6 +43,21 @@ M.HUTS = {
 -- Worker trips before one tool in the hut wears out. A trip is ~10s of walking + 8s of work, so a hut
 -- with three workers loses a tool roughly every 1-2 minutes: fast enough to see, slow enough to be logistics.
 M.TOOL_USES = yields.TOOL_USES
+M.STEEL_TOOL_USES = yields.STEEL_TOOL_USES
+M.STEEL_WORK_MULT = yields.STEEL_WORK_MULT
+-- Trips per tool by tier (#95). Unlisted tools use TOOL_USES.
+M.USES = {
+  ["colony-steel-axe"] = yields.STEEL_TOOL_USES,
+  ["colony-steel-pickaxe"] = yields.STEEL_TOOL_USES,
+  ["colony-steel-hoe"] = yields.STEEL_TOOL_USES,
+}
+-- Work-spell multiplier by tier (#95): steel works 20% faster (480 -> 384 ticks).
+M.WORK_MULT = {
+  ["colony-steel-axe"] = yields.STEEL_WORK_MULT,
+  ["colony-steel-pickaxe"] = yields.STEEL_WORK_MULT,
+  ["colony-steel-hoe"] = yields.STEEL_WORK_MULT,
+}
+M.STEEL = {["colony-steel-axe"] = true, ["colony-steel-pickaxe"] = true, ["colony-steel-hoe"] = true}
 
 -- A hut employs up to `capacity` colonists, but only as many as it holds tools for and as the player's
 -- per-hut worker limit allows (`limit` nil = no player limit). A hut with no tool is supply-gated instead,
@@ -49,15 +67,43 @@ function M.allowed(capacity, tools_in_hut, limit)
   return math.max(0, math.min(cap, tools_in_hut))
 end
 
--- Count one trip of wear. Returns new wear counter and whether a tool breaks now.
-function M.wear(counter)
+-- Trips before a tool of this tier wears out (#95). nil = default tier.
+function M.uses_for(tool) return tool and M.USES[tool] or M.TOOL_USES end
+
+-- Count one trip of wear. Returns new wear counter and whether a tool breaks now. `tool` is the tier in
+-- service (the best present in the hut), so a steel hut lasts STEEL_TOOL_USES.
+function M.wear(counter, tool)
   counter = counter + 1
-  if counter >= M.TOOL_USES then return 0, true end
+  if counter >= M.uses_for(tool) then return 0, true end
   return counter, false
 end
 
 -- Remaining uses for the tool currently in service (for the hut GUI).
-function M.uses_left(wear) return math.max(0, M.TOOL_USES - (wear or 0)) end
+function M.uses_left(wear, tool) return math.max(0, M.uses_for(tool) - (wear or 0)) end
+
+-- Work ticks for a trip with this tool (#95): steel spells are 0.8x (480 -> 384).
+function M.work_ticks(base, tool)
+  return math.floor(base * (tool and M.WORK_MULT[tool] or 1) + 0.5)
+end
+
+-- Best tool present in a ladder (best-first array, like garrison.PREFERENCE for weapons) (#95).
+function M.best_tool(counts, ladder)
+  if not (counts and ladder) then return nil end
+  for _, t in ipairs(ladder) do
+    if (counts[t] or 0) > 0 then return t end
+  end
+  return nil
+end
+
+-- Worst tool present, for consumption: a mixed hut wears its tier-1 first and keeps its steel, so the
+-- upgrade sticks instead of being spent first (#95).
+function M.worst_tool(counts, ladder)
+  if not (counts and ladder) then return nil end
+  for i = #ladder, 1, -1 do
+    if (counts[ladder[i]] or 0) > 0 then return ladder[i] end
+  end
+  return nil
+end
 
 -- Free slots per job: huts = array of {job=, allowed=, workers=} -> {job -> n}
 function M.free_slots(huts)

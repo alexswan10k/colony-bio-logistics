@@ -164,3 +164,18 @@ show("10 civic packs", {["colony-civic-pack"] = 10})
 show("20 gears (assembler)", {["iron-gear-wheel"] = 20})
 print(("damping %.2f over %d steps; a deeper chain adds less, and the direct request is never double-counted")
   :format(sg.DAMPING, sg.DEPTH))
+
+print("\n== Q12 (#95): metal tool tiers. Steel lasts 1.5x (30->45) and works 20% faster (480->384 ticks);")
+print("cost 2 wood + 3 iron -> 2 iron + 1 steel (0 wood). Per 3-worker hut:")
+print("tier                     trips/min  tools/h  wood/h  iron/h  steel/h  wood/col-h")
+local steel_trip = yields.STEEL_WORK_MULT * yields.WORK_TICKS + TRIP_EXTRA
+local function tier_row(label, uses, trip_ticks, wood, iron, steel)
+  local trips_min = 3 * per_min(1, trip_ticks)
+  local tools_h = trips_min * 60 / uses
+  print(("%-24s  %9.2f  %7.2f  %6.1f  %6.1f  %7.1f  %8.2f")
+    :format(label, trips_min, tools_h, tools_h * wood, tools_h * iron, tools_h * steel, tools_h * wood / 3))
+end
+tier_row("tier-1 axe/pick/hoe (30 uses)", labour.TOOL_USES, trip, 2, 3, 0)
+tier_row("steel axe/pick/hoe (45 uses)", labour.uses_for("colony-steel-axe"), steel_trip, 0, 2, 1)
+print("note: steel shifts the bill from wood to iron+steel (1 steel = 5 iron + coal), needs the Steel Tools tech;")
+print("basket/rod stay tier-1 (2 wood/scope). Full steel town: tool wood -> 0, iron equiv rises ~+55% per trip.")

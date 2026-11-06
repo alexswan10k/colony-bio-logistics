@@ -1172,3 +1172,84 @@ describe("colony_missing_list ranks jobs (#91)", function()
     truthy(mine_pos > 2, "iron rank 5 sorts last among the missing")
   end)
 end)
+
+describe("steel tool tiers (#95) glue", function()
+  local function make_chest(contents)
+    local items = {}
+    for k, v in pairs(contents or {}) do items[k] = v end
+    return {
+      get_item_count = function(name) return items[name] or 0 end,
+      get_contents = function()
+        local list = {}
+        for k, v in pairs(items) do list[#list + 1] = {name = k, count = v} end
+        return list
+      end,
+      is_empty = function() return next(items) == nil end,
+      is_full = function() return false end,
+    }
+  end
+  it("hut_info counts a steel ladder (steel + tier-1 both open slots)", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+    local inv = make_chest({["colony-steel-axe"] = 1, ["colony-axe"] = 1})
+    local ent = {
+      valid = true, name = "colony-woodcutter-hut", unit_number = 401, position = {x = 0, y = 0},
+      surface = {index = 1}, force = {},
+      get_item_count = function(item) return inv.get_item_count(item) end,
+      get_inventory = function() return inv end,
+    }
+    local hut = {entity = ent, job = "chop", wear = 0, limit = 3, workers = {}, inflight = {}, colony_id = 1}
+    local def, tools, allowed = work.hut_info(hut)
+    eq(def.tool, "colony-axe")
+    eq(tools, 2)
+    eq(allowed, 2)
+    local farm_inv = make_chest({["colony-steel-hoe"] = 2})
+    local farm_ent = {
+      valid = true, name = "colony-farm-hut", unit_number = 402, position = {x = 0, y = 0},
+      surface = {index = 1}, force = {},
+      get_item_count = function(item) return farm_inv.get_item_count(item) end,
+      get_inventory = function() return farm_inv end,
+    }
+    local farm_hut = {entity = farm_ent, job = "farm", wear = 0, limit = 3, workers = {}, inflight = {}, colony_id = 1}
+    local _, ftools, fallowed = work.hut_info(farm_hut)
+    eq(ftools, 2)
+    eq(fallowed, 2)
+  end)
+  it("tool_gaps reports the tier-1 gap for a short steel-ladder hut", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+    local hall_inv = make_chest({})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1}, force = {},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+    }
+    -- One steel axe in a 3-capacity woodcutter: short 2, reported as tier-1 colony-axe (tier-1 first).
+    local inv = make_chest({["colony-steel-axe"] = 1})
+    local ent = {
+      valid = true, name = "colony-woodcutter-hut", unit_number = 403, position = {x = 5, y = 5},
+      surface = {index = 1}, force = {},
+      get_item_count = function(item) return inv.get_item_count(item) end,
+      get_inventory = function() return inv end,
+    }
+    local hut = {entity = ent, job = "chop", wear = 0, limit = 3, workers = {}, inflight = {}, colony_id = 1}
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {[403] = hut}, houses = {}, machines = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {},
+      taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {},
+      canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, colonists = {},
+      deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {},
+    }
+    local gaps = colony_mod.tool_gaps(c)
+    eq(#gaps, 1)
+    eq(gaps[1].tool, "colony-axe")
+    eq(gaps[1].short, 2)
+  end)
+end)

@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: colony well rules (#43).
 local yields = require("scripts.model.yields")
 

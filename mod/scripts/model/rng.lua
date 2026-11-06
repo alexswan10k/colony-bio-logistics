@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- Deterministic PRNG (LCG) for pure models/sims. In-game code should use game.create_random_generator.
 local M = {}
 function M.new(seed)

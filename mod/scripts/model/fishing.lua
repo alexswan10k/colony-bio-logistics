@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: fishing rules (#80, design §3.1, §7 coastal specialization).
 --
 -- The Fishing Dock is the first building whose placement is a real decision: it only works with water beside

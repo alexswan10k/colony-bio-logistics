@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: illness and treatment (#47, decided on #20; design §2.4). Colonists are individual units, so sickness is
 -- kept per colonist, but everything is rolled once per colony evaluation, never per tick.
 --   * Smoker's Lung: breathing the colony's pollution. Never passes on its own and kills if untreated.

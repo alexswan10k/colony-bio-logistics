@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: civilians take shelter from enemies (#61, design §2.4 / §7). Colonists are on the player force, so biters
 -- can and do kill them, and since #53 every death is permanent. An enemy damaging anything of the colony's raises
 -- an alarm at that spot; colonists within RADIUS drop their work and run to a shelter (a house or the Town Hall)

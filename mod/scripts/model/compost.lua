@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: the spoilage loop (design §3.2, #78).
 --
 -- Spoiled food is vanilla `spoilage`: useless, and it does not go away on its own. Left alone it fills the

@@ -44,8 +44,7 @@
       "storage"
     ],
     "disable": [
-      "lowercase-global",
-      "missing-fields"
+      "lowercase-global"
     ]
   }
 }

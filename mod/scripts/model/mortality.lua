@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: permanent death (#53, design §2.4). Every colonist death is final and is counted against the colony it
 -- belonged to, whatever killed it: starvation, a train, a biter, a fire. A death feeds the desirability death
 -- penalty (model/desirability.lua). The dead are buried in a Cemetery with a free plot, else where they fell.

@@ -1,3 +1,4 @@
+---@diagnostic disable: missing-fields
 -- SPIKE (#1): colonist as a `unit` prototype.
 -- Cloned from small-biter so all required unit fields (animations, attack_parameters,
 -- collision, etc.) are valid; art is placeholder.

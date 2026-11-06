@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: kitchen cooking and baking rules (#44, design §3.1).
 --
 -- A Kitchen combines agricultural produce with well water to bake bread, extending shelf life (60 min)

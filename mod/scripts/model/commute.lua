@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: commuter outposts (#50, design §6.1). A colony with a stocked Canteen is an outpost: it asks for commuters
 -- to fill its open job slots instead of housing workers. Idle colonists of other rail-linked towns ride in by
 -- Passenger Coach (the ride itself is model/transit.lua), work a shift as the outpost's colonists, eat at the

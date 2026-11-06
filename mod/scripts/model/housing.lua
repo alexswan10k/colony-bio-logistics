@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: housing tiers, per-house needs, consumption and hauling demand.
 -- A need is satisfied by the FIRST workable option: {power=true} (if powered) or {item=, per=} (per occupant per interval).
 -- So electricity substitutes for fuel/heat. Later needs (water, luxury goods) are just more entries here.

@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE colony simulation step (food -> desirability -> migration/leaving/starvation). Used by tests and sim/ balance runs.
 -- A colony is a plain table; step() mutates it and returns events. One step = one "evaluation interval".
 local desirability = require("scripts.model.desirability")

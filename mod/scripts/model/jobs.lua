@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE model: per-colony priority matrix (design §4.1, issues #17/#27).
 -- Lower rank = more important; 0 = the role is switched off. Ranks may repeat: jobs sharing a rank form
 -- one priority group and split the workforce by work_plan.desired_shares, so the default matrix keeps the
@@ -13,6 +14,7 @@ M.MAX_RANK = 4
 M.DEFAULT = {haul = 1, forage = 2, chop = 2, mine = 2, farm = 2, hunt = 2, fish = 2, preserve = 2,
   construct = 2, research = 2, heal = 2, guard = 2}
 
+---@return table<string, integer>
 function M.defaults()
   local out = {}
   for _, job in ipairs(M.JOBS) do out[job] = M.DEFAULT[job] end
@@ -28,23 +30,38 @@ end
 
 -- Effective rank of `job` (0 = disabled). Missing/unknown stored values fall back to the default,
 -- so colonies saved before the matrix existed keep working without a migration.
+---@param priority table|nil
+---@param job string
+---@return integer
 function M.rank(priority, job)
   local r = priority and priority[job]
   if r == nil then r = M.DEFAULT[job] end
   return clamp_rank(r)
 end
 
+---@param priority table|nil
+---@param job string
+---@return boolean
 function M.enabled(priority, job) return M.rank(priority, job) > 0 end
 
+---@param priority table
+---@param job string
+---@param rank integer
 function M.set(priority, job, rank) priority[job] = clamp_rank(rank) end
 
 -- Move one job up (-1) or down (+1) a rank; 0 disables it. Ranks may collide: that is how groups form.
+---@param priority table
+---@param job string
+---@param delta integer
+---@return table
 function M.shift(priority, job, delta)
   M.set(priority, job, M.rank(priority, job) + delta)
   return priority
 end
 
 -- Effective matrix as a complete {job -> rank} table (defaults filled in) for the GUI.
+---@param priority table|nil
+---@return table<string, integer>
 function M.effective(priority)
   local out = {}
   for _, job in ipairs(M.JOBS) do out[job] = M.rank(priority, job) end
@@ -52,6 +69,10 @@ function M.effective(priority)
 end
 
 -- Lowest enabled rank among `jobs` that still have a free tooled slot; nil if none can be worked.
+---@param priority table|nil
+---@param jobs_list string[]
+---@param slots table<string, integer>
+---@return integer|nil
 function M.best_rank(priority, jobs_list, slots)
   local best
   for _, job in ipairs(jobs_list) do
@@ -65,6 +86,9 @@ end
 
 -- Generic picker for the design's five abstract roles (kept from #17): best-ranked job with open tasks.
 -- priorities: {job -> rank|nil}; available: {job -> count of open tasks}. Ties broken by M.JOBS order.
+---@param priorities table<string, integer|nil>
+---@param available table<string, integer>
+---@return string|nil
 function M.pick(priorities, available)
   local best, best_rank
   for _, job in ipairs({"guard", "doctor", "construct", "haul", "harvest"}) do

@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: the Toolsmith. A staffed labour hut with no tool of its own: a colonist makes the tools huts are waiting on
 -- from wood, iron and copper that haulers bring it. Supply-gated like the Kitchen (no tool needed), but slower, and
 -- every tool it makes costs labour. The recipes are workshop.RECIPES (the same numbers as the hand-craft recipes in
@@ -30,12 +31,18 @@ M.TIER1_OF = {
 }
 M.STEEL = {["colony-steel-axe"] = true, ["colony-steel-pickaxe"] = true, ["colony-steel-hoe"] = true}
 
+---@param base integer
+---@return integer
 function M.work_ticks(base)
   return base * M.WORK_MULT
 end
 
 -- The tool to make this pass, or nil: the first wanted tool that is unlocked and makeable from the hut's own `stock`.
 -- wanted = ordered list of tool names; stock = {item -> n} in the Toolsmith; unlocked = {tool -> true}.
+---@param wanted string[]
+---@param stock ItemCount
+---@param unlocked table<string, boolean>
+---@return string|nil, table<string, integer>|nil
 function M.pick(wanted, stock, unlocked)
   for _, tool in ipairs(wanted) do
     if unlocked[tool] and workshop.RECIPES[tool] and next(workshop.missing(tool, stock)) == nil then
@@ -51,6 +58,11 @@ end
 -- wanted (the advice for that hut is `gap`, not a request). stock = colony stock {item -> n}.
 -- Tier-1 first (#95): a steel tool is not wanted as a spare or quota while its tier-1 gap exists, so the
 -- Toolsmith fills empty huts before it upgrades them.
+---@param gap_tools string[]
+---@param built_tools string[]
+---@param stock ItemCount
+---@param quotas table<string, number>|nil
+---@return string[]
 function M.wanted(gap_tools, built_tools, stock, quotas)
   local out, seen = {}, {}
   local gap_set = {}
@@ -97,6 +109,10 @@ end
 -- Input stock a Toolsmith wants delivered: wood, iron and copper up to the buffer, counting what is already there
 -- and on the way. `wanted` is the Toolsmith wanted list: steel-plate is only buffered while a steel tool
 -- is wanted (#95), so the Toolsmith does not hoard steel before the upgrade is due.
+---@param counts ItemCount
+---@param inflight ItemCount|nil
+---@param wanted string[]|nil
+---@return HaulDemand[]
 function M.wants(counts, inflight, wanted)
   local out = {}
   for _, want in ipairs(M.STOCK) do
@@ -121,6 +137,8 @@ end
 -- (the tool's recipe is researched), missing {item -> n} (what colony stock lacks for the recipe). Returns
 -- "craft" (no Toolsmith to make it: craft one by hand), "making" (the Toolsmith has what it needs), or
 -- "short", item, n (colony stock is short of an ingredient; the first one by name).
+---@param f GapFacts
+---@return string, string|nil, number|nil
 function M.gap(f)
   if not (f.toolsmith and f.unlocked) then return "craft" end
   local items = {}

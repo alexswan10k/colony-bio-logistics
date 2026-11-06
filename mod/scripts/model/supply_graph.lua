@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: transitive supply & demand (#90).
 -- Demand is known at the top of a chain (a marked assembler wants circuits, an archive wants packs). This
 -- walks *up* the recipe graph from that demand so the colony's quota targets, harvest priority and haul
@@ -20,6 +21,8 @@ M.DAMPING = 0.75
 -- One recipe per product: the one with the *fewest ingredient types* (a tie is broken by recipe name). The
 -- graph is a heuristic feedstock tree, not a solver - choosing the shortest path keeps the numbers honest for
 -- the common case (ore -> plate -> gear) and stops an expensive alternate recipe from inflating a target.
+---@param recipe_list RecipeDef[]|nil
+---@return table<string, RecipeGraphEntry>
 function M.build(recipe_list)
   local best = {}
   for _, r in ipairs(recipe_list or {}) do
@@ -48,6 +51,11 @@ end
 -- reported for the ingredient side too; the caller adds the two, because both are real demand.
 -- Bounded by `depth`, so a recipe that consumes its own output terminates; `damping` shrinks the further
 -- floors so the sum is finite even on a long chain.
+---@param recipes table<string, RecipeGraphEntry>|nil
+---@param seeds ItemCount|nil
+---@param depth integer|nil
+---@param damping number|nil
+---@return ItemCount
 function M.propagate(recipes, seeds, depth, damping)
   depth = depth or M.DEPTH
   damping = damping or M.DAMPING
@@ -87,6 +95,9 @@ end
 
 -- Merge the propagated floors into the direct demand table: both are real demand (a crate of ore beside a plate
 -- assembler wants ore *and* the ore the assembler implies), so they add.
+---@param direct ItemCount|nil
+---@param upstream ItemCount|nil
+---@return ItemCount
 function M.merge(direct, upstream)
   local out = {}
   for item, n in pairs(direct or {}) do out[item] = n end
@@ -96,6 +107,8 @@ end
 
 -- Round to a whole item and drop dust, so a chain of halves cannot make a quota target drift by 0.0001
 -- between evaluations (and reads sensibly in the panel).
+---@param demand ItemCount|nil
+---@return ItemCount
 function M.whole(demand)
   local out = {}
   for item, n in pairs(demand or {}) do

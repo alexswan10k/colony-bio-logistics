@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: passenger rail between colonies (#49, design §10.4).
 -- A unit can never sit in a train (spike #2: `set_passenger` only takes characters), so a ride is bookkeeping: a
 -- colonist waiting at a Passenger Platform boards a Passenger Coach by leaving its colony, rides as a count on

@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE model: food moving producer pile -> haulers (travel delay) -> consumer stock, with spoilage at every stage.
 -- 1 step = 1 time unit. Batches = {age, count}. Answers: how much do hauler count/capacity/distance/shelf life waste or starve?
 local M = {}

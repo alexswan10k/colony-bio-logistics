@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: which ore a Miner's Hut works first (design §4.1, issue #74).
 -- Lower rank = mined first; 0 = the hut ignores that ore. Ores sharing a rank fall back to distance, so
 -- the default (everything rank 1) is exactly the old nearest-first behaviour: a hut only stops grabbing

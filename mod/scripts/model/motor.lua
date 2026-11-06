@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: Motor Pool rules (#60). A pool holds vanilla cars and fuel; a hauler checks a car out as a truck when a
 -- load is too big for one pair of hands, drives it until the fuel runs out or there is nothing big left to move,
 -- then parks it again.

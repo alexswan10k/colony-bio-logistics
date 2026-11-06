@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: workforce headcount quotas and targets (#73).
 -- Allows the player to steer the colony's workforce by setting target headcounts per job
 -- from the Town Hall without having to micro-manage individual house rosters.

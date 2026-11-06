@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: entity tags, the only channel that carries colony state through a blueprint (#36).
 --
 -- A blueprint stores a per-entity tag dictionary (BlueprintEntity.tags) and the game hands it back on build,

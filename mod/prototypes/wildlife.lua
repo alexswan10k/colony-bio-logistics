@@ -1,3 +1,4 @@
+---@diagnostic disable: missing-fields
 -- Wildlife (#79, design §3.1): the game a Hunting Lodge works.
 --
 -- It is a `unit` cloned from small-biter so every required field (run animation, steering, collision box)

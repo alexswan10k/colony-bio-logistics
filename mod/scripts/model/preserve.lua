@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: curing rules (#81). A Smokehouse turns raw meat or fish plus salt into a preserved variant.
 --
 -- Nutrition per item is unchanged and the payoff is *shelf life* (~3x), which is what #81 asked for: the

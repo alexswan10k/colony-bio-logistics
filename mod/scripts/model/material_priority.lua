@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: colony-wide material priorities (#91).
 -- A rank says what the colony cares about *right now*, on a fixed 1..5 scale that reads like the job
 -- matrix: rank 1 = most wanted, 3 = neutral, 5 = least (so a bigger number is never better). A rank
@@ -37,11 +38,18 @@ local function clamp_rank(r)
   return r
 end
 
+---@param item string
+---@return boolean
 function M.is_rankable(item) return RANKABLE_INDEX[item] ~= nil end
+---@param item string
+---@return integer|nil
 function M.index(item) return RANKABLE_INDEX[item] end
 
 -- Effective rank of `item`: 1 (most wanted)..5 (least), or DEFAULT when the colony has never rated it,
 -- including when no ratings table exists at all (so towns saved before #91 read straight through).
+---@param ratings table|nil
+---@param item string
+---@return integer
 function M.rank(ratings, item)
   if not M.is_rankable(item) then return M.DEFAULT end
   local rec = ratings and ratings[item]
@@ -51,6 +59,9 @@ function M.rank(ratings, item)
 end
 
 -- Is this material enabled? An explicitly disabled material sorts after every enabled one.
+---@param ratings table|nil
+---@param item string
+---@return boolean
 function M.enabled(ratings, item)
   local rec = ratings and ratings[item]
   if rec == nil then return true end
@@ -60,6 +71,9 @@ end
 
 -- The single ordering number: 1 (most wanted) .. 5 (least), or DISABLED (6) for a material the player
 -- turned off, so it loses every tie-break. Anything unrated reads DEFAULT, so an untouched town is neutral.
+---@param ratings table|nil
+---@param item string
+---@return integer
 function M.score(ratings, item)
   if not M.is_rankable(item) then return M.DEFAULT end
   if not M.enabled(ratings, item) then return M.DISABLED end
@@ -70,6 +84,9 @@ end
 -- most wanted here too, so a higher-urgency material is worked first). Disabled reads DISABLED (6), which
 -- must still order after every enabled 1..5, so `eff_ore_groups` (work.lua) groups by it directly rather
 -- than going through `mine_plan.by_rank`, whose names stop at M.MAX_RANK = 4.
+---@param ratings table|nil
+---@param item string
+---@return integer
 function M.mine_rank(ratings, item)
   if not M.is_rankable(item) then return M.DEFAULT end
   local rec = ratings and ratings[item]
@@ -83,6 +100,10 @@ end
 -- lowest score 1..5 (6 = disabled), then the demand standing behind an item at that score, so
 -- "rank 3 that the colony wants more of wins" is a rule rather than a guess. Accepts items as plain
 -- names or {item = name} records so it works on `M.load` output too.
+---@param items table|nil
+---@param ratings table|nil
+---@param demand ItemCount|nil
+---@return integer, number
 function M.best(items, ratings, demand)
   local best_r, best_d = nil, 0
   for _, it in ipairs(items or {}) do
@@ -98,12 +119,20 @@ end
 
 -- Move one material up (-1) or down (+1) the scale and clamp it to 1..5; disabled materials only move
 -- their stored rank unless they are enabled again.
+---@param ratings table
+---@param item string
+---@param delta number
+---@return integer
 function M.shift(ratings, item, delta)
   ratings[item] = ratings[item] or {rank = M.DEFAULT, enabled = true}
   ratings[item].rank = clamp_rank(M.rank(ratings, item) + (tonumber(delta) or 0))
   return ratings[item].rank
 end
 
+---@param ratings table
+---@param item string
+---@param on boolean
+---@return boolean
 function M.set_enabled(ratings, item, on)
   ratings[item] = ratings[item] or {rank = M.DEFAULT, enabled = true}
   ratings[item].enabled = (on == true)
@@ -112,6 +141,9 @@ end
 
 -- Ranked order of materials for the Town Hall panel: most wanted first, then the bigger demand behind
 -- it, then the RANKABLE order (so the panel is stable no matter what the table looks like).
+---@param ratings table|nil
+---@param demand ItemCount|nil
+---@return table[]
 function M.order(ratings, demand)
   local rows = {}
   for _, item in ipairs(M.RANKABLE) do

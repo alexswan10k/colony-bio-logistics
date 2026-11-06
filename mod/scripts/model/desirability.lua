@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE model (no Factorio API). PROPOSAL for decision #16 - weights/scales are tunable params, not truth.
 -- All inputs normalised to 0..1. D roughly in [-1.5, 1]; migration enters above `params.migrate_in`.
 local M = {}

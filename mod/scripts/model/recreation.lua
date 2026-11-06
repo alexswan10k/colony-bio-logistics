@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: Taverns and the Inspired buff (#48, design §6.3).
 -- A Tavern pours ale for the houses around it. Each colony evaluation every occupied house within RADIUS of a
 -- stocked Tavern is served (nearest Tavern first), which costs ale per resident. Served residents are Inspired

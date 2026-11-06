@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: harvest quotas and yield targets (#84).
 -- Determines whether a resource has reached its production cap.
 local M = {}
@@ -42,6 +43,10 @@ for item in pairs(quota_supply) do
 end
 
 -- Target quota for item (0 or nil = unlimited).
+---@param quotas ItemCount|nil
+---@param global_settings table|nil
+---@param item string
+---@return integer
 function M.target(quotas, global_settings, item)
   if quotas and quotas[item] ~= nil then
     return tonumber(quotas[item]) or 0
@@ -53,12 +58,20 @@ function M.target(quotas, global_settings, item)
 end
 
 -- True if current count has met or exceeded target (> 0).
+---@param target integer|nil
+---@param current integer|nil
+---@return boolean
 function M.met(target, current)
   if not target or target <= 0 then return false end
   return (current or 0) >= target
 end
 
 -- Filter a list of resources (e.g. mine ores), removing any that reached their quota.
+---@param items string[]|nil
+---@param quotas ItemCount|nil
+---@param global_settings table|nil
+---@param counts ItemCount|nil
+---@return string[]
 function M.open_resources(items, quotas, global_settings, counts)
   local open = {}
   for _, item in ipairs(items or {}) do
@@ -71,6 +84,11 @@ function M.open_resources(items, quotas, global_settings, counts)
 end
 
 -- True if every resource in the list has reached its quota (and list is non-empty).
+---@param items string[]|nil
+---@param quotas ItemCount|nil
+---@param global_settings table|nil
+---@param counts ItemCount|nil
+---@return boolean
 function M.all_met(items, quotas, global_settings, counts)
   if not items or #items == 0 then return false end
   for _, item in ipairs(items) do
@@ -84,6 +102,9 @@ end
 
 -- True if a resource is permitted to be collected as a low-priority overflow task when idle.
 -- Defaults to true for all core resources unless explicitly set to false.
+---@param overflow_table table|nil
+---@param item string
+---@return boolean
 function M.overflow_allowed(overflow_table, item)
   if not overflow_table then return true end
   if overflow_table[item] ~= nil then

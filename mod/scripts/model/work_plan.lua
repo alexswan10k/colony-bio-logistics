@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: choose a job for an idle colonist, driven by the colony's priority matrix (design §4.1, #27).
 --   1. Logistics first: while hauling is enabled and below its share, keep the colony hauling or houses starve.
 --   2. Otherwise take the best-ranked enabled harvest job that still has a free tooled slot. Jobs sharing a
@@ -19,10 +20,16 @@ M.FOOD = {"forage", "farm", "hunt", "fish"}
 local HARVEST_INDEX = {}
 for i, job in ipairs(M.HARVEST) do HARVEST_INDEX[job] = i end
 
+---@param pop integer
+---@return integer
 function M.preserve_workers(pop) return math.max(1, math.floor((pop or 0) * M.PRESERVE_SHARE)) end
+---@param pop integer
+---@return integer
 function M.research_workers(pop) return math.max(1, math.floor((pop or 0) * M.RESEARCH_SHARE)) end
 
 -- food_ratio = stock/target; returns the share of non-hauling colonists each hut job should get.
+---@param food_ratio number
+---@return table<string, number>
 function M.desired_shares(food_ratio)
   if food_ratio < 0.5 then return {forage = 0.3, hunt = 0.1, fish = 0.1, farm = 0.25, chop = 0.15, mine = 0.1}
   elseif food_ratio < 1 then return {forage = 0.2, hunt = 0.1, fish = 0.1, farm = 0.2, chop = 0.2, mine = 0.2}
@@ -33,6 +40,9 @@ end
 -- (destinations waiting on a real request, not a top-up) raises it: one hauler per waiting destination, up to
 -- HAUL_MAX_SHARE of the town. Haulers walk to every pickup, so a fixed share either starves the low bands of a
 -- busy town or wastes workers in a quiet one.
+---@param pop integer
+---@param backlog integer|nil
+---@return integer
 function M.haul_target(pop, backlog)
   if pop <= 0 then return 0 end
   local base = math.max(1, math.floor(M.HAUL_SHARE * pop + 0.5))
@@ -45,6 +55,8 @@ end
 --      hut_count={job->staffable huts}, pop=, haul=bool, priority={job->rank}, targets={job->headcount|nil}}.
 -- `pop` excludes the colonist being assigned.
 -- Returns a job name or nil.
+---@param s ChooseState
+---@return string|nil
 function M.choose(s)
   local counts, slots, capacity = s.counts or {}, s.slots or {}, s.capacity or {}
   local hut_count = s.hut_count or {}
@@ -251,6 +263,8 @@ end
 -- s.counts = {job -> n}
 -- s.priority = priority matrix
 -- s.cursor = cursor
+---@param s ChooseState
+---@return string|nil
 function M.choose_overflow(s)
   local slots = s.overflow_slots or {}
   local counts = s.counts or {}

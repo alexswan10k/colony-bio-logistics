@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: hunting rules (#79, design §3.1). A hunter is paid per kill, not per trip: the animal supplies the
 -- meat, the rifle supplies the reach. Everything here is a plain decision the adapter can apply.
 local yields = require("scripts.model.yields")

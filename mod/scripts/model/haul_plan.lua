@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: what a hauler carries, and which destination it serves first.
 -- One trip serves ONE destination, but it may carry several item types (e.g. ore + fuel for a furnace),
 -- so a machine with two requests is filled in one visit instead of starving one of them.
@@ -26,6 +27,8 @@ M.PRIORITY = {
 M.DEFAULT_CAP = 20
 
 -- A demand is {item=, count=} or {items={...}, count=} (interchangeable options, e.g. forage or fish).
+---@param d HaulDemand
+---@return string[]
 local function demand_items(d) return d.items or {d.item} end
 M.demand_items = demand_items
 
@@ -33,6 +36,10 @@ M.demand_items = demand_items
 -- Returns a load: array of {item=, count=, need=} with at most `cap` items total.
 -- The cap is shared across the demanded items first (so a furnace gets ore AND fuel in one visit),
 -- then whatever is left fills the biggest requests.
+---@param demands HaulDemand[]
+---@param available ItemCount
+---@param cap integer|nil
+---@return HaulLoad[]
 function M.load(demands, available, cap)
   cap = cap or M.DEFAULT_CAP
   local out, total, left, added = {}, 0, {}, {}
@@ -70,6 +77,8 @@ function M.load(demands, available, cap)
   return out
 end
 
+---@param load HaulLoad[]
+---@return integer
 function M.total(load)
   local n = 0
   for _, s in ipairs(load) do n = n + s.count end
@@ -77,6 +86,8 @@ function M.total(load)
 end
 
 -- Total items an offer wants: used to rank destinations of the same priority (biggest deficit first).
+---@param offer HaulOffer|nil
+---@return integer
 function M.deficit(offer)
   if not offer then return 0 end
   if type(offer.deficit) == "number" then return offer.deficit end
@@ -89,6 +100,9 @@ end
 -- copper when everything else is equal), then largest deficit, then `key` (caller supplies a stable id).
 -- `rank_ctx` is nil for legacy callers, or {ratings=, demand=} from the colony. Rank 1 = most wanted
 -- wins; unrated materials read 3, so an untouched town keeps the old order.
+---@param offers HaulOffer[]
+---@param rank_ctx RankCtx|nil
+---@return HaulOffer[]
 function M.order(offers, rank_ctx)
   local function mat_rank(offer)
     if offer.mat_rank ~= nil then return offer.mat_rank end
@@ -117,6 +131,9 @@ local function pos_of(p)
   return p
 end
 
+---@param a table|nil
+---@param b table|nil
+---@return number
 local function dist2(a, b)
   local pa, pb = pos_of(a), pos_of(b)
   local dx, dy = pa.x - pb.x, pa.y - pb.y
@@ -133,6 +150,9 @@ local function has_any_demanded(available, demands)
   return false
 end
 
+---@param s table|nil
+---@param item string
+---@return boolean
 function M.storage_accepts(s, item)
   if not s then return false end
   if s.accept_all ~= false and s.accept_all ~= nil then return true end
@@ -146,6 +166,14 @@ end
 -- Active providers push unmatched output to the nearest storage with space.
 -- `rank_ctx` ({ratings=, demand=}) applies the colony material priority as a tie-break within the same
 -- band so iron beats copper at equal quotas; nil keeps the legacy only-distance order.
+---@param requesters HaulOffer[]|nil
+---@param providers HaulOffer[]|nil
+---@param storages HaulOffer[]|nil
+---@param compost_offers HaulOffer[]|nil
+---@param cap integer|nil
+---@param hauler_pos table|nil
+---@param rank_ctx RankCtx|nil
+---@return HaulCandidate|nil, integer
 function M.match(requesters, providers, storages, compost_offers, cap, hauler_pos, rank_ctx)
   cap = cap or M.DEFAULT_CAP
   requesters = requesters or {}
@@ -397,6 +425,10 @@ end
 
 -- offers: ordered array of {priority=, demands=, available=, key=}. `hall` = {item -> count} fallback.
 -- Returns the first offer that can actually be loaded, plus its load.
+---@param offers HaulOffer[]
+---@param hall ItemCount|nil
+---@param cap integer|nil
+---@return HaulOffer|nil, HaulLoad[]|nil
 function M.choose(offers, hall, cap)
   for _, o in ipairs(offers) do
     local load = M.load(o.demands, o.available or hall or {}, cap)

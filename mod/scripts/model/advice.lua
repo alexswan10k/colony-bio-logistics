@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: turns plain facts about the colony into "what is holding it back" lines for the panels.
 -- Each result is {level = "red"|"amber", key = locale key under colony-advice, args = {...}}; the GUI
 -- adapter gathers the facts and renders the lines, so the rules here stay testable offline.

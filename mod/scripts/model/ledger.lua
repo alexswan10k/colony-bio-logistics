@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: colony resource ledger logic (#82).
 -- Aggregates items stored in Town Hall, warehouses, labour huts, salt pans, and in-transit carries.
 local M = {}
@@ -14,6 +15,8 @@ local ORDER = {
   ["colony-frontier-pack"] = 46, ["colony-civic-pack"] = 47, ["spoilage"] = 48,
 }
 
+---@param item string
+---@return integer
 function M.sort_key(item)
   return ORDER[item] or 100
 end
@@ -29,6 +32,8 @@ end
 --   totals = { [item] = n },
 --   grand_total = n,
 -- }
+---@param data LedgerData
+---@return table
 function M.aggregate(data)
   local by_item = {}
   local function get_entry(item)

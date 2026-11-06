@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: crop growth and soil fertility for player-placed farm plots (#44 first slice).
 -- Vanilla 2.0 exposes no per-tile fertility property (spike s06), so fertility is a table keyed by tile
 -- name: grass is best, dirt good, dry dirt/red desert poor, sand barely worth it. Anything unlisted

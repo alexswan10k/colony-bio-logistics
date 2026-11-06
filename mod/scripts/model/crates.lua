@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: colony crate rules (design §5.1, issue #33).
 -- A Supply Crate is a provider: colonists empty whatever is inside into colony stock, so a belt can hand
 -- off to the colony without inserters into the Town Hall. A Demand Crate is a requester: the player sets

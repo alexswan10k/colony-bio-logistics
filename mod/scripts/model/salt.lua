@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: salt-pan rules (#81, design §3.1 "coastal salt").
 --
 -- A pan is a shoreline building: water in reach (the same rule as the Fishing Dock, model/fishing.lua) does

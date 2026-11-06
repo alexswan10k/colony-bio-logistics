@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: every "how much comes back from one trip" number in the colony loop, in one place.
 --
 -- Balance (#41) is only arguable if the tables in `sim/` read the same constants the game runs on. Before this

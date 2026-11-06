@@ -5,7 +5,7 @@ Factorio 2.0 + Space Age (hard dep) colony mod. Design: `docs/factorio_colony_mo
 `mod/` mod (Lua 5.2 runtime) · `mod/scripts/model/` PURE logic · `mod/scripts/spike/` dev-only API spikes · `tests/` · `sim/` balance · `scripts/` tooling · `docs/` (SPIKES, TESTING, DEPLOYMENT, ART) · `spike-results/` run reports.
 
 ## Commands
-`scripts/test.sh [filter]` unit tests (luajit) · `scripts/typecheck.sh` (LuaLS headless verification) · `scripts/sim.sh` balance tables · `scripts/lint-determinism.sh` · `scripts/link-dev.sh` symlink into Factorio mods · `scripts/package.sh [--release]` · `scripts/headless-spike.sh <spike[:args]>` · `scripts/save-load.sh` (#39 save/load round-trip) · `scripts/determinism.sh` (#39 two-run checksum) · `scripts/bench-colony.sh` (#39/#22 UPS gate) · `scripts/collect-results.sh` + `scripts/post-results.sh <report>` · `scripts/benchmark.sh <save>`.
+`scripts/test.sh [filter]` unit tests (luajit) · `scripts/typecheck.sh` (LuaLS headless verification; strict missing-fields, annotated pure `model/` + `model/types.lua`, #54) · `scripts/sim.sh` balance tables · `scripts/lint-determinism.sh` · `scripts/link-dev.sh` symlink into Factorio mods · `scripts/package.sh [--release]` · `scripts/headless-spike.sh <spike[:args]>` · `scripts/save-load.sh` (#39 save/load round-trip) · `scripts/determinism.sh` (#39 two-run checksum) · `scripts/bench-colony.sh` (#39/#22 UPS gate) · `scripts/collect-results.sh` + `scripts/post-results.sh <report>` · `scripts/benchmark.sh <save>`.
 Always run test.sh + lint-determinism.sh + `luajit -bl` on changed Lua before committing. Commit and push after changes.
 
 ## Rules

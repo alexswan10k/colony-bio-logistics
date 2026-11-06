@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE model of Factorio spoilage semantics (percent in 0..1; merging stacks averages by count).
 local M = {}
 

@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: how scenic a colony's surroundings are (#29). The adapter only counts things in the world; this
 -- turns those counts into the 0..1 `scenic` term of the desirability formula, and the pollution reading into
 -- its 0..1 `pollution` term. Both are deliberately boring so sim/ can tune them without a game.

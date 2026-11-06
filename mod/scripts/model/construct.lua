@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: construction & repair rules (#37). Colonists build entity-ghosts inside colony territory and
 -- repair damaged colony buildings. A ghost's price comes from its `ghost_prototype.items_to_place_this`,
 -- so a ghost of any entity costs exactly what placing that entity costs (mods included).

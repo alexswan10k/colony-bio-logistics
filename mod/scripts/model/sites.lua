@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: which site a colonist works (#93). A hut is already chosen near home (work.candidates_for); this is
 -- the same idea one level down, for the tree / ore patch / plot inside the hut's radius.
 --
@@ -8,6 +9,9 @@ local M = {}
 
 M.TIE_TILES = 8     -- candidates within this many tiles of the nearest count as the same band
 
+---@param a table
+---@param b table
+---@return number
 local function d2(a, b)
   local dx, dy = a.x - b.x, a.y - b.y
   return dx * dx + dy * dy
@@ -16,6 +20,11 @@ M.dist2 = d2
 
 -- Sortable position of a candidate: (distance band from the hut, distance from home, exact distance, unit
 -- number). Totally ordered, so the same set of candidates always picks the same site.
+---@param candidate table
+---@param pos table
+---@param home table|nil
+---@param tie number|nil
+---@return table
 function M.key(candidate, pos, home, tie)
   tie = tie or M.TIE_TILES
   local d = d2(candidate.position, pos)

@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: colony science rules (#42, design §8).
 --
 -- Towns conduct research via custom science packs (Frontier Charters, Civic Treatises)

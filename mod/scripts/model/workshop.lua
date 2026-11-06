@@ -1,8 +1,10 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: tool recipes and what they cost. The Toolsmith (model/toolsmith.lua) makes tools from these; the Town Hall
 -- no longer makes anything for free. Mirrors the tool recipes in prototypes/buildings.lua, and the adapter only
 -- offers tools whose recipe the force has unlocked, so the Toolsmith never gets ahead of the tech tree.
 local M = {}
 
+---@type table<string, table<string, integer>>
 M.RECIPES = {
   ["colony-basket"] = {wood = 4},
   ["colony-axe"] = {wood = 2, ["iron-plate"] = 3},
@@ -20,6 +22,9 @@ M.RECIPES = {
 }
 
 -- Ingredients that stop `stock` from making `tool`, as {item -> missing}; empty when it can be made.
+---@param tool string
+---@param stock ItemCount
+---@return ItemCount
 function M.missing(tool, stock)
   local out = {}
   for item, n in pairs(M.RECIPES[tool] or {}) do

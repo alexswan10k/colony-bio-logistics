@@ -1,7 +1,16 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: labour-building rules. A hut employs up to `capacity` colonists, but only as many as it holds tools for.
+---@class LabourHutDef
+---@field job string
+---@field tool string|nil
+---@field tools string[]|nil
+---@field capacity integer
+---@field keep string[]|nil
+---@field inputs table[]|nil
 local yields = require("scripts.model.yields")
 
 local M = {}
+---@type table<string, LabourHutDef>
 M.HUTS = {
   ["colony-forager-hut"] = {job = "forage", tool = "colony-basket", capacity = 3},
   ["colony-woodcutter-hut"] = {job = "chop", tool = "colony-axe",
@@ -62,16 +71,25 @@ M.STEEL = {["colony-steel-axe"] = true, ["colony-steel-pickaxe"] = true, ["colon
 -- A hut employs up to `capacity` colonists, but only as many as it holds tools for and as the player's
 -- per-hut worker limit allows (`limit` nil = no player limit). A hut with no tool is supply-gated instead,
 -- and reports its capacity as the allowance (the adapter checks its inputs before sending anyone to work).
+---@param capacity integer
+---@param tools_in_hut integer
+---@param limit integer|nil
+---@return integer
 function M.allowed(capacity, tools_in_hut, limit)
   local cap = math.min(capacity, limit or capacity)
   return math.max(0, math.min(cap, tools_in_hut))
 end
 
 -- Trips before a tool of this tier wears out (#95). nil = default tier.
+---@param tool string|nil
+---@return integer
 function M.uses_for(tool) return tool and M.USES[tool] or M.TOOL_USES end
 
 -- Count one trip of wear. Returns new wear counter and whether a tool breaks now. `tool` is the tier in
 -- service (the best present in the hut), so a steel hut lasts STEEL_TOOL_USES.
+---@param counter integer
+---@param tool string|nil
+---@return integer, boolean
 function M.wear(counter, tool)
   counter = counter + 1
   if counter >= M.uses_for(tool) then return 0, true end
@@ -79,14 +97,23 @@ function M.wear(counter, tool)
 end
 
 -- Remaining uses for the tool currently in service (for the hut GUI).
+---@param wear integer|nil
+---@param tool string|nil
+---@return integer
 function M.uses_left(wear, tool) return math.max(0, M.uses_for(tool) - (wear or 0)) end
 
 -- Work ticks for a trip with this tool (#95): steel spells are 0.8x (480 -> 384).
+---@param base integer
+---@param tool string|nil
+---@return integer
 function M.work_ticks(base, tool)
   return math.floor(base * (tool and M.WORK_MULT[tool] or 1) + 0.5)
 end
 
 -- Best tool present in a ladder (best-first array, like garrison.PREFERENCE for weapons) (#95).
+---@param counts ItemCount|nil
+---@param ladder string[]|nil
+---@return string|nil
 function M.best_tool(counts, ladder)
   if not (counts and ladder) then return nil end
   for _, t in ipairs(ladder) do
@@ -97,6 +124,9 @@ end
 
 -- Worst tool present, for consumption: a mixed hut wears its tier-1 first and keeps its steel, so the
 -- upgrade sticks instead of being spent first (#95).
+---@param counts ItemCount|nil
+---@param ladder string[]|nil
+---@return string|nil
 function M.worst_tool(counts, ladder)
   if not (counts and ladder) then return nil end
   for i = #ladder, 1, -1 do
@@ -106,6 +136,8 @@ function M.worst_tool(counts, ladder)
 end
 
 -- Free slots per job: huts = array of {job=, allowed=, workers=} -> {job -> n}
+---@param huts HutSlot[]
+---@return table<string, integer>
 function M.free_slots(huts)
   local out = {}
   for _, h in ipairs(huts) do
@@ -118,6 +150,8 @@ end
 -- Entries of one job that still have a free slot, least-staffed first (ties by `id` so the pick is
 -- deterministic). Spreading a role this way means a hut built further from the hall gets its first worker
 -- while the oldest hut is only on its second or third; filling hut-by-hut starved everything built later.
+---@param slots HutSlot[]
+---@return HutSlot[]
 function M.spread(slots)
   local out = {}
   for _, sl in ipairs(slots) do
@@ -134,6 +168,8 @@ function M.spread(slots)
 end
 
 -- Total tooled slots per job (used to give every built hut at least one worker).
+---@param huts HutSlot[]
+---@return table<string, integer>
 function M.capacity_by_job(huts)
   local out = {}
   for _, h in ipairs(huts) do out[h.job] = (out[h.job] or 0) + h.allowed end

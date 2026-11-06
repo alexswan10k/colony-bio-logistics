@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: natural reproduction (#88, complements #65 "Nurseries & natural reproduction").
 -- A pair of opposite-sex adults in one house with its critical provisions met and a free bed can have a child.
 -- Children count toward occupancy (and desirability), eat half portions, cannot work, and grow into adults

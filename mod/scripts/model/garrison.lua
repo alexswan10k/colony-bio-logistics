@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: guard duty at a garrisoned Watchtower (#56 first slice, design §7.2).
 -- A Watchtower registered as a hut job "guard" holds rifles (the stock room IS the tower); each rifle
 -- in it opens one post, exactly like a tooled hut slot (model/labour.lua). Staffed guards stand their

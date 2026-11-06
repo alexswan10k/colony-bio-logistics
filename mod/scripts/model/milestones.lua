@@ -1,3 +1,4 @@
+---@diagnostic enable: undefined-field, missing-fields
 -- PURE: colony milestones. Each is a scripted-trigger technology that unlocks the next band of buildings once
 -- the force's biggest colony reaches it, so a new player starts with the Town Hall and a handful of huts
 -- instead of twenty recipes, and the native tech tree shows what comes next and what it takes.

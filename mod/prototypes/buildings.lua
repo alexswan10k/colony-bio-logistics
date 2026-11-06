@@ -144,6 +144,11 @@ local university = make_lab("colony-university", "icon-university.png", "univers
 local supply_crate = chest_clone("iron-chest", "colony-supply-crate", "supply-crate", 16, 1)
 local demand_crate = chest_clone("iron-chest", "colony-demand-crate", "demand-crate", 16, 1)
 local warehouse = chest_clone("steel-chest", "colony-warehouse", "warehouse", 48, 1.5)
+-- Haul Station (#94): a 2x2 distributed-storage depot with a Wooden Trailer rack. It counts as colony storage
+-- (like a Warehouse); a hauler checks a trailer out of the nearest station in reach (like a car from a Motor
+-- Pool) for one 3x hand-load on foot, cheap bulk hauling before the Motor Pool (#60).
+-- TODO art: reuses the Warehouse sprite/icon until the Haul Station has its own.
+local haul_station = chest_clone("iron-chest", "colony-haul-station", "warehouse", 12, 1)
 -- Compost Bin (design §3.2, #78): where spoiled food goes to become something useful. Colonists clear
 -- `spoilage` out of houses and out of colony stock into it, and the bin turns batches of it into fertilizer,
 -- which is the input #44's farming slice spends.
@@ -259,7 +264,7 @@ end
 
 data:extend({
   hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
-  smokehouse, kitchen, toolsmith, tavern, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, warehouse, compost_bin,
+  smokehouse, kitchen, toolsmith, tavern, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, warehouse, haul_station, compost_bin,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -288,6 +293,7 @@ data:extend({
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(warehouse, "warehouse", "z[colony]-l[warehouse]"),
+  item_of(haul_station, "warehouse", "z[colony]-l1[haul-station]"),
   item_of(compost_bin, "compost-bin", "z[colony]-m[compost-bin]"),
   item_of(cemetery, "cemetery", "z[colony]-l4[cemetery]"),
   {type = "item", name = "colony-fertilizer", icon = G .. "icon-fertilizer.png", icon_size = 64,
@@ -433,6 +439,8 @@ data:extend({
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1, 1, false),
   recipe("colony-demand-crate", {wood = 10, ["iron-plate"] = 10}, 1, 1, false),
   recipe("colony-warehouse", {wood = 40, ["stone-brick"] = 20, ["iron-plate"] = 20}, 3, 1, false),
+  recipe("colony-haul-station", {wood = 20, stone = 10}, 2, 1, false),
+  recipe("colony-wooden-trailer", {wood = 10, ["iron-plate"] = 2}, 1, 1, false),
   recipe("colony-compost-bin", {wood = 12, ["iron-plate"] = 4}, 1, 1, false),
   recipe("colony-cemetery", {stone = 20, wood = 10}, 3, 1, false),
   recipe("colony-basket", {wood = 4}, 1, 1, false),
@@ -445,6 +453,9 @@ data:extend({
   recipe("colony-bow", {wood = 4}, 1, 1, false),
   {type = "item", name = "colony-arrow", icon = G .. "icon-arrow.png", icon_size = 64,
    subgroup = "tool", order = "z[colony]-t[arrow]", stack_size = 200, localised_name = {"item-name.colony-arrow"}},
+  -- Wooden Trailer (#94): checked out of a Haul Station for one 3x hand-load on foot. TODO art: reuses the basket icon.
+  {type = "item", name = "colony-wooden-trailer", icon = G .. "icon-basket.png", icon_size = 64,
+   subgroup = "tool", order = "z[colony]-t[trailer]", stack_size = 10, localised_name = {"item-name.colony-wooden-trailer"}},
   recipe("colony-arrow", {wood = 1}, 1, 10, false),
   recipe("colony-axe", {wood = 2, ["iron-plate"] = 3}, 1, 1, false),
   recipe("colony-pickaxe", {wood = 2, ["iron-plate"] = 3}, 1, 1, false),

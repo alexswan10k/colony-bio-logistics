@@ -2246,3 +2246,42 @@ describe("haul_plan material tie-break (#91)", function()
     eq(task.target.key, 1, "near copper still wins without ranks")
   end)
 end)
+
+describe("haul station + wooden trailer (#94)", function()
+  local trailer = require("scripts.model.trailer")
+  it("worth_trailer starts at one load past a hand carry", function()
+    eq(trailer.MIN_LOAD, 21)
+    eq(trailer.CAPACITY, 60)
+    eq(trailer.SPEED, 0.6)
+    eq(trailer.USES, 30)
+    eq(trailer.worth_trailer(20), false)
+    eq(trailer.worth_trailer(21), true)
+    eq(trailer.worth_trailer(nil), false)
+  end)
+  it("nearest picks the closest station in reach holding a trailer", function()
+    local stations = {
+      {pos = {x = 10, y = 0}, trailers = 1, key = 7},
+      {pos = {x = 3, y = 0}, trailers = 1, key = 9},
+      {pos = {x = 200, y = 0}, trailers = 1, key = 8},
+    }
+    eq(trailer.nearest(stations, {x = 0, y = 0}), 2)
+    eq(trailer.nearest(stations, {x = -100, y = 0}), nil)
+  end)
+  it("nearest skips empty stations and breaks ties by key", function()
+    local stations = {
+      {pos = {x = 5, y = 0}, trailers = 0, key = 1},
+      {pos = {x = 5, y = 0}, trailers = 2, key = 3},
+      {pos = {x = -5, y = 0}, trailers = 1, key = 2},
+    }
+    eq(trailer.nearest(stations, {x = 0, y = 0}), 3)
+  end)
+  it("wear breaks after USES trips like a tool", function()
+    local w, broke = trailer.wear(0)
+    eq(w, 1); eq(broke, false)
+    eq(trailer.uses_left(0), 30)
+    eq(trailer.uses_left(29), 1)
+    local w2, broke2 = trailer.wear(29)
+    eq(w2, 0); eq(broke2, true)
+    eq(trailer.uses_left(nil), 30)
+  end)
+end)

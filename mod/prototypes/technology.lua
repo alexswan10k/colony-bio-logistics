@@ -75,7 +75,7 @@ data:extend({
   tech("colony-logistics", "icon-watchtower.png", 15, {"colony-frontier-pack"}, 15,
     {"colony-frontier-charter"}, {
     unlock("colony-watchtower"), unlock("colony-demand-crate"), unlock("colony-logistics-marker"),
-    unlock("colony-rifle"),
+    unlock("colony-rifle"), unlock("colony-haul-station"), unlock("colony-wooden-trailer"),
   }),
   tech("colony-warehousing", "icon-warehouse.png", 15, {"colony-frontier-pack"}, 15,
     {"colony-logistics"}, {

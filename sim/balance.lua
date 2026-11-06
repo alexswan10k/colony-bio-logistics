@@ -179,3 +179,19 @@ tier_row("tier-1 axe/pick/hoe (30 uses)", labour.TOOL_USES, trip, 2, 3, 0)
 tier_row("steel axe/pick/hoe (45 uses)", labour.uses_for("colony-steel-axe"), steel_trip, 0, 2, 1)
 print("note: steel shifts the bill from wood to iron+steel (1 steel = 5 iron + coal), needs the Steel Tools tech;")
 print("basket/rod stay tier-1 (2 wood/scope). Full steel town: tool wood -> 0, iron equiv rises ~+55% per trip.")
+
+print("\n== Q13 (#94): bulk hauling. Hand 20, trailer 60 at 0.6x speed, truck 100 at 2.5x speed.")
+print("mode        items/trip  walk-min  trips/min  items/min  vs hand") 
+local trailer = require("scripts.model.trailer")
+local motor = require("scripts.model.motor")
+-- Walk time scales with speed: 12s walk at hand speed; trailer walks 12/0.6=20s, truck 12/2.5=4.8s.
+local function haul_row(label, cap, walk_min)
+  local trips_min = per_min(1, yields.WORK_TICKS + walk_min * TICKS_PER_MIN)
+  local items_min = trips_min * cap
+  print(("%-20s  %11d  %8.1f  %9.3f  %9.2f"):format(label, cap, walk_min, trips_min, items_min))
+end
+haul_row("hand", yields.CARRY_CAP, 0.2)
+haul_row("trailer (0.6x)", trailer.CAPACITY, 0.2 / trailer.SPEED)
+haul_row("truck (2.5x)", motor.CAPACITY, 0.2 / 2.5)
+print(("trailer wears after %d trips, costs 10 wood + 2 iron; station 20 wood + 10 stone, no power, Colony Logistics."):format(trailer.USES))
+print("trailer is 3x per trip but 0.6x speed: net bulk wins on big deficits; trucks still win when a pool can dispatch.")

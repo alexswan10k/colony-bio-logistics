@@ -20,6 +20,12 @@ M.FARM_BASE = 8             -- produce per harvest at fertility 1.0 (the plot cy
 M.WORK_TICKS = 480          -- ticks of work animation per trip (8 s)
 M.CARRY_CAP = 20            -- items a colonist can carry
 
+-- --- haul stations + wooden trailers (#94) -------------------------------------------------------------
+M.TRAILER_CAP = 60          -- items a hauler with a wooden trailer carries (3× hand)
+M.TRAILER_USES = 30         -- trailer trips before it breaks (like a tool)
+M.TRAILER_SPEED = 0.6       -- movement multiplier with a trailer (loaded, slow)
+M.TRAILER_MIN_LOAD = 21     -- deficit that makes a trailer trip worth the detour (full hand at 20, more wanted)
+
 -- --- tools -----------------------------------------------------------------------------------------------
 M.TOOL_USES = 30            -- trips before one tool in the hut wears out
 M.STEEL_TOOL_USES = 45      -- steel-axe/pickaxe/hoe (#95): 1.5x trips per tool

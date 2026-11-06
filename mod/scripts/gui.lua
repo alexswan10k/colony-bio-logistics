@@ -8,6 +8,7 @@ local labour = require("scripts.model.labour")
 local jobs = require("scripts.model.jobs")
 local mine_plan = require("scripts.model.mine_plan")
 local crates = require("scripts.model.crates")
+local trailer = require("scripts.model.trailer")
 local haul_plan = require("scripts.model.haul_plan")
 local material_priority = require("scripts.model.material_priority")
 local farm = require("scripts.model.farm")
@@ -1201,7 +1202,8 @@ function fill_crate(frame, c)
   frame.clear()
   frame.add{type = "checkbox", name = "colony_crate_logistics", state = c.logistics_enabled ~= false,
     caption = {"colony-gui.logistics-enable"}, tooltip = {"colony-gui.logistics-enable-tt"}}
-  local is_wh = c.kind == crates.WAREHOUSE
+  local is_wh = c.kind == crates.WAREHOUSE or c.kind == crates.HAUL_STATION
+  local is_station = c.kind == crates.HAUL_STATION
   local p_lbl = is_wh and {"colony-gui-crate.storage-priority"} or {"colony-gui.priority-label"}
   local p_tt = is_wh and {"colony-gui-crate.storage-priority-tt"} or {"colony-gui.building-priority-tt"}
   local p_row = frame.add{type = "flow", direction = "horizontal"}
@@ -1235,7 +1237,11 @@ function fill_crate(frame, c)
     local n, target = crates.filled(c.filters, map)
     frame.add{type = "label", caption = {"colony-gui-crate.filled", n, target}}
   elseif is_wh then
-    frame.add{type = "label", caption = {"colony-gui-crate.warehouse-hint"}}
+    frame.add{type = "label", caption = is_station and {"colony-gui-crate.station-hint"} or {"colony-gui-crate.warehouse-hint"}}
+    if is_station then
+      local trailers = (map["colony-wooden-trailer"] or 0) + (c.trailers_out or 0)
+      frame.add{type = "label", caption = {"colony-gui-crate.trailers", trailers, c.trailers_out or 0, trailer.uses_left(c.trailer_wear or 0)}}
+    end
     frame.add{type = "checkbox", name = "colony_warehouse_all", state = c.accept_all ~= false,
       caption = {"colony-gui-crate.accept-all"}, tooltip = {"colony-gui-crate.accept-all-tt"}}
     if c.accept_all == false then
@@ -1273,9 +1279,9 @@ end
 local function open_crate(player, e)
   local old = player.gui.relative[CRATE_FRAME]; if old then old.destroy() end
   local name = (e.type == "entity-ghost") and e.ghost_name or e.name
-  local names = {colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE}
+  local names = {colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE, colony_mod.HAUL_STATION}
   if e.type == "entity-ghost" then
-    names = {"entity-ghost", colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE}
+    names = {"entity-ghost", colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE, colony_mod.HAUL_STATION}
   end
   local frame = player.gui.relative.add{type = "frame", name = CRATE_FRAME, direction = "vertical",
     caption = e.localised_name, anchor = {gui = defines.relative_gui_type.container_gui,
@@ -1297,7 +1303,7 @@ local function open_crate(player, e)
     else
       c = {entity = e, kind = kind, colony_id = colony.id,
         filters = {},
-        accept_all = (kind == crates.WAREHOUSE and true or nil),
+        accept_all = ((kind == crates.WAREHOUSE or kind == crates.HAUL_STATION) and true or nil),
         priority = 3,
         logistics_enabled = true}
     end
@@ -1328,7 +1334,7 @@ function crate_ctx(ev)
     else
       c = {entity = e, kind = kind, colony_id = colony.id,
         filters = {},
-        accept_all = (kind == crates.WAREHOUSE and true or nil),
+        accept_all = ((kind == crates.WAREHOUSE or kind == crates.HAUL_STATION) and true or nil),
         priority = 3,
         logistics_enabled = true}
     end

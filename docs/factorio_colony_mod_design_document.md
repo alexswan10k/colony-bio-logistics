@@ -185,6 +185,8 @@ Players can build dedicated colony containers that work just like early-game, bi
 
 **M1 implementation (#33):** all three are plain containers, not logistic chests, so belts and inserters keep working on them and colony hauling stays deterministic (bots and colonists never race for the same slot). A **Supply Crate** is a provider: colonists empty it into colony stock at haul priority "collect", the same band as machine output. A **Demand Crate** is a requester: its panel takes up to four item filters with target counts and shows filled/target, and colonists fill it at machine-request priority. The **Warehouse** counts as colony stock: supply trips draw from the Town Hall first and fall back to warehouses, while deposits fill the Town Hall first and overflow into the warehouse. Warehouse-side filters are still open. Crate filters persist through blueprints and copy-paste (#36): see §5.2.
 
+**Haul Station + Wooden Trailer (built, #94):** a 2x2 distributed-storage depot (20 wood + 10 stone, no power, Colony Logistics) that counts as colony storage like a Warehouse, with a Wooden Trailer rack (10 wood + 2 iron, Colony Logistics). A hauler within 48 tiles whose load is worth more than a hand-load (deficit > 20) checks a trailer out of the nearest station holding one, claims the trailer-sized load (60) at checkout, pulls it on foot at 0.6x walking speed, and returns the trailer at delivery. Trailers wear like tools and break after 30 trips. When a Motor Pool truck can dispatch, the truck still wins; the trailer is the cheap bulk option before the Motor Pool (#60). First slice: no explicit A->B pair routing, just distributed stock rooms plus the trailer depot.
+
 ### 5.2 Non-Destructive "Opt-In" Direct Machine Hauling
 Colonists can also directly load ingredients/fuel into—and empty products from—any vanilla `assembling-machine`, `furnace`, `lab`, `boiler`, or `ammo-turret`, **strictly on an opt-in basis**:
 * **How Opt-In Works (Zero Prototype Modification):**
@@ -283,6 +285,8 @@ As colonies advance to Tier 2 and Tier 3 Housing, colonists desire **Recreation 
 
 ### 7.3 Colonist-Driven Vehicles (Cars & Trucks)
 * **Motor Pool (built, #60):** A pool holds vanilla **Cars** and fuel and requests both by haul. A car cannot be driven by a unit and has no autopilot, so the truck is a `colony-truck` unit that wears the car sprite and is pathed by the engine like a colonist (2.5x speed, 100-item load). A hauler whose load is a full hand-load with more still wanted checks out the nearest pool within 48 tiles that has a car and fuel, claims the car and the big load at checkout, and waits on the pool under a stop order while the truck delivers. Fuel buys trips (solid fuel 6, coal 2, wood 1). The truck takes further big loads while it has trips, a driver and daylight, then parks: the car returns to the pool, unspent trips stay in the pool, and a truck destroyed on the road loses its car. **Mechanized Patrols** (Driver + Gunner) are still planned under M3 (#57, #60).
+
+* **Haul Station + Wooden Trailer (built, #94):** cheap bulk hauling before the Motor Pool. A station is distributed colony storage (hall + warehouses + watchtowers + stations source and deposit alike); its Wooden Trailers give one hauler a 60-item load at 0.6x speed for 30 trips each (trailer.USES), claimed at checkout from the nearest station in reach.
 
 ---
 

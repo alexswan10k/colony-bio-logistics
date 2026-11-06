@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 34
+local SCHEMA = 35
 
 local migrations = {
   [1] = function()
@@ -253,6 +253,19 @@ local migrations = {
     -- colony-wide material priorities (#91): [item] = {rank = 1..5, enabled = bool}
     for _, c in pairs(storage.colonies or {}) do
       c.ratings = c.ratings or {}
+    end
+  end,
+  [35] = function()
+    -- Haul Stations (#94): bulk-storage crates of kind `station` gain a trailer depot
+    -- (trailer_wear/trailers_out) on the crate record. No new colony registry: stations live in colony.crates.
+    for _, c in pairs(storage.colonies or {}) do
+      for _, cr in pairs(c.crates or {}) do
+        if cr.kind == "station" then
+          cr.trailer_wear = cr.trailer_wear or 0
+          cr.trailers_out = cr.trailers_out or 0
+          if cr.accept_all == nil then cr.accept_all = true end
+        end
+      end
     end
   end,
 }

@@ -34,6 +34,7 @@ local illness = require("scripts.model.illness")
 local headcount = require("scripts.model.headcount")
 local quota = require("scripts.model.quota")
 local motor = require("scripts.model.motor")
+local trailer = require("scripts.model.trailer")
 local recreation = require("scripts.model.recreation")
 local jobs = require("scripts.model.jobs")
 local material_priority = require("scripts.model.material_priority")
@@ -1852,6 +1853,7 @@ local function idle(colony, un, e)
   -- through reassign_workforce regardless of the timer.
   local prev = storage.unit_state[un]
   if prev and prev.carry then M.release(prev) end
+  if prev and prev.trailer_speed and e and e.valid then pcall(function() e.speed = prev.trailer_speed end) end
   -- A young colony stays snappy (its few idle colonists must notice new work quickly); only a big town backs off.
   local pop = colony_mod.live_colonists(colony)
   local cap = math.min(1 + math.floor(pop / M.RETRY_BACKOFF_POP), M.RETRY_BACKOFF_MAX)
@@ -1986,6 +1988,90 @@ local function start_drive(colony, un, e, task)
   return true
 end
 M.start_drive = start_drive
+
+-- Haul Station + Wooden Trailer (#94) --------------------------------------------------------------------
+-- Cheap bulk hauling before the Motor Pool: a hauler checks a trailer out of the nearest station in reach
+-- (like a car from a pool) for one 3x hand-load on foot, then returns it at delivery. The trailer itself is
+-- bookkeeping (no unit, no new pathing): the load is claimed at checkout so two haulers never count the same
+-- items, and the engine walks the colonist as usual. A trailer wears like a tool and breaks after
+-- trailer.USES trips; the station's wear counts trips since the last replacement.
+
+-- The nearest station (crate record) within reach holding a trailer, or nil. Pure choice lives in trailer.nearest.
+local function dispatch_station(colony, pos)
+  local recs = colony_mod.station_list(colony)
+  local view = {}
+  for i, c in ipairs(recs) do
+    view[i] = {pos = c.entity.position, trailers = c.entity.get_item_count(trailer.TRAILER_ITEM), key = c.entity.unit_number}
+  end
+  local idx = trailer.nearest(view, pos)
+  return idx and recs[idx] or nil
+end
+
+local function set_speed(e, mult)
+  local ok, cur = pcall(function() return e.speed end)
+  if not (ok and cur and cur > 0) then return nil end
+  if mult == nil then
+    pcall(function() e.speed = cur end) -- restore: cur was captured before the penalty
+    return nil
+  end
+  pcall(function() e.speed = cur * mult end)
+  return cur
+end
+
+local function slow_for_trailer(e, st)
+  local prev = set_speed(e, trailer.SPEED)
+  if prev then st.trailer_speed = prev end
+end
+
+local function restore_speed(e, st)
+  if st.trailer_speed and e and e.valid then
+    pcall(function() e.speed = st.trailer_speed end)
+  end
+end
+
+-- Put a checked-out trailer back: wear it, destroy it when worn out, else back on the station's floor (or in
+-- colony stock when the station is gone or full). No-op unless the trip actually held a trailer.
+local function return_trailer(colony, st, e)
+  if not (st and st.trailer) then return end
+  local station = st.trailer_station
+  st.trailer, st.trailer_station = nil, nil
+  if station then
+    station.trailers_out = math.max(0, (station.trailers_out or 0) - 1)
+    local wear, broke = trailer.wear(station.trailer_wear or 0)
+    station.trailer_wear = wear
+    if broke then
+      if e and e.valid then popup(e.surface, e.position, "💥") end
+      return
+    end
+    if station.entity.valid and station.entity.insert{name = trailer.TRAILER_ITEM, count = 1} > 0 then return end
+  end
+  return_to_hall(colony, {{item = trailer.TRAILER_ITEM, count = 1}})
+end
+
+-- Send a hauler out with a trailer. The trailer and the trailer-sized load are both claimed now, exactly as a
+-- hauler on foot claims its load: otherwise walkers empty the source while the trailer driver is on the way.
+local function start_haul_trailer(colony, un, e, task)
+  if not (task and trailer.worth_trailer(haul_plan.deficit(task))) then return false end
+  local station = dispatch_station(colony, e.position)
+  if not station then return false end
+  local big = find_haul_task(colony, trailer.CAPACITY, e.position)
+  if not (big and trailer.worth_trailer(haul_plan.total(big.load))) then return false end
+  if station.entity.remove_item{name = trailer.TRAILER_ITEM, count = 1} < 1 then return false end
+  station.trailers_out = (station.trailers_out or 0) + 1
+  local trip = haul_trip(colony, big)
+  if not trip then
+    station.trailers_out = math.max(0, (station.trailers_out or 0) - 1)
+    station.entity.insert{name = trailer.TRAILER_ITEM, count = 1}
+    return false
+  end
+  trip.trailer, trip.trailer_station = true, station
+  slow_for_trailer(e, trip)
+  storage.unit_state[un] = trip
+  set_label(e, "hauler + trailer")
+  set_off(e, trip)
+  return true
+end
+M.start_haul_trailer = start_haul_trailer
 
 -- Burn one fuel item from the pool. Returns the trips it bought, or nil when the pool is dry. Trips a parked
 -- truck had left (`pool.tank`) are used first, so fuel already burnt is never thrown away.
@@ -2351,6 +2437,7 @@ function M.assign(colony, un)
     end
     if job == "haul" then
       if M.start_drive(colony, un, e, task) then return end
+      if M.start_haul_trailer(colony, un, e, task) then return end
       if M.start_haul(colony, un, e, task) then return end
       if attempt == 1 and not lock then
         choose_state.haul = false
@@ -2393,6 +2480,7 @@ end
 function M.release(st)
   if not st then return end
   local colony = storage.colonies[st.colony_id]
+  if colony and st.trailer then return_trailer(colony, st) end
   if colony and st.car then return_car(colony, st.pool); st.car = nil end
   if colony and st.site_key and (st.job == "chop" or st.job == "forage" or st.job == "farm"
       or st.job == "construct" or st.job == "hunt") then
@@ -2942,6 +3030,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
         return
       end
     else M.release(st) end
+    if st.trailer then return_trailer(colony, st, unit_entity(colony, ev.unit_number)); restore_speed(unit_entity(colony, ev.unit_number), st) end
     st.state = "idle"
     wake_idle_colonists(colony)
     M.assign(colony, ev.unit_number)
@@ -2961,6 +3050,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     -- can be rebuilt, and the next delivery clears it out again.
     if #leftover > 0 then return_to_hall(colony, leftover) end
     if dropped > 0 and e and e.valid then popup(e.surface, e.position, {"", "Composted ", tostring(dropped)}) end
+    if st.trailer then return_trailer(colony, st, e); restore_speed(e, st) end
     st.state = "idle"
     wake_idle_colonists(colony)
     M.assign(colony, ev.unit_number)
@@ -3038,6 +3128,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     end
     st.carry = nil
     colony.ledger_cache = nil
+    if st.trailer then return_trailer(colony, st, unit_entity(colony, ev.unit_number)); restore_speed(unit_entity(colony, ev.unit_number), st) end
     st.state = "idle"
     wake_idle_colonists(colony)
     M.assign(colony, ev.unit_number)

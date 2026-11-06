@@ -116,5 +116,10 @@
 ---@field unlocked boolean|nil
 ---@field missing ItemCount|nil
 
+---@class TrailerStation
+---@field pos {x: number, y: number}
+---@field trailers integer
+---@field key integer|nil
+
 local M = {}
 return M

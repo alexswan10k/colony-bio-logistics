@@ -15,7 +15,7 @@ describe("store migrations", function()
   it("initialises the current schema layout", function()
     local env = mock.install(); env = env.reset()
     require("scripts.store").init()
-    eq(storage.schema, 34); eq(storage.colony_chunks, nil); truthy(storage.scheduled)
+    eq(storage.schema, 35); eq(storage.colony_chunks, nil); truthy(storage.scheduled)
     truthy(storage.cursor_overlays)
     truthy(storage.age)
   end)
@@ -24,7 +24,7 @@ describe("store migrations", function()
     storage.schema = 6
     storage.colonies = {[1] = {id = 1}}
     require("scripts.store").init()
-    eq(storage.schema, 34); truthy(storage.colonies[1].cemeteries); truthy(storage.age); truthy(storage.colonies[1].alarms); truthy(storage.colonies[1].canteens); truthy(storage.commuters); truthy(storage.sick); eq(storage.colonies[1].fallen, 0); truthy(storage.colonies[1].pools); truthy(storage.colonies[1].taverns); truthy(storage.colonies[1].platforms); truthy(storage.coaches); truthy(storage.trucks); truthy(storage.colonies[1].towers); truthy(storage.colonies[1].locks)
+    eq(storage.schema, 35); truthy(storage.colonies[1].cemeteries); truthy(storage.age); truthy(storage.colonies[1].alarms); truthy(storage.colonies[1].canteens); truthy(storage.commuters); truthy(storage.sick); eq(storage.colonies[1].fallen, 0); truthy(storage.colonies[1].pools); truthy(storage.colonies[1].taverns); truthy(storage.colonies[1].platforms); truthy(storage.coaches); truthy(storage.trucks); truthy(storage.colonies[1].towers); truthy(storage.colonies[1].locks)
     truthy(storage.colonies[1].plots); truthy(storage.colonies[1].crates); truthy(storage.colonies[1].bins)
     truthy(storage.colonies[1].animals)
     truthy(storage.colonies[1].salt_pans)
@@ -72,7 +72,7 @@ describe("store migrations", function()
       },
     }}
     require("scripts.store").init()
-    eq(storage.schema, 34)
+    eq(storage.schema, 35)
     eq(storage.colonies[1].machines[10], nil)
     truthy(storage.colonies[1].machines[20])
     eq(destroyed_badge, true)
@@ -97,7 +97,7 @@ describe("store migrations", function()
       nested = {fn2 = function() end, data = "ok"},
     }
     require("scripts.store").init()
-    eq(storage.schema, 34)
+    eq(storage.schema, 35)
     eq(storage.unit_state[100].target.accepts_item, nil)
     eq(storage.random_leak.fn, nil)
     eq(storage.random_leak.nested.fn2, nil)
@@ -108,7 +108,7 @@ describe("store migrations", function()
     storage.schema = 32
     storage.colonies = {[1] = {id = 1}}
     require("scripts.store").init()
-    eq(storage.schema, 34)
+    eq(storage.schema, 35)
     truthy(storage.colonies[1].overflow)
     eq(storage.colonies[1].overflow["wood"], true)
     eq(storage.colonies[1].overflow["iron-ore"], true)
@@ -118,7 +118,7 @@ describe("store migrations", function()
     storage.schema = 33
     storage.colonies = {[1] = {id = 1}}
     require("scripts.store").init()
-    eq(storage.schema, 34)
+    eq(storage.schema, 35)
     truthy(storage.colonies[1].ratings)
     eq(next(storage.colonies[1].ratings), nil)
   end)
@@ -595,6 +595,47 @@ describe("colony logistics network", function()
     eq(storages[2].kind, "watchtower")
     eq(storages[2].key, 200)
     eq(storages[2].available["colony-forage"], 10)
+  end)
+
+  it("includes haul stations in stock_table and storage_list as distributed storage (#94)", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+
+    local hall_inv = make_chest({["iron-ore"] = 5})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1}, force = {},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+    }
+    local st_inv = make_chest({["iron-ore"] = 10, ["colony-wooden-trailer"] = 2})
+    local st_ent = {
+      valid = true, name = colony_mod.HAUL_STATION, unit_number = 300, position = {x = 20, y = 0},
+      surface = hall_ent.surface, force = hall_ent.force,
+      get_item_count = function(item) return st_inv.get_item_count(item) end,
+      get_inventory = function() return st_inv end,
+    }
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {}, houses = {},
+      machines = {}, towers = {}, plots = {},
+      crates = {[300] = {entity = st_ent, kind = "station", colony_id = 1,
+        filters = {}, inflight = {}, priority = 3, accept_all = true, trailer_wear = 0, trailers_out = 0}},
+      bins = {}, salt_pans = {}, wells = {}, pools = {}, taverns = {}, platforms = {},
+      cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0,
+      locks = {}, quotas = {}, job_targets = {}, colonists = {}, deaths = {},
+      claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, animals = {},
+    }
+    local stock = colony_mod.stock_table(c)
+    eq(stock["iron-ore"], 15, "5 from hall + 10 from haul station")
+    eq(stock["colony-wooden-trailer"], 2)
+    local storages = colony_mod.storage_list(c)
+    eq(#storages, 2, "hall + haul station")
+    eq(storages[2].kind, "haul_station")
+    eq(storages[2].key, 300)
+    eq(storages[2].available["colony-wooden-trailer"], 2)
+    eq(#colony_mod.station_list(c), 1, "station_list finds the station crate")
+    eq(#colony_mod.storage_crates(c), 1, "storage_crates includes stations")
   end)
 
   it("calls site.deplete() when mining exhausts a deposit", function()

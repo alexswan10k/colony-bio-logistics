@@ -61,13 +61,16 @@ M.FORAGE_TILES = {["grass-1"] = true, ["grass-2"] = true, ["grass-3"] = true, ["
 M.HOUSES = {["colony-housing-tent"] = "tent", ["colony-housing-cabin"] = "cabin",
   ["colony-housing-homestead"] = "homestead", ["colony-housing-apartment"] = "apartment"}
 -- Colony logistics crates (#33): supply = provider, demand = requester, warehouse = bulk colony stock.
+-- Haul Station (#94) is bulk stock like a Warehouse, plus a Wooden Trailer depot (work.lua).
 M.SUPPLY_CRATE = "colony-supply-crate"
 M.DEMAND_CRATE = "colony-demand-crate"
 M.WAREHOUSE = "colony-warehouse"
+M.HAUL_STATION = "colony-haul-station"
 M.CRATES = {
   [M.SUPPLY_CRATE] = crates.SUPPLY,
   [M.DEMAND_CRATE] = crates.DEMAND,
   [M.WAREHOUSE] = crates.WAREHOUSE,
+  [M.HAUL_STATION] = crates.HAUL_STATION,
 }
 -- Compost Bin (#78, design §3.2): spoilage is removed from houses and stock by colonists and converted here.
 M.COMPOST_BIN = "colony-compost-bin"
@@ -352,6 +355,21 @@ function M.nearest_bin(colony, pos)
   return best
 end
 
+-- Haul Stations (#94) are bulk storage (like Warehouses) with a Wooden Trailer depot on the crate record
+-- (trailer_wear/trailers_out). They are just crates of kind `station`, so lists filter by that kind.
+function M.station_list(colony)
+  return M.crate_list(colony, crates.HAUL_STATION)
+end
+
+-- All bulk storage crates (Warehouses + Haul Stations), sorted by unit_number so stock reads are stable.
+function M.storage_crates(colony)
+  local out = {}
+  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do out[#out + 1] = c end
+  for _, c in ipairs(M.crate_list(colony, crates.HAUL_STATION)) do out[#out + 1] = c end
+  table.sort(out, function(a, b) return (a.entity.unit_number or 0) < (b.entity.unit_number or 0) end)
+  return out
+end
+
 -- Colony stock (Town Hall + warehouses + watchtower buffers) as one table: an assignment asks about a dozen items and each
 -- question used to rebuild and sort the warehouse list. Supply trips still take from the hall first (the
 -- town's working stock) and fall back to bulk storage; deposits fill the hall first and overflow outward.
@@ -363,7 +381,7 @@ function M.stock_table(colony)
     local inv = hall.get_inventory(defines.inventory.chest)
     if inv then for _, s in ipairs(inv.get_contents()) do t[s.name] = s.count end end
   end
-  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
+  for _, c in ipairs(M.storage_crates(colony)) do
     local inv = c.entity.get_inventory(defines.inventory.chest)
     if inv then
       for _, s in ipairs(inv.get_contents()) do t[s.name] = (t[s.name] or 0) + s.count end
@@ -414,7 +432,7 @@ function M.storage_list(colony)
       accept_all = true,
     }
   end
-  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
+  for _, c in ipairs(M.storage_crates(colony)) do
     if c.entity and c.entity.valid then
       local inv = c.entity.get_inventory(defines.inventory.chest)
       local contents = {}
@@ -427,13 +445,13 @@ function M.storage_list(colony)
         end
       end
       list[#list + 1] = {
-        kind = "warehouse",
+        kind = c.kind == crates.HAUL_STATION and "haul_station" or "warehouse",
         entity = c.entity,
         pos = c.entity.position,
         available = contents,
         has_space = inv and not inv.is_full(),
         key = c.entity.unit_number,
-        storage_priority = c.priority or 2,
+        storage_priority = c.priority or (c.kind == crates.HAUL_STATION and 3 or 2),
         crate = c,
         accept_all = accept_all,
         allowed_items = allowed_items,
@@ -481,7 +499,7 @@ function M.ledger_snapshot(colony)
     local inv = hall.get_inventory(defines.inventory.chest)
     if inv then for _, s in ipairs(inv.get_contents()) do stock[s.name] = (stock[s.name] or 0) + s.count end end
   end
-  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
+  for _, c in ipairs(M.storage_crates(colony)) do
     if c.entity and c.entity.valid then
       local inv = c.entity.get_inventory(defines.inventory.chest)
       if inv then for _, s in ipairs(inv.get_contents()) do stock[s.name] = (stock[s.name] or 0) + s.count end end
@@ -901,7 +919,7 @@ function M.total_food(colony)
     for _, opt in ipairs(housing.FOOD) do n = n + (stock[opt.item] or 0) end
   end
   -- Warehouses and hut stockpiles count too: food only waits there until a hauler clears it.
-  for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do
+  for _, c in ipairs(M.storage_crates(colony)) do
     for _, item in ipairs(M.FOOD_ITEMS) do
       if prototypes.item[item] then n = n + c.entity.get_item_count(item) end
     end
@@ -1527,7 +1545,8 @@ local function on_built(ev)
     colony.crates[e.unit_number] = {entity = e, kind = kind, colony_id = colony.id,
       filters = {}, inflight = {}, logistics_enabled = true,
       priority = 3,
-      accept_all = (kind == crates.WAREHOUSE and true or nil)}
+      accept_all = ((kind == crates.WAREHOUSE or kind == crates.HAUL_STATION) and true or nil),
+      trailer_wear = 0, trailers_out = 0}
     script.register_on_object_destroyed(e)
     if dict then M.apply_tags(colony, e, dict) end
   elseif name == M.COMPOST_BIN then

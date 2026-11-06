@@ -1380,7 +1380,49 @@ function fill_machine(frame, m, e)
   end
   frame.add{type = "checkbox", name = "colony_supply_collect", state = m.collect, caption = {"colony-gui.supply-collect"},
     tooltip = {"colony-gui.supply-collect-tt"}}
+  -- Output helper (#54): a small status just below the collect checkbox so the player can see *why*
+  -- colonists are or are not emptying this machine, without hunting the Town Hall ledger.
+  -- States: output empty / collect off / collecting (stock below cap) / capped (stock at base+demand,
+  -- no downstream sink — colonists leave output here and the machine stalls until it is wanted).
+  frame.add{type = "label", caption = {"colony-gui.supply-output"}, style = "bold_label"}
+  local colony = colony_at(e)
+  if not m.collect then
+    frame.add{type = "label", caption = {"colony-gui.supply-output-off"}}
+  else
+    local inv
+    if e.type ~= "entity-ghost" and e.get_output_inventory then
+      inv = e.get_output_inventory()
+    end
+    local contents = inv and inv.get_contents() or {}
+    if #contents == 0 then
+      frame.add{type = "label", caption = {"colony-gui.supply-output-empty"}}
+    else
+      for _, stack in ipairs(contents) do
+        local item, n = stack.name, stack.count
+        local stock = colony and colony_mod.stock_count(colony, item) or 0
+        local base = colony and colony_mod.base_quota_target(colony, item) or 0
+        local eff = colony and colony_mod.quota_target(colony, item) or 0
+        local capped = colony and work.supply_capped(colony, item) or false
+        if eff <= 0 then
+          frame.add{type = "label", caption = {"", "[item=" .. item .. "] ", n, " in machine · stock ", stock,
+            " (no cap) · collecting"},
+            tooltip = {"colony-gui.supply-output-tt"}}
+        else
+          local extra = math.max(0, eff - base)
+          local cap_txt = tostring(base) .. (extra > 0 and " (+" .. extra .. ")" or "")
+          frame.add{type = "label",
+            caption = {"", "[item=" .. item .. "] ", n, " in machine · stock ", stock, " / cap ", cap_txt,
+              capped and " · capped (no consumer — left here)" or " · collecting"},
+            tooltip = {"colony-gui.supply-output-tt"}}
+        end
+      end
+      if m.capped then
+        frame.add{type = "label", caption = {"colony-gui.supply-output-capped"}}
+      end
+    end
+  end
 end
+M.fill_machine = fill_machine   -- test hook for glue tests
 
 local function open_machine(player, e)
   local old = player.gui.relative[MACHINE_FRAME]; if old then old.destroy() end

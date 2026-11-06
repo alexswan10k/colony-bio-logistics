@@ -846,17 +846,20 @@ local function find_site(colony, e, hut, is_overflow, home)
     -- Ore priority: work the best-ranked ore that is actually in range.
     -- Ores sharing a rank round robin or follow downstream demand.
     -- Quota check (#84): skip any ore that has reached its quota; switch to the next open ore.
-    local any_met, last_met = false, nil
+    -- Only report quota when *every* active ore is met: one met ore (coal) must never popup-claim the
+    -- hut is capped while iron is still wanted, or claim a missing site is a quota problem.
+    local any_active, all_met, last_met = false, true, nil
     -- Ore priority: the hut's own ranks where it has set them; the colony material rank fills in the
     -- gaps (#91), so a town that cares about iron starts on iron without the player clicking the hut.
     for _, group in ipairs(eff_ore_groups(colony, hut)) do
       local available = {}
       for _, ore in ipairs(group.ores) do
+        any_active = true
         local met = colony_mod.quota_met(colony, ore)
         if met and not (is_overflow and colony_mod.overflow_allowed(colony, ore)) then
-          any_met = true
           last_met = ore
         else
+          all_met = false
           local site = nearest(s.find_entities_filtered{position = base, radius = radius, type = "resource", name = ore}, base, in_territory, home)
           local rock = nearest(find_rocks(s, base, radius, ore), base, in_territory, home)
           if site and rock then
@@ -902,7 +905,7 @@ local function find_site(colony, e, hut, is_overflow, home)
         return chosen.site, nil, chosen.ore
       end
     end
-    if any_met then
+    if any_active and all_met then
       hut.quota_met = true
       hut.quota_item = last_met
       return nil, last_met

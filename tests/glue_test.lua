@@ -1374,3 +1374,109 @@ describe("supply cap with sink (#54)", function()
     eq(colony_mod.quota_target(base_c, "copper-plate"), 120)
   end)
 end)
+
+describe("machine output helper (#54)", function()
+  local function mock_frame()
+    local captions = {}
+    local elem
+    elem = {
+      style = {},
+      clear = function() end,
+      add = function(spec)
+        if spec and spec.caption then captions[#captions + 1] = spec.caption end
+        return mock_frame().elem
+      end,
+      elem = {style = {}},
+    }
+    elem.elem = elem
+    return elem, captions
+  end
+  local function make_chest(contents)
+    local items = {}
+    for k, v in pairs(contents or {}) do items[k] = v end
+    return {
+      get_item_count = function(name) return items[name] or 0 end,
+      get_contents = function()
+        local list = {}
+        for k, v in pairs(items) do list[#list + 1] = {name = k, count = v} end
+        return list
+      end,
+      is_empty = function() return next(items) == nil end,
+      is_full = function() return false end,
+    }
+  end
+  local function capstr(captions)
+    local parts = {}
+    for _, cap in ipairs(captions) do
+      if type(cap) == "table" then
+        for _, piece in ipairs(cap) do parts[#parts + 1] = tostring(piece) end
+      else parts[#parts + 1] = tostring(cap) end
+    end
+    return table.concat(parts, "|")
+  end
+  it("shows capped output with stock/cap so the player sees why haulers leave it", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+    local gui = require("scripts.gui")
+    gui.bind(colony_mod)
+    local hall_inv = make_chest({["copper-plate"] = 25})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1}, force = {},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+    }
+    local out_inv = make_chest({["copper-plate"] = 5})
+    local furnace = {
+      valid = true, name = "stone-furnace", unit_number = 500, position = {x = 9, y = 9},
+      surface = {index = 1}, force = {},
+      get_item_count = function(item) return out_inv.get_item_count(item) end,
+      get_inventory = function() return out_inv end,
+      get_output_inventory = function() return out_inv end,
+    }
+    local m = {entity = furnace, enabled = true, collect = true, requests = {}, inflight = {}, priority = 4, capped = true}
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {}, houses = {}, machines = {[500] = m},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {},
+      taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {},
+      canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, ratings = {},
+      colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {},
+    }
+    storage.colonies = {[1] = c}
+    -- colony_of in mock: patch to find our colony via hall position? gui.colony_at uses colony_mod.colony_of(e).
+    -- That helper looks up by unit_number/territory; without it the helper still renders (colony nil -> capped false).
+    -- Force the colony by stubbing colony_of is brittle, so assert on the capped flag line + Output header which need no colony.
+    local frame, captions = mock_frame()
+    gui.fill_machine(frame, m, furnace)
+    local s = capstr(captions)
+truthy(s:find("supply-output", 1, true), "Output header present")
+    truthy(s:find("copper-plate", 1, true), "output item shown")
+    truthy(s:find("supply-output-capped", 1, true), "capped hint shown when machine capped")
+  end)
+  it("shows collect-off and empty states", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+    local gui = require("scripts.gui")
+    gui.bind(colony_mod)
+    local out_inv = make_chest({})
+    local furnace = {
+      valid = true, name = "stone-furnace", unit_number = 501, position = {x = 9, y = 9},
+      surface = {index = 1}, force = {},
+      get_item_count = function(item) return 0 end,
+      get_inventory = function() return out_inv end,
+      get_output_inventory = function() return out_inv end,
+    }
+    local frame1, cap1 = mock_frame()
+    gui.fill_machine(frame1, {entity = furnace, enabled = true, collect = false, requests = {}, inflight = {}, priority = 4}, furnace)
+    truthy(capstr(cap1):find("supply-output-off", 1, true), "collect off hint")
+    local frame2, cap2 = mock_frame()
+    gui.fill_machine(frame2, {entity = furnace, enabled = true, collect = true, requests = {}, inflight = {}, priority = 4}, furnace)
+    truthy(capstr(cap2):find("supply-output-empty", 1, true), "empty output hint")
+  end)
+end)

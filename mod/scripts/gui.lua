@@ -1384,10 +1384,12 @@ function fill_machine(frame, m, e)
   -- colonists are or are not emptying this machine, without hunting the Town Hall ledger.
   -- States: output empty / collect off / collecting (stock below cap) / capped (stock at base+demand,
   -- no downstream sink — colonists leave output here and the machine stalls until it is wanted).
-  frame.add{type = "label", caption = {"colony-gui.supply-output"}, style = "bold_label"}
+  -- Plain strings on purpose: new locale keys need a full Factorio restart to load (a save reload
+  -- re-reads Lua but not locale.cfg), and these lines used to render "unknown key" until that happened.
+  frame.add{type = "label", caption = "Output:", style = "bold_label"}
   local colony = colony_at(e)
   if not m.collect then
-    frame.add{type = "label", caption = {"colony-gui.supply-output-off"}}
+    frame.add{type = "label", caption = "Collect is off, so finished products stay in the machine."}
   else
     local inv
     if e.type ~= "entity-ghost" and e.get_output_inventory then
@@ -1395,7 +1397,7 @@ function fill_machine(frame, m, e)
     end
     local contents = inv and inv.get_contents() or {}
     if #contents == 0 then
-      frame.add{type = "label", caption = {"colony-gui.supply-output-empty"}}
+      frame.add{type = "label", caption = "No finished products yet."}
     else
       for _, stack in ipairs(contents) do
         local item, n = stack.name, stack.count
@@ -1405,23 +1407,23 @@ function fill_machine(frame, m, e)
         local capped = colony and work.supply_capped(colony, item) or false
         if eff <= 0 then
           frame.add{type = "label",
-            caption = {"", "[item=" .. item .. "] " .. tostring(n) .. " in machine, " .. tostring(stock)
-              .. " in Town Hall (no cap). Haulers are collecting it."},
-            tooltip = {"colony-gui.supply-output-tt"}}
+            caption = "[item=" .. item .. "] " .. tostring(n) .. " in machine, " .. tostring(stock)
+              .. " in Town Hall (no cap). Haulers are collecting it.",
+            tooltip = "Cap is base + downstream demand (20 by default). Capped means stock already meets that total with no consumer eating it, so colonists leave the output in the machine until it is wanted."}
         else
           local extra = math.max(0, eff - base)
           local cap_txt = tostring(base) .. (extra > 0 and " (+" .. extra .. ")" or "")
           local tail = capped
-            and " Haulers leave it here: cap is full with no consumer eating it."
+            and " Haulers leave it here: the cap is full and nothing is eating it."
             or " Haulers are collecting it."
           frame.add{type = "label",
-            caption = {"", "[item=" .. item .. "] " .. tostring(n) .. " in machine, " .. tostring(stock)
-              .. " in Town Hall (cap " .. cap_txt .. ")." .. tail},
-            tooltip = {"colony-gui.supply-output-tt"}}
+            caption = "[item=" .. item .. "] " .. tostring(n) .. " in machine, " .. tostring(stock)
+              .. " in Town Hall (cap " .. cap_txt .. ")." .. tail,
+            tooltip = "Cap is base + downstream demand (20 by default). Capped means stock already meets that total with no consumer eating it, so colonists leave the output in the machine until it is wanted."}
         end
       end
       if m.capped then
-        frame.add{type = "label", caption = {"colony-gui.supply-output-capped"}}
+        frame.add{type = "label", caption = "Stock is full with no consumer eating it, so the machine will stall. Want more? Raise the cap in the Town Hall or opt in a machine that eats this item."}
       end
     end
   end

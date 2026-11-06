@@ -29,9 +29,11 @@ M.RESOURCES = {
 }
 
 -- Produced intermediates the player can cap from the Town Hall ledger. They are not harvested by a hut, so
--- they are not listed above; a default of 0 means unlimited (the furnace behaves exactly as before) and a
--- player-set cap is a *ceiling on collection*, not a target: once stock reaches it, haulers stop emptying
--- machine output, the machine's output fills, and it stalls until demand or the player raises the cap.
+-- they are not listed above; the default is 20 (same sensible default as harvested quotas) so a furnace
+-- town does not produce plates to infinity with no sink. The cap is a *ceiling on collection*, not a
+-- target: once stock reaches base + downstream demand, haulers stop emptying machine output, the output
+-- backs up, and the machine stalls until a sink pulls it. Downstream demand (an opted-in machine that
+-- eats the item) is the obvious sink that exits the system and raises the ceiling; see supply_capped.
 local quota_supply = {
   ["iron-plate"] = true, ["copper-plate"] = true, ["steel-plate"] = true,
   ["iron-gear-wheel"] = true, ["stone-brick"] = true, ["concrete"] = true,
@@ -39,7 +41,7 @@ local quota_supply = {
   ["solid-fuel"] = true,
 }
 for item in pairs(quota_supply) do
-  M.RESOURCES[item] = {category = "supply", default = 0}
+  M.RESOURCES[item] = {category = "supply", default = 20}
 end
 
 -- Target quota for item (0 or nil = unlimited).

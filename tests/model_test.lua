@@ -313,12 +313,15 @@ end)
 
 describe("material caps (#84)", function()
   local quota = require("scripts.model.quota")
-  it("produced intermediates are cappable but default to unlimited", function()
+  it("produced intermediates are cappable, default 20 so they never pile to infinity (#54)", function()
     eq(quota.RESOURCES["iron-plate"].category, "supply")
-    eq(quota.RESOURCES["iron-plate"].default, 0)
+    eq(quota.RESOURCES["iron-plate"].default, 20)
     eq(quota.RESOURCES["iron-gear-wheel"].category, "supply")
-    eq(quota.target(nil, nil, "iron-plate"), 0)          -- 0 = unlimited
-    eq(quota.met(0, 5000), false)                        -- so nothing is ever capped by default
+    eq(quota.RESOURCES["copper-plate"].default, 20)
+    eq(quota.RESOURCES["steel-plate"].default, 20)
+    eq(quota.target(nil, nil, "iron-plate"), 0)          -- 0 = unlimited only when player sets it
+    eq(quota.met(20, 20), true)
+    eq(quota.met(20, 19), false)
   end)
   it("a player cap is a ceiling on collection", function()
     local quotas = {["iron-plate"] = 200}

@@ -1354,14 +1354,16 @@ local function machine_demands(m)
 end
 M.machine_demands = machine_demands
 
--- A produced intermediate the player capped in the ledger stops being collected at the cap (#84): the
--- machine's output backs up and it stalls until demand or a higher cap moves the line. A cap of 0 means
--- unlimited, so untouched colonies behave exactly as before. The *base* target is the cap: downstream demand
--- (#90) raises the collection target, never a ceiling the player set on purpose.
+-- A produced intermediate the player capped in the ledger stops being collected at base + downstream
+-- demand (#54): with no obvious sink (no opted-in machine eating it) the base is the sensible default
+-- 20 (quota.RESOURCES default), so plates never pile up to infinity; a consuming machine is the sink
+-- that exits the system and raises the ceiling to base + demand, so haulers keep feeding it 1:1. The
+-- machine's output backs up and it stalls until demand or a higher cap moves the line. A cap of 0
+-- means unlimited (player opted out explicitly).
 local function supply_capped(colony, item)
   local def = quota.RESOURCES[item]
   if not (def and def.category == "supply") then return false end
-  local tgt = colony_mod.base_quota_target(colony, item)
+  local tgt = colony_mod.quota_target(colony, item)
   if tgt <= 0 then return false end
   return colony_mod.stock_count(colony, item) >= tgt
 end

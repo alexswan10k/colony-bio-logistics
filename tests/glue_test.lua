@@ -1315,3 +1315,62 @@ describe("miner quota (downstream iron vs stale coal, #54 repro)", function()
     eq(#slot_list, 1)
   end)
 end)
+
+describe("supply cap with sink (#54)", function()
+  local function make_chest(contents)
+    local items = {}
+    for k, v in pairs(contents or {}) do items[k] = v end
+    return {
+      get_item_count = function(name) return items[name] or 0 end,
+      get_contents = function()
+        local list = {}
+        for k, v in pairs(items) do list[#list + 1] = {name = k, count = v} end
+        return list
+      end,
+      is_empty = function() return next(items) == nil end,
+      is_full = function() return false end,
+    }
+  end
+  it("plates pile up to 20 with no sink, but flow when a consuming machine is the sink", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+    -- Stock 25 copper plates, no consumer: base 20, demand 0 -> capped.
+    local hall_inv = make_chest({["copper-plate"] = 25})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1}, force = {},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+    }
+    local base_c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {}, houses = {}, machines = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {},
+      taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {},
+      canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, ratings = {},
+      colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {},
+    }
+    storage.colonies = {[1] = base_c}
+    eq(colony_mod.base_quota_target(base_c, "copper-plate"), 20)
+    eq(colony_mod.quota_target(base_c, "copper-plate"), 20)
+    eq(work.supply_capped(base_c, "copper-plate"), true)
+    -- Stock below cap is not capped.
+    hall_inv = make_chest({["copper-plate"] = 19})
+    base_c.stock_cache, base_c.stock_tick = nil, nil
+    eq(work.supply_capped(base_c, "copper-plate"), false)
+    -- A consuming assembler (sink) raises the ceiling to base + demand.
+    hall_inv = make_chest({["copper-plate"] = 25})
+    base_c.stock_cache, base_c.stock_tick = nil, nil
+    base_c.machines = {[500] = {
+      entity = {valid = true, unit_number = 500, position = {x = 9, y = 9}, surface = {index = 1}},
+      enabled = true, collect = false, inflight = {}, priority = 4,
+      requests = {{item = "copper-plate", count = 100}},
+    }}
+    base_c.hall = hall_ent
+    colony_mod.invalidate_demand(base_c)
+    eq(work.supply_capped(base_c, "copper-plate"), false)
+    eq(colony_mod.quota_target(base_c, "copper-plate"), 120)
+  end)
+end)

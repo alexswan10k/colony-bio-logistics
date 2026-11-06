@@ -1253,3 +1253,65 @@ describe("steel tool tiers (#95) glue", function()
     eq(gaps[1].short, 2)
   end)
 end)
+
+describe("miner quota (downstream iron vs stale coal, #54 repro)", function()
+  local function make_chest(contents)
+    local items = {}
+    for k, v in pairs(contents or {}) do items[k] = v end
+    return {
+      get_item_count = function(name) return items[name] or 0 end,
+      get_contents = function()
+        local list = {}
+        for k, v in pairs(items) do list[#list + 1] = {name = k, count = v} end
+        return list
+      end,
+      is_empty = function() return next(items) == nil end,
+      is_full = function() return false end,
+    }
+  end
+  it("a met coal ore does not close a miner whose iron is still wanted", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local work = require("scripts.work")
+    work.bind(colony_mod)
+    -- Stock: coal 20 (met at default 20), iron 0 (wanted). No machines/demand, so target = base 20.
+    local hall_inv = make_chest({coal = 20})
+    local hall_ent = {
+      valid = true, name = colony_mod.HALL, unit_number = 100, position = {x = 0, y = 0},
+      surface = {index = 1}, force = {},
+      get_item_count = function(item) return hall_inv.get_item_count(item) end,
+      get_inventory = function() return hall_inv end,
+    }
+    local hut_inv = make_chest({["colony-pickaxe"] = 3})
+    local hut_ent = {
+      valid = true, name = "colony-miner-hut", unit_number = 901, position = {x = 5, y = 5},
+      surface = {index = 1}, force = {},
+      get_item_count = function(item) return hut_inv.get_item_count(item) end,
+      get_inventory = function() return hut_inv end,
+    }
+    -- Stale memo from a previous find_site where only coal was met.
+    local hut = {entity = hut_ent, job = "mine", wear = 0, limit = 3, workers = {}, inflight = {}, colony_id = 1,
+      quota_item = "coal", quota_met = true}
+    local c = {
+      id = 1, surface_index = 1, hall = hall_ent, huts = {[901] = hut}, houses = {}, machines = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, pools = {},
+      taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {},
+      canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, ratings = {},
+      colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {},
+    }
+    storage.colonies = {[1] = c}
+    -- Sanity: coal met, iron not.
+    eq(colony_mod.quota_met(c, "coal"), true)
+    eq(colony_mod.quota_met(c, "iron-ore"), false)
+    -- The hut must be open (not quota-met) and the stale memo cleared.
+    local met, item = work.hut_quota_met(c, hut)
+    eq(met, false)
+    eq(item, nil)
+    eq(hut.quota_item, nil)
+    -- And job_slots must give the hut an allowed slot (3 pickaxes would be labour.allowed then).
+    local slots, _, slot_list = work.job_slots(c)
+    eq(slots.mine, 3)
+    eq(#slot_list, 1)
+  end)
+end)

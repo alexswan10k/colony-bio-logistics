@@ -491,7 +491,10 @@ local function hut_resources(h)
 end
 
 local function hut_quota_met(colony, h)
-  if h.quota_item then
+  -- Single-resource huts can memoise which resource closed them (quota_item); a miner works up to four
+  -- ores, so one met ore (e.g. coal) must never close a hut whose iron is still wanted. Skip the memo
+  -- for mine and always recompute the full set, clearing any stale coal memo.
+  if h.job ~= "mine" and h.quota_item then
     if colony_mod.quota_met(colony, h.quota_item) then
       return true, h.quota_item
     else
@@ -515,6 +518,11 @@ local function hut_quota_met(colony, h)
           all_met = false
         end
       end
+    end
+    if any_active and not all_met then
+      h.quota_item = nil
+      h.quota_met = nil
+      return false, nil
     end
     if any_active and all_met and last_item then return true, last_item end
     return false, nil

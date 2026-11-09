@@ -292,30 +292,27 @@ As colonies advance to Tier 2 and Tier 3 Housing, colonists desire **Recreation 
 
 ## 8. Dedicated Colony Tech Subtree & Custom Science
 
-**Milestones before science (onboarding):** a new game shows only the Town Hall. Five scripted-trigger technologies (`model/milestones.lua`) unlock the early buildings as the force's biggest colony grows, and the native tech tree states each trigger ("Reach 8 colonists"), so the first hour needs no research and the tree itself is the tutorial:
-* **Settlement** (build a Town Hall): Housing Tent, Forager's Hut, Woodcutter's Hut, basket, axe.
-* **Mining Camp** (4 colonists): Miner's Hut, pickaxe, Housing Cabin, Compost Bin, Supply Crate, Warehouse.
-* **Hunting & Fishing** (8): Hunting Lodge, bow and arrows, Fishing Dock, rod.
-* **Colony Logistics** (12): Watchtower, Demand Crate, logistics marker, colony rifle.
-* **Food Preservation** (16): Salt Pan, Smokehouse, Town Archive, Frontier Charter recipe. Pack-based research (below) starts here.
+**Onboarding milestone (current):** a new game shows only the Town Hall. **Settlement** is the one scripted-trigger technology (`model/milestones.lua`): build a Town Hall. It unlocks the starter kit (Tent, Forager's/Woodcutter's/Miner's Huts, basket/axe/pickaxe, Toolsmith, Compost Bin, Supply Crate), the **Town Archive**, and the **Frontier Charter** recipes (forage, meat, produce, Gleba). Pack research therefore starts at Settlement. The earlier five-step 4/8/12/16-colonist ladder was tried and collapsed in 57486fa: it gated the Archive behind the population the Archive was meant to support, so `colony-hunting-fishing` and `colony-food-preservation` are research technologies now, not milestones. The native tree still states the trigger ("Build a Town Hall"), so the first hour needs no research.
 
 A **Toolsmith** (`model/toolsmith.lua`, a staffed hut on the preserve job) makes the tools huts are waiting on from the wood, iron and copper haulers bring it (about 30 s per tool, unlocked recipes only, one spare of each kept), so woodcutters keep foragers in baskets without the player crafting them. The Town Hall makes nothing for free. Problems are reported where the player looks (`scripts/feedback.lua`, every 5 s): a status line on every house, hut and hall tooltip, and native custom alerts for red problems (a house about to starve, a hut that cannot get its tool, no sites in range, no food at all), toggled by the per-player `colony-alerts` setting. Carried goods are drawn over the colonist carrying them.
 
-Colonies have their own **Tech Subtree** researched in a **Town Archive** (Early) or **University** (Late) staffed by educated colonists:
-The tree as built (`prototypes/technology.lua`). It opens only after the **Food Preservation** milestone, and every tech in it is paid for with Frontier Charters:
-1. **Frontier Charter** (15 packs): unlocks the fish pack recipe. Prerequisite for everything below.
-2. **Water Infrastructure** (30 packs): Homestead, Colony Well, Water Bottling, Furniture. Prerequisite for Civic Governance.
-3. **Advanced Agriculture** (25 packs): Farm Hut, Farm Plot, Hoe. Prerequisite for Civic Governance.
-4. **Civic Governance** (50 packs; needs Water Infrastructure and Advanced Agriculture): University, Apartment, Kitchen, and the Civic Treatise pack recipe. The Civic Treatise pack is defined but no tech consumes it yet.
-5. **Motor Pool** (30 packs; needs Frontier Charter and vanilla Automobilism): the Motor Pool and the colony trucks that drive out for big loads (#60).
+Colonies have their own **Tech Subtree** researched in a **Town Archive** (early) or **University** (late) staffed by educated colonists. Every technology is paid for with colony packs, never vanilla science, but the **two trees interlock through prerequisites** so a colony tier never gets ahead of the factory that must build it. The tree as built (`prototypes/technology.lua`):
+1. **Frontier Charter** (10 packs; Settlement): unlocks the fish Frontier Charter recipe and gates everything below.
+2. **Tier 1** (10-25 packs): Permanent Housing (Cabin), Hunting & Fishing (Lodge, bow, arrows, Dock, rod), Food Preservation (Salt Pan, Smokehouse, preserved packs), Cemetery, Advanced Agriculture (Farm Hut, Plot, Hoe), and Logistics (Watchtower, Demand Crate, marker, rifle, Haul Station, trailer; **needs vanilla Logistics**).
+3. **Tier 2** (15-40 packs): Warehousing, Steel Tools (**needs Steel Processing**), Water Infrastructure (Well, bottling, Homestead, Furniture; **needs Automation 2** for the fluid-capable assembler), Recreation (Tavern, ale), Medicine (Clinic, Herbal Medicine), and Motor Pool (**needs Automobilism**).
+4. **Tier 3** (40-50 packs): Civic Governance (University, Apartment, Kitchen, Civic Treatise recipe; **needs Concrete** and the circuits it implies) and Rail Transit (Passenger Platform, Coach, Canteen; **needs Railway**).
+5. **Known gap:** every tech still costs only Frontier Charters, so the Civic Treatise recipe has no consumer yet; #98 tracks the pack-economy cleanup.
 
-Later tiers are planned, not built: **Bio-Ecological Data** (Resorts, Habitat Domes, Enviro-Suits, Cryo-Colonist Pods, Nurseries) and **Interplanetary Sovereignty Codex** (Arcologies, Orbital Hydroponics, Space Platform EVA Crew) are tracked in #69, and the Clinic and Passenger Train unlocks in #47 and #49.
+Later tiers are planned, not built: **Bio-Ecological Data** (Resorts, Habitat Domes, Enviro-Suits, Cryo-Colonist Pods, Nurseries) and **Interplanetary Sovereignty Codex** (Arcologies, Orbital Hydroponics, Space Platform EVA Crew) are tracked in #69.
 
 * **Implementation details (#42, #19):**
   * **Lab Whitelist Isolation:** Vanilla labs reject custom colony packs (`can_insert == false`, `insert() == 0`), and colony labs reject vanilla packs. Isolation is enforced at the C++ engine level.
   * **Perishable Spoilage in Labs:** Perishable science packs (Frontier Charters, Civic Treatises) that spoil inside a lab automatically move into `defines.inventory.lab_trash`. The lab does not jam and continues researching fresh packs. Haulers collect spoilage from `lab_trash` and route it to Compost Bins.
   * **Staffed Mechanics:** Town Archives (3x3, cap 2) and Universities (4x4, cap 4) register as labour huts with `job = "research"` (`scholar` role, default rank 2, 15% workforce target). Scholars maintain and staff the facility while science packs are present, updating the native `custom_status` diode (`green` staffed / `red` unstaffed).
   * **Unified Research Queue:** Colony technologies reside in standard `data.raw["technology"]`, appearing in the native "T" tech tree and FIFO research queue (`force.research_queue`). Technology progress advances natively when powered and staffed.
+  * **Vanilla Interlock:** colony technologies never cost vanilla science, but advanced tiers carry vanilla prerequisites (Logistics, Steel Processing, Automation 2, Concrete, Automobilism, Railway). This keeps the tree from offering a Homestead before the player can assemble water bottles, or an Apartment before concrete exists, without merging the two science economies.
+  * **Update Safety:** `scripts/tech.lua` re-applies `unlock-recipe` effects for every researched technology on `on_configuration_changed`. A technology that gains an effect in a mod update therefore enables the new recipe in an existing save instead of leaving the force with the tech and no item.
+  * **Tree Integrity Gate:** `model/tech_audit.lua` + `m1_tech` check that every colony technology is reachable, every unlocked recipe exists exactly once, every pack is accepted by a lab available at that point, and every vanilla ingredient's recipe is unlocked by a technology in the colony tech's prerequisite closure.
 
 ---
 

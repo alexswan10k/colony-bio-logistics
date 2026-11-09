@@ -37,6 +37,7 @@ local illness = require("scripts.illness")
 local mortality_model = require("scripts.model.mortality")
 local breeding = require("scripts.model.breeding")
 local stats = require("scripts.stats")
+local tech = require("scripts.tech")
 local M = {}
 
 M.HALL = "colony-town-hall"
@@ -2144,13 +2145,18 @@ end
 
 function M.check_milestones(force)
   local facts, researched = M.milestone_facts(force)
+  local changed = false
   for _, name in ipairs(milestones.due(facts, researched)) do
     local t = force.technologies[name]
     if t then
       t.researched = true
+      changed = true
       force.print({"colony-message.milestone", {"technology-name." .. name}, {"technology-description." .. name}})
     end
   end
+  -- Setting `researched` from script is ours to make consistent: a milestone's unlock effects may not have been
+  -- applied by the engine yet, and the same helper covers recipes added to an already-researched technology.
+  if changed then tech.sync_force(force) end
 end
 
 -- Huts short of a tool, merged per tool and sorted: {{tool=, short=}}. A tool already on its way counts.

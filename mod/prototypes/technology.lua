@@ -55,9 +55,11 @@ data:extend({
     "colony-basket", "colony-axe", "colony-pickaxe", "colony-toolsmith",
     "colony-compost-bin", "colony-supply-crate",
     "colony-town-archive", "colony-frontier-pack", "colony-frontier-pack-forage",
-    "colony-frontier-pack-meat", "colony-frontier-pack-fish", "colony-frontier-pack-produce", "colony-frontier-pack-gleba"}),
+    "colony-frontier-pack-meat", "colony-frontier-pack-produce", "colony-frontier-pack-gleba"}),
   tech("colony-frontier-charter", "icon-frontier-pack.png", 10, {"colony-frontier-pack"}, 10,
-    {"colony-settlement"}, {}),
+    {"colony-settlement"}, {
+    unlock("colony-frontier-pack-fish"),
+  }),
   tech("colony-permanent-housing", "icon-cabin.png", 10, {"colony-frontier-pack"}, 10,
     {"colony-frontier-charter"}, {
     unlock("colony-housing-cabin"),
@@ -72,8 +74,10 @@ data:extend({
     unlock("colony-salt-pan"), unlock("colony-salt-from-stone"), unlock("colony-smokehouse"),
     unlock("colony-frontier-pack-preserved"), unlock("colony-frontier-pack-preserved-fish"),
   }),
+  -- Vanilla interlock: advanced colony tiers ride the base game's tech, without making vanilla science a cost.
+  -- A player who has not built belts, steel or concrete yet is not offered colony buildings they cannot build.
   tech("colony-logistics", "icon-watchtower.png", 15, {"colony-frontier-pack"}, 15,
-    {"colony-frontier-charter"}, {
+    {"colony-frontier-charter", "logistics"}, {
     unlock("colony-watchtower"), unlock("colony-demand-crate"), unlock("colony-logistics-marker"),
     unlock("colony-rifle"), unlock("colony-haul-station"), unlock("colony-wooden-trailer"),
   }),
@@ -84,7 +88,7 @@ data:extend({
   -- Steel tools (#95): steel axes/pickaxes/hoes cost steel + iron (no wood), last 45 trips and work 20%
   -- faster than the tier-1 wooden/iron tools. The Toolsmith covers tier-1 first, then upgrades.
   tech("colony-steel-tools", "icon-axe.png", 30, {"colony-frontier-pack"}, 15,
-    {"colony-logistics"}, {
+    {"colony-logistics", "steel-processing"}, {
     unlock("colony-steel-axe"), unlock("colony-steel-pickaxe"), unlock("colony-steel-hoe"),
   }),
   tech("colony-cemetery", "icon-cemetery.png", 10, {"colony-frontier-pack"}, 10,
@@ -92,7 +96,7 @@ data:extend({
     unlock("colony-cemetery"),
   }),
   tech("colony-water-infrastructure", "icon-well.png", 30, {"colony-frontier-pack"}, 15,
-    {"colony-permanent-housing"}, {
+    {"colony-permanent-housing", "automation-2"}, {
       unlock("colony-well"),
       unlock("colony-water-bottling"),
       unlock("colony-housing-homestead"),
@@ -115,7 +119,7 @@ data:extend({
       unlock("colony-herbal-medicine"),
     }),
   tech("colony-civic-governance", "icon-civic-pack.png", 50, {"colony-frontier-pack"}, 20,
-    {"colony-water-infrastructure", "colony-advanced-agriculture"}, {
+    {"colony-water-infrastructure", "colony-advanced-agriculture", "concrete"}, {
       unlock("colony-university"),
       unlock("colony-civic-pack"),
       unlock("colony-housing-apartment"),

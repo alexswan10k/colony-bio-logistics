@@ -9,6 +9,7 @@ import random
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 SS = 4
+FZ = 28.8          # art px per tile of *height* (0.45 x 64): 1 tile high = 16 screen px at scale 0.5
 
 
 def mul(c, k):
@@ -115,6 +116,40 @@ def shingle(sw=10, sh=6):
     return t
 
 
+def shingle_p(sp=10, sh=6, grow=1.075):
+    """Shingle rows with perspective: rows get taller toward the viewer (bottom of the mask), so a
+    roof reads as a receding plane instead of a flat wall."""
+    def t(d, w, h, col):
+        r = _rnd(w, h)
+        y, row, step = 0, 0, sh * SS
+        while y < h:
+            x = (sp * SS // 2) if row % 2 else 0
+            while x < w:
+                d.rectangle((x, y, x + sp * SS, y + step), fill=(255, 255, 255, r.randint(0, 26)) if r.random() < .5 else (0, 0, 0, r.randint(0, 30)))
+                d.line((x, y, x, y + step), fill=(0, 0, 0, 80), width=SS)
+                x += sp * SS
+            d.line((0, y + step, w, y + step), fill=(0, 0, 0, 120), width=SS)
+            d.line((0, y + step - SS, w, y + step - SS), fill=(255, 255, 255, 40), width=SS)
+            y += step; row += 1
+            step = min(step * grow, sh * SS * 2.4)
+    return t
+
+
+def thatch_p(n=500, grow=1.08):
+    """Thatch rows that tighten toward the far edge, like shingle_p."""
+    def t(d, w, h, col):
+        r = _rnd(w, h)
+        y, step = 0, 7 * SS
+        while y < h:
+            d.line((0, y, w, y), fill=(0, 0, 0, 45), width=SS)
+            x = -r.randint(0, 20 * SS)
+            while x < w:
+                d.line((x, y, x + r.randint(4, 10) * SS, y + step), fill=(0, 0, 0, 42) if r.random() < .55 else (255, 245, 200, 38), width=SS)
+                x += r.randint(5, 11) * SS
+            y += step; step = min(step * grow, 7 * SS * 2.2)
+    return t
+
+
 def thatch(n=500):
     def t(d, w, h, col):
         r = _rnd(w, h)
@@ -135,6 +170,16 @@ def tin(sp=5):
     return t
 
 
+def weave(sp=4):
+    """coarse canvas weave: a crosshatch of warp and weft threads"""
+    def t(d, w, h, col):
+        for y in range(0, h, sp * SS):
+            d.line((0, y, w, y), fill=(0, 0, 0, 34), width=SS)
+        for x in range(0, w, sp * SS):
+            d.line((x, 0, x, h), fill=(255, 255, 255, 26), width=SS)
+    return t
+
+
 def speckle(n=1.0, dark=60):
     def t(d, w, h, col):
         r = _rnd(w, h)
@@ -149,6 +194,68 @@ def combine(*fs):
     def t(d, w, h, col):
         for f in fs: f(d, w, h, col)
     return t
+
+
+class View:
+    """A 3/4 top-down view of a building standing on a wt x dt tile footprint.
+
+    Plan coordinates: x 0..W (left to right), y 0..D (back to front), z in tiles. The ground plane is
+    screen-aligned (Factorio tiles are squares), height is foreshortened by FZ, and a one-point
+    perspective makes the back edge `persp` narrower than the front, so roofs are trapezoids and the
+    side walls show as thin lit/shaded slivers. This is what makes a sprite read as a volume.
+    """
+
+    def __init__(self, art, wt, dt, pad=18, bottom=12, persp=.18):
+        self.a = art
+        self.W, self.D = wt * 64, dt * 64
+        self.pad, self.bottom, self.persp = pad, bottom, persp
+        self.base = art.h - bottom
+        self.cx = pad + self.W / 2
+
+    def s(self, y):
+        return 1 - self.persp * (1 - y / self.D)
+
+    def sx(self, x, y):
+        return self.cx + (self.pad + x - self.cx) * self.s(y)
+
+    def sy(self, y, z=0):
+        return self.base - (self.D - y) - z * FZ
+
+    def p(self, x, y, z=0):
+        return (self.sx(x, y), self.sy(y, z))
+
+    def poly(self, pts, col, **kw):
+        self.a.poly([self.p(x, y, z) for x, y, z in pts], col, **kw)
+
+    def face(self, pts, col, **kw):
+        self.poly(pts, col, **kw)
+
+    def line(self, p0, p1, w, col, **kw):
+        self.a.line([self.p(*p0), self.p(*p1)], w, col, **kw)
+
+    def box(self, x0, y0, x1, y1, z0, z1, col, top=None, west=None, east=None, south=None,
+            top_tex=None, **kw):
+        top = col if top is None else top
+        west = mul(col, .92) if west is None else west
+        east = mul(col, .7) if east is None else east
+        south = mul(col, .82) if south is None else south
+        self.face([(x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)], top, tex=top_tex, **kw)
+        self.face([(x0, y1, z0), (x0, y0, z0), (x0, y0, z1), (x0, y1, z1)], west, **kw)
+        self.face([(x1, y0, z0), (x1, y1, z0), (x1, y1, z1), (x1, y0, z1)], east, **kw)
+        self.face([(x0, y1, z0), (x1, y1, z0), (x1, y1, z1), (x0, y1, z1)], south, **kw)
+
+    def ell(self, x0, y0, x1, y1, z, col, **kw):
+        """axis-aligned ellipse in plan, projected to a screen bbox (good enough for tank tops/well mouths)"""
+        l = self.p(x0, (y0 + y1) / 2, z)
+        r = self.p(x1, (y0 + y1) / 2, z)
+        t = self.p((x0 + x1) / 2, y0, z)
+        b = self.p((x0 + x1) / 2, y1, z)
+        self.a.ell(l[0], t[1], r[0], b[1], col, **kw)
+
+    def ground(self, x0, y0, x1, y1, col, alpha=.5, blur=5):
+        """soft contact patch under the whole footprint"""
+        pts = [self.p(x0, y0), self.p(x1, y0), self.p(x1, y1), self.p(x0, y1)]
+        self.a.poly(pts, col, shade=0, grain=0, edge=0, hi=0, alpha=alpha)
 
 
 class Art:
@@ -252,13 +359,16 @@ class Art:
         out.alpha_composite(self.im)
         return out
 
-    def shadow_image(self, frames=1, kx=.8, sy=.45, alpha=125):
-        """Projected ground shadow as a separate layer (Factorio `draw_as_shadow`): each frame is sheared to the
-        right and flattened about the sprite's ground line, on a canvas twice as wide, same centre."""
+    def shadow_image(self, frames=1, kx=.55, sy=.42, alpha=112, ground=None):
+        """Projected ground shadow as a separate layer (Factorio `draw_as_shadow`): each frame is sheared to
+        the right and flattened about the sprite's ground line, on a canvas twice as wide, same centre.
+        `ground` is the ground line in *final* art px (the bottom of the footprint), not the bbox bottom:
+        props and chimneys would otherwise move it."""
         a = self.im.getchannel("A")
         fw = self.size[0] // frames
         H = self.size[1]
-        base = (a.getbbox() or (0, 0, 0, H))[3] - 2 * SS
+        base = (int(ground * SS) if ground is not None
+                else (a.getbbox() or (0, 0, 0, H))[3] - 2 * SS)
         out = Image.new("L", (self.size[0] * 2, H), 0)
         for f in range(frames):
             fr = a.crop((f * fw, 0, (f + 1) * fw, H))
@@ -266,15 +376,12 @@ class Art:
             k = kx / sy
             sh = Image.new("L", (fw * 2, H), 0)
             sh.paste(fr.transform((fw * 2, H), Image.AFFINE, (1, k, -pad - k * base, 0, 1 / sy, base - base / sy), Image.BILINEAR), (0, 0))
-            # contact patch so the footprint is always dark even where the shear leaves a gap
-            ImageDraw.Draw(sh).rectangle((pad, base - 6 * SS, pad + fw, base), fill=0)
-            sh = ImageChops.lighter(sh, fr.crop((0, 0, fw, H)).transform((fw * 2, H), Image.AFFINE, (1, 0, -pad, 0, 1, 0)).point(lambda v: v // 2))
             out.paste(sh, (f * fw * 2, 0))
-        out = out.filter(ImageFilter.GaussianBlur(SS * .7)).point(lambda v: min(255, v * alpha // 255))
+        out = out.filter(ImageFilter.GaussianBlur(SS * .85)).point(lambda v: min(255, v * alpha // 255))
         img = Image.new("RGBA", out.size, (0, 0, 0, 0)); img.putalpha(out)
         return img
 
-    def save(self, path, shadow="proj", frames=1, size=None):
+    def save(self, path, shadow="proj", frames=1, size=None, ground=None):
         """main sprite (+ `<name>-shadow.png` when shadow == "proj"; "bake" burns a drop shadow into the sprite)"""
         w, h = size or (self.w, self.h)
         if shadow == "bake":
@@ -288,5 +395,5 @@ class Art:
             out = self.under.copy(); out.alpha_composite(self.im)
         out.resize((w, h), Image.LANCZOS).save(path)
         if shadow == "proj":
-            si = self.shadow_image(frames)
+            si = self.shadow_image(frames, ground=ground)
             si.resize((w * 2, h), Image.LANCZOS).save(path[:-4] + "-shadow.png")

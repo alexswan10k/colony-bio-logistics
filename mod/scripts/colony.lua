@@ -823,7 +823,9 @@ function M.headcount_capped(colony, job)
 end
 
 function M.take_stock(colony, item, count)
-  colony.stock_cache = nil   -- stock moved: the cached snapshot is stale
+  -- Stock moved: both snapshots are stale. `storage_cache` is what a haul plan matches against (30 ticks, #54
+  -- bench), so leaving it warm let the next plan offer goods this call had already removed.
+  colony.stock_cache, colony.storage_cache = nil, nil
   local taken = 0
   local storages = M.storage_list(colony)
   table.sort(storages, function(a, b)
@@ -850,7 +852,7 @@ function M.take_stock(colony, item, count)
 end
 
 function M.put_stock(colony, item, count)
-  colony.stock_cache = nil   -- stock moved: the cached snapshot is stale
+  colony.stock_cache, colony.storage_cache = nil, nil   -- stock moved: both snapshots are stale
   local left = count
   local storages = M.storage_list(colony)
   table.sort(storages, function(a, b)

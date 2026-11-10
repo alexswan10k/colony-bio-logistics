@@ -6,6 +6,7 @@
 local core = require("scripts.spike.core")
 local colony = require("scripts.colony")
 local feedback = require("scripts.feedback")
+local work = require("scripts.work")
 local trailer = require("scripts.model.trailer")
 
 core.register("m1_haul_station", {
@@ -117,6 +118,34 @@ core.register("m1_haul_station", {
       local key = cs and type(cs.label) == "table" and tostring(cs.label[1]) or nil
       ctx.check("the station reports its trailers on hover", key ~= nil and key:find("^colony%-status%.station%-") ~= nil,
         key or "none")
+      -- An aborted trip must lift the trailer's speed penalty. The restore lives in return_trailer, because that is
+      -- the one place every trip ends: delivery, a path the engine gave up on, nightfall, a hut that vanished. When
+      -- it lived only on the delivery paths, a colonist that gave up mid-trip walked at trailer speed for good.
+      local driver
+      for un in pairs(c.colonists) do
+        local e = c.colonists[un]
+        if e and e.valid then driver = e; break end
+      end
+      local base
+      local ok_speed = driver and pcall(function() base = driver.speed end)
+      if ok_speed and base and base > 0 then
+        local rec2 = c.crates[station.unit_number]
+        rec2.trailers_out = (rec2.trailers_out or 0) + 1
+        local trip = {colony_id = c.id, job = "haul", state = "to_house", un = driver.unit_number,
+          trailer = true, trailer_station = rec2, trailer_speed = base, carry = {{item = "iron-ore", count = 1}}}
+        pcall(function() driver.speed = base * trailer.SPEED end)
+        work.release(trip)
+        local after
+        pcall(function() after = driver.speed end)
+        ctx.check("aborting a trailer trip restores walking speed",
+          after ~= nil and math.abs(after - base) <= base * 0.01,
+          string.format("slowed %.3f, after release %s (base %.3f)", base * trailer.SPEED, tostring(after), base))
+        ctx.check("the aborted trip's trailer went back to the station",
+          rec2.trailers_out == 0 and station.get_item_count(trailer.TRAILER_ITEM) >= 1,
+          (rec2.trailers_out or 0) .. " out")
+      else
+        ctx.check("aborting a trailer trip restores walking speed", false, "unit speed not readable")
+      end
       ctx.probe("trailer speed penalty applied", function()
         return st.speed_penalty and "unit speed lowered while hauling with trailer"
           or (st.speed_seen and "speed readable, penalty not confirmed" or "no trailer-speed sample (trip may have finished before poll)")

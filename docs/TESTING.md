@@ -21,7 +21,7 @@
 ## Regression gates (#39)
 Three headless gates cover the things the unit tests and the playable spike cannot:
 
-- `TICKS=19500 scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (113 checks, final checks at
+- `TICKS=19500 scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (114 checks, final checks at
   tick 18000: haulers walk to every pickup now, so the multi-hop chains - meat to smokehouse, spoilage to compost to
   fertilized plots - need the longer window). It includes the onboarding
   path: building a Town Hall completes the Settlement milestone, every house and hut gets a status line, a well and a
@@ -75,7 +75,7 @@ Three headless gates cover the things the unit tests and the playable spike cann
   out for a full hand-load with more wanted, the `colony-truck` carries 100 in one trip at 2.5x colonist speed,
   the driver waits under its stop order, the truck parks when its fuel is spent, the car goes back to the pool,
   coal is burnt by the trip count, and the driver is released off the pool afterwards.
-- `TICKS=9000 scripts/headless-spike.sh m1_haul_station` - the #94 Haul Station spike (20 checks): a hauler checks
+- `TICKS=9000 scripts/headless-spike.sh m1_haul_station` - the #94 Haul Station spike (22 checks): a hauler checks
   a Wooden Trailer out of the station within `trailer.REACH`, carries the full 60 in one trip at the slower
   trailer speed, returns it (wearing the station's counter) and the station reports its trailers on hover.
 - `scripts/headless-spike.sh m1_stats` - the #89 production statistics spike: `LuaFlowStatistics:on_flow` takes a

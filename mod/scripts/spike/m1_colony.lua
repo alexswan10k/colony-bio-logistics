@@ -561,6 +561,23 @@ core.register("m1_colony", {
         local k = collector_key(pan)
         ctx.check("the salt pan reports its salt on hover", k ~= nil and k:find("^colony%-status%.collector%-") ~= nil, k or "none")
       end
+      -- A hut that a fisher/preserver/scholar/doctor works at is not a claimed *site*: the claim set is what
+      -- builders use to skip work in progress, so claiming a hut's own position hid a damaged hut from repairs
+      -- for as long as its worker stood inside (and for the next 300 ticks on top).
+      local phantom, hut_workers = 0, 0
+      for _, h in pairs(c.huts) do
+        if h.entity.valid then
+          local k = h.entity.surface.index .. ":" .. h.entity.position.x .. "," .. h.entity.position.y
+          if c.claimed[k] then phantom = phantom + 1 end
+        end
+      end
+      for _, st in pairs(storage.unit_state or {}) do
+        if st and (st.job == "fish" or st.job == "preserve" or st.job == "research" or st.job == "heal") then
+          hut_workers = hut_workers + 1
+        end
+      end
+      ctx.check("no hut is claimed by a worker standing in it", phantom == 0,
+        phantom .. " claimed, " .. hut_workers .. " hut-bound workers")
       -- Toolsmith: a hut short of its tool with none in stock. The Toolsmith makes tools from the wood and iron haulers
       -- bring it, so the run as a whole must have produced at least one (work.tools_made counts them).
       local lumber = build("colony-woodcutter-hut", {p.x - 20, p.y + 20})

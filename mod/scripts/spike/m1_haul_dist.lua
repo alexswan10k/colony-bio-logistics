@@ -109,6 +109,9 @@ core.register("m1_haul_dist", {
       for _, e in ipairs({far_warehouse, near_crate_warehouse}) do
         if e and e.valid then e.insert{name = "wood", count = 50} end
       end
+      -- A direct engine insert is invisible to the 30-tick storage snapshot (M.STORAGE_TTL): a hauler would see
+      -- the wood on its next assign, but this check asks for a task in the same tick.
+      c.storage_cache, c.storage_tick = nil, nil
       ctx.check("3 warehouses and a demand crate built",
         far_warehouse and far_warehouse.valid and near_crate_warehouse and near_crate_warehouse.valid
           and crate and crate.valid)
@@ -121,6 +124,25 @@ core.register("m1_haul_dist", {
       end
       ctx.check("3 crate demands wood", rec ~= nil and rec.filters[1] ~= nil, tostring(rec ~= nil))
       if not (rec and rec.filters[1]) then return end
+
+      -- Quiet the rest of the town, so the crate is the only thing asking for a haul. Runners-up are real jobs
+      -- on the same passes: a hut short of a basket outranks a crate (tools band 2 vs request 4) and is served
+      -- from the hall, and a tent being topped up ties the crate on band and wins on deficit. Either would make
+      -- this check measure the wrong trip; the rule under test is the source choice for *one* request.
+      for _, t in ipairs(tents) do
+        if t.valid then
+          t.insert{name = "colony-forage", count = 100}
+          local trec = c.houses[t.unit_number]
+          if trec then trec.stock_tick = nil end
+        end
+      end
+      if hut.valid then
+        hut.insert{name = "colony-basket", count = 5}
+        local hrec = c.huts[hut.unit_number]
+        if hrec then hrec.tool_cache, hrec.tool_tick = nil, nil end
+        local grown = hut.get_item_count("colony-forage")
+        if grown > 0 then hut.remove_item{name = "colony-forage", count = grown} end
+      end
 
       local hauler = far_warehouse.position
       local function route(e)
@@ -135,8 +157,10 @@ core.register("m1_haul_dist", {
         local src = task.source and task.source.entity
         ctx.check("3 the hauler loads on the way, not from the warehouse by the destination",
           src == far_warehouse,
-          string.format("source %s: route %.1f vs %.1f beside the crate", tostring(src and src.name),
-            route(src), route(near_crate_warehouse)))
+          string.format("source %s (%s -> %s, band %s): route %.1f vs %.1f beside the crate",
+            tostring(src and src.name), tostring(task.kind),
+            tostring(task.target and task.target.kind or (task.target and task.target.entity and task.target.entity.name)),
+            tostring(task.priority), route(src), route(near_crate_warehouse)))
       end
 
       -- 4. Commute: the workers are all at the hut beside their houses, so the D term is a bonus.

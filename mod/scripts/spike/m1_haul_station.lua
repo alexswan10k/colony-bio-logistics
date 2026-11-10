@@ -5,6 +5,7 @@
 -- Run: TICKS=9000 scripts/headless-spike.sh m1_haul_station
 local core = require("scripts.spike.core")
 local colony = require("scripts.colony")
+local feedback = require("scripts.feedback")
 local trailer = require("scripts.model.trailer")
 
 core.register("m1_haul_station", {
@@ -110,6 +111,12 @@ core.register("m1_haul_station", {
       ctx.check("station wear advanced", st.wear_seen or (rec and (rec.trailer_wear or 0) > 0),
         rec and ("wear " .. (rec.trailer_wear or 0) .. " out " .. (rec.trailers_out or 0)) or "gone")
       ctx.check("no trailers leaked out", rec and (rec.trailers_out or 0) == 0, rec and ("out " .. (rec.trailers_out or 0)) or "gone")
+      -- Feedback (#94): the station reports its trailer state on hover, the way a Motor Pool reports its cars.
+      feedback.update(c)
+      local cs = station.valid and station.custom_status
+      local key = cs and type(cs.label) == "table" and tostring(cs.label[1]) or nil
+      ctx.check("the station reports its trailers on hover", key ~= nil and key:find("^colony%-status%.station%-") ~= nil,
+        key or "none")
       ctx.probe("trailer speed penalty applied", function()
         return st.speed_penalty and "unit speed lowered while hauling with trailer"
           or (st.speed_seen and "speed readable, penalty not confirmed" or "no trailer-speed sample (trip may have finished before poll)")

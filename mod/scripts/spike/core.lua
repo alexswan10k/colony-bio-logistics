@@ -124,7 +124,11 @@ events.on(defines.events.on_tick, function(ev)
   pending[ev.tick] = nil
   for _, item in ipairs(b) do
     local ok, err = pcall(item.fn)
-    if not ok then item.ctx.errors = item.ctx.errors + 1; item.ctx.log("[ERR] deferred step crashed:", tostring(err)) end
+    if not ok then
+      item.ctx.errors = item.ctx.errors + 1
+      -- Keep the traceback: "LuaEntity API call when LuaEntity was invalid" alone does not say which step or line.
+      item.ctx.log("[ERR] deferred step crashed:", tostring(err), debug.traceback())
+    end
   end
 end)
 

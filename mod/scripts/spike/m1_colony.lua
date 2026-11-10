@@ -546,6 +546,21 @@ core.register("m1_colony", {
       for _, h in pairs(c.houses) do if h.entity.valid and not h.entity.custom_status then unlabelled = unlabelled + 1 end end
       for _, h in pairs(c.huts) do if h.entity.valid and not h.entity.custom_status then unlabelled = unlabelled + 1 end end
       ctx.check("every house and hut has a status line", unlabelled == 0, unlabelled .. " without")
+      -- Worker-free collectors (#43 wells, #81 salt pans) report on hover too: the whole point is that a full well
+      -- is visible without opening it.
+      local function collector_key(e)
+        local cs = e and e.valid and e.custom_status
+        if not (cs and type(cs.label) == "table") then return nil end
+        return tostring(cs.label[1])
+      end
+      if well_ent and well_ent.valid then
+        local k = collector_key(well_ent)
+        ctx.check("the well reports its water on hover", k ~= nil and k:find("^colony%-status%.collector%-") ~= nil, k or "none")
+      end
+      if pan and pan.valid then
+        local k = collector_key(pan)
+        ctx.check("the salt pan reports its salt on hover", k ~= nil and k:find("^colony%-status%.collector%-") ~= nil, k or "none")
+      end
       -- Toolsmith: a hut short of its tool with none in stock. The Toolsmith makes tools from the wood and iron haulers
       -- bring it, so the run as a whole must have produced at least one (work.tools_made counts them).
       local lumber = build("colony-woodcutter-hut", {p.x - 20, p.y + 20})

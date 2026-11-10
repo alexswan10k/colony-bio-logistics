@@ -1660,6 +1660,47 @@ describe("motor pool (#60)", function()
   end)
 end)
 
+describe("advice: haul stations and collectors (#94)", function()
+  local trailer = require("scripts.model.trailer")
+  local well = require("scripts.model.well")
+  local salt = require("scripts.model.salt")
+  it("a station with trailers out reports the trips, and never goes red", function()
+    local a = advice.station{trailers = 2, out = 1, uses_left = 12}
+    eq(a.level, "green"); eq(a.key, "station-out")
+    eq(a.args[1], 1); eq(a.args[2], 2); eq(a.args[3], 12)
+  end)
+  it("a station with no trailers says so, but only in amber", function()
+    local a = advice.station{trailers = 0, out = 0, uses_left = 0}
+    eq(a.level, "amber"); eq(a.key, "station-no-trailers")
+  end)
+  it("a nearly worn trailer is called out before it breaks", function()
+    local a = advice.station{trailers = 3, out = 0, uses_left = advice.STATION_WORN_AT}
+    eq(a.level, "amber"); eq(a.key, "station-worn"); eq(a.args[1], advice.STATION_WORN_AT)
+    a = advice.station{trailers = 3, out = 0, uses_left = advice.STATION_WORN_AT + 1}
+    eq(a.level, "green"); eq(a.key, "station-ready")
+    eq(a.args[1], 3); eq(a.args[2], advice.STATION_WORN_AT + 1)
+  end)
+  it("uses_left follows the trailer wear counter, so a fresh station is never worn", function()
+    eq(trailer.uses_left(0), trailer.USES)
+    truthy(trailer.uses_left(0) > advice.STATION_WORN_AT)
+    for _, wear in ipairs({trailer.USES - 1, trailer.USES - 2, trailer.USES - 3}) do
+      eq(advice.station{trailers = 1, out = 0, uses_left = trailer.uses_left(wear)}.key, "station-worn")
+    end
+    eq(advice.station{trailers = 1, out = 0, uses_left = trailer.uses_left(trailer.USES - 10)}.key, "station-ready")
+  end)
+  it("a collector reports filling, producing and full in that order", function()
+    local a = advice.collector{count = 0, cap = well.CAP, item = well.ITEM}
+    eq(a.level, "green"); eq(a.key, "collector-filling"); eq(a.args[2], well.CAP)
+    a = advice.collector{count = 5, cap = well.CAP, item = well.ITEM}
+    eq(a.level, "green"); eq(a.key, "collector-producing")
+    eq(a.args[1], well.ITEM); eq(a.args[2], 5); eq(a.args[3], well.CAP)
+    a = advice.collector{count = well.CAP, cap = well.CAP, item = well.ITEM}
+    eq(a.level, "amber"); eq(a.key, "collector-full"); eq(a.args[2], well.CAP)
+    -- Overshooting the cap (an inserter filling a pan) is still just full, not an error.
+    eq(advice.collector{count = salt.CAP + 4, cap = salt.CAP, item = salt.ITEM}.key, "collector-full")
+  end)
+end)
+
 describe("recreation (#48)", function()
   local recreation = require("scripts.model.recreation")
   local adv = require("scripts.model.advice")

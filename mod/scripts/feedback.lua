@@ -8,6 +8,9 @@ local advice = require("scripts.model.advice")
 local housing = require("scripts.model.housing")
 local jobs = require("scripts.model.jobs")
 local motor = require("scripts.model.motor")
+local trailer = require("scripts.model.trailer")
+local salt = require("scripts.model.salt")
+local well = require("scripts.model.well")
 local recreation = require("scripts.model.recreation")
 local mortality = require("scripts.model.mortality")
 local illness = require("scripts.model.illness")
@@ -180,6 +183,21 @@ function M.update(colony)
     for _, t in pairs(storage.trucks or {}) do if t.pool == p then out = out + 1 end end
     local r = advice.pool{cars = contents[motor.CAR] or 0, fuel = motor.fuel_count(contents), tank = p.tank, out = out}
     report(p.entity, r, {"colony-status." .. r.key, r.args[1], r.args[2], r.args[3]})
+  end
+  -- Haul Stations (#94): whether a trailer is out, waiting, or nearly worn out.
+  for _, c in ipairs(colony_mod.station_list(colony)) do
+    local r = advice.station{trailers = c.entity.get_item_count(trailer.TRAILER_ITEM), out = c.trailers_out or 0,
+      uses_left = trailer.uses_left(c.trailer_wear or 0)}
+    report(c.entity, r, {"colony-status." .. r.key, r.args[1], r.args[2], r.args[3]})
+  end
+  -- Worker-free collectors (#43 wells, #81 salt pans): a full one is production waiting for a hauler.
+  for _, w in ipairs(colony_mod.well_list(colony)) do
+    local r = advice.collector{count = w.entity.get_item_count(well.ITEM), cap = well.CAP, item = well.ITEM}
+    report(w.entity, r, {"colony-status." .. r.key, item(r.args[1]), r.args[2], r.args[3]})
+  end
+  for _, sp in ipairs(colony_mod.salt_pan_list(colony)) do
+    local r = advice.collector{count = sp.entity.get_item_count(salt.ITEM), cap = salt.CAP, item = salt.ITEM}
+    report(sp.entity, r, {"colony-status." .. r.key, item(r.args[1]), r.args[2], r.args[3]})
   end
   for _, t in ipairs(colony_mod.tavern_list(colony)) do
     local ale = t.entity.get_item_count(recreation.ITEM)

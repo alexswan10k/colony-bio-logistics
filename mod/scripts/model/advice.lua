@@ -96,6 +96,29 @@ function M.pool(f)
   return {level = "green", key = "pool-ready", args = {f.cars, f.fuel or 0}}
 end
 
+-- A Haul Station's tooltip (#94). facts: trailers (waiting in the station), out (checked out on trips), wear
+-- (station wear counter) -> uses_left (trips before the trailer in use breaks). Amber, never red: a station with
+-- no trailer is still useful bulk storage, and a worn trailer only means one more replacement.
+M.STATION_WORN_AT = 3    -- trips left at which the station warns that the trailer in use is nearly finished
+function M.station(f)
+  local left = f.uses_left or 0
+  if (f.out or 0) > 0 then return {level = "green", key = "station-out", args = {f.out, f.trailers or 0, left}} end
+  if (f.trailers or 0) == 0 then return {level = "amber", key = "station-no-trailers", args = {}} end
+  if left <= M.STATION_WORN_AT then return {level = "amber", key = "station-worn", args = {left}} end
+  return {level = "green", key = "station-ready", args = {f.trailers, left}}
+end
+
+-- A worker-free collector's tooltip: a Colony Well (#43) or Salt Pan (#81). facts: item, count, cap. A full one is
+-- the only interesting state, because it is production sitting still until a hauler arrives. Amber, never red: the
+-- hall already reports hauling being switched off, which is the actual cause.
+function M.collector(f)
+  local cap = f.cap or 1
+  local count = f.count or 0
+  if count >= cap then return {level = "amber", key = "collector-full", args = {f.item, count}} end
+  if count > 0 then return {level = "green", key = "collector-producing", args = {f.item, count, cap}} end
+  return {level = "green", key = "collector-filling", args = {f.item, cap}}
+end
+
 -- A Tavern's tooltip (#48). facts: ale (on tap), houses and inspired (served at the last evaluation). Amber, never
 -- red: a dry Tavern only means nobody gets the bonus.
 function M.tavern(f)

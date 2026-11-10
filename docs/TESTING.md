@@ -2,6 +2,8 @@
 
 `brew install luajit`, then:
 - `scripts/test.sh [filter]` - unit tests (`tests/*_test.lua`, tiny built-in runner, no dependencies). Runs in CI.
+  `tests/locale_test.lua` is not a model test: it reads `mod/locale/en/locale.cfg` and every literal caption key in
+  the mod, so a typo shows up here instead of as a raw key in someone's tooltip.
 - `scripts/sim.sh` - balance explorer (`sim/balance.lua`): prints tables for design questions.
 
 ## Three layers
@@ -19,10 +21,11 @@
 ## Regression gates (#39)
 Three headless gates cover the things the unit tests and the playable spike cannot:
 
-- `TICKS=19500 scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (109 checks, final checks at
+- `TICKS=19500 scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (113 checks, final checks at
   tick 18000: haulers walk to every pickup now, so the multi-hop chains - meat to smokehouse, spoilage to compost to
   fertilized plots - need the longer window). It includes the onboarding
-  path: building a Town Hall completes the Settlement milestone, every house and hut gets a status line, the hall
+  path: building a Town Hall completes the Settlement milestone, every house and hut gets a status line, a well and a
+  salt pan report their stock on hover, the hall
   Toolsmith makes a tool from wood and iron, and an untooled hut says so on its tooltip. The milestone techs are
   granted before the research queue check, so that check tests research, not onboarding.
 - `scripts/headless-spike.sh m1_desirability` - the desirability inputs and leaving (19 checks): migrants
@@ -72,6 +75,9 @@ Three headless gates cover the things the unit tests and the playable spike cann
   out for a full hand-load with more wanted, the `colony-truck` carries 100 in one trip at 2.5x colonist speed,
   the driver waits under its stop order, the truck parks when its fuel is spent, the car goes back to the pool,
   coal is burnt by the trip count, and the driver is released off the pool afterwards.
+- `TICKS=9000 scripts/headless-spike.sh m1_haul_station` - the #94 Haul Station spike (20 checks): a hauler checks
+  a Wooden Trailer out of the station within `trailer.REACH`, carries the full 60 in one trip at the slower
+  trailer speed, returns it (wearing the station's counter) and the station reports its trailers on hover.
 - `scripts/headless-spike.sh m1_stats` - the #89 production statistics spike: `LuaFlowStatistics:on_flow` takes a
   plain prototype name as id, positive count feeds the input (production) counter, negative the output
   (consumption) counter, and the merged counts appear a tick later. The spike nets everything back to baseline.

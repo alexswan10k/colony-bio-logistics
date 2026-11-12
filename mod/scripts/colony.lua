@@ -62,7 +62,8 @@ M.REGROW_JITTER = 1800          -- ...plus up to this much, so a grove does not 
 M.FORAGE_PER_CHUNK = 3          -- natural forage patches seeded per already-generated territory chunk
 M.FORAGE_TILES = {["grass-1"] = true, ["grass-2"] = true, ["grass-3"] = true, ["grass-4"] = true}
 M.HOUSES = {["colony-housing-tent"] = "tent", ["colony-housing-cabin"] = "cabin",
-  ["colony-housing-homestead"] = "homestead", ["colony-housing-apartment"] = "apartment"}
+  ["colony-housing-homestead"] = "homestead", ["colony-housing-townhouse"] = "townhouse",
+  ["colony-housing-apartment"] = "apartment"}
 -- Colony logistics crates (#33): supply = provider, demand = requester, warehouse = bulk colony stock.
 -- Haul Station (#94) is bulk stock like a Warehouse, plus a Wooden Trailer depot (work.lua).
 M.SUPPLY_CRATE = "colony-supply-crate"
@@ -2231,11 +2232,12 @@ function M.stats(colony)
   local capacity = M.capacity(colony)
   local target = math.max(pop * M.FOOD_PER_COLONIST * M.TARGET_STOCK_INTERVALS, 1)
   local food = M.total_food(colony)
-  local tents, cabins, homesteads, apartments = 0, 0, 0, 0
+  local tents, cabins, homesteads, townhouses, apartments = 0, 0, 0, 0, 0
   for _, h in ipairs(M.house_list(colony)) do
     if h.kind == "tent" then tents = tents + 1
     elseif h.kind == "cabin" then cabins = cabins + 1
     elseif h.kind == "homestead" then homesteads = homesteads + 1
+    elseif h.kind == "townhouse" then townhouses = townhouses + 1
     elseif h.kind == "apartment" then apartments = apartments + 1
     end
   end
@@ -2248,7 +2250,7 @@ function M.stats(colony)
   for _, g in pairs(colony.ghosts or {}) do if g.valid then ghosts = ghosts + 1 end end
   for _, r in pairs(colony.repairs or {}) do if r.valid and construct.needs_repair(r.health, r.max_health) then damaged = damaged + 1 end end
   return {pop = pop, capacity = capacity, food = food, food_target = target, food_ratio = food / target,
-    tents = tents, cabins = cabins, homesteads = homesteads, apartments = apartments,
+    tents = tents, cabins = cabins, homesteads = homesteads, townhouses = townhouses, apartments = apartments,
     huts = huts, machines = machines, towers = towers, chunks = chunks,
     crates = #M.crate_list(colony), ghosts = ghosts, damaged = damaged,
     d = colony.d or 0, parts = colony.d_parts or {},

@@ -867,6 +867,47 @@ describe("housing", function()
     eq(d.water.count, 24)  -- 8 occ * 0.5 * 6 intervals
     eq(d.heat, nil)        -- powered
   end)
+  it("townhouse requires food and water, heat from coal or power - no wood required (#96)", function()
+    local stock = {["colony-meat"] = 12, ["colony-water"] = 6, coal = 6}
+    local c, sat, score, crit = h.step(h.TIERS.townhouse, 12, stock, false, {})
+    eq(sat.food, true); eq(sat.water, true); eq(sat.heat, true); eq(crit, false); eq(score, 1)
+    eq(c["colony-meat"], 12); eq(c["colony-water"], 6); eq(c.coal, 6)
+
+    -- A stock with zero wood and zero coal satisfies nothing but coal is NOT required when powered
+    local _, sat2, _, crit2 = h.step(h.TIERS.townhouse, 12, {["colony-meat"] = 12, ["colony-water"] = 6}, true, {})
+    eq(sat2.heat, true); eq(crit2, false)
+
+    -- Missing water triggers critical unmet, like the homestead (#43)
+    local _, sat3, _, crit3 = h.step(h.TIERS.townhouse, 12, {["colony-meat"] = 12, coal = 6}, true, {})
+    eq(sat3.water, false); eq(crit3, true)
+
+    -- Demand includes food and water, and no electricity or comfort (unlike the apartment)
+    local d = by_need(h.demand(h.TIERS.townhouse, {}, {}, true))
+    eq(d.food.count, 72)     -- 12 occ * 1 * 6 intervals
+    eq(d.water.count, 36)    -- 12 occ * 0.5 * 6 intervals
+    eq(d.comfort, nil)
+    eq(d.electricity, nil)
+  end)
+  it("townhouse construction and upkeep are wood-free (#96)", function()
+    -- The ladder's whole point: brick + steel instead of timber. Construction is checked against the
+    -- prototype; upkeep is coal or power, with wood as the last-resort fallback for an unpowered,
+    -- unfuelled town - never the default.
+    local tier = h.TIERS.townhouse
+    eq(tier.capacity, 12)
+    local heat
+    for _, need in ipairs(tier.needs) do
+      if need.id == "heat" then heat = need end
+      if need.id ~= "heat" then
+        for _, opt in ipairs(need.options) do
+          if opt.item then truthy(opt.item ~= "wood") end
+        end
+      end
+    end
+    truthy(heat)
+    eq(heat.options[1].power, true)
+    eq(heat.options[2].item, "coal")
+    eq(heat.options[3].item, "wood")
+  end)
   it("apartment requires food, water, and mandatory electricity (#43)", function()
     local stock = {["colony-forage"] = 16, ["colony-water"] = 8, ["colony-furniture"] = 2}
     -- Unpowered apartment fails critical electricity need even if food and water are present

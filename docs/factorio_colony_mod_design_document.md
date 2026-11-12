@@ -31,9 +31,11 @@ Implemented tiers (`model/housing.lua`; each need is met by its first workable o
   * **Tents are the bootstrap home, not a settlement type:** each tent drags desirability down (`w_tents`, stops growing at `tent_cap` = 8 tents), so a tent town plateaus and the player is pushed towards Cabins, then Homesteads.
 * **Tier 2: Homestead (8 colonists, 3x3)**, unlocked by Water Infrastructure. Cabins upgrade into it.
   * **Upkeep:** Food + Water (`colony-water`, 0.5 per colonist per interval, from a Colony Well or bottling) + heat (power, coal or wood).
-* **Tier 3: Apartment (16 colonists, 4x4)**, unlocked by Civic Governance.
+* **Tier 3: Townhouse (12 colonists, 3x3 box)** (#96), unlocked by Townhouse. Built of brick and steel - no concrete - so a town with a brick kiln and a steel line gets a middle rung before Civic Governance. Homesteads upgrade into it (`next_upgrade` chain; all upgrade-linked rungs share the homestead's bounding box, which the engine requires). It does **not** fast-replace into the 4x4 apartment; the `colony-housing` fast-replaceable group still lets any rung replace any other in place. Construction is wood-free (stone-brick + iron-plate + steel-plate) and so is upkeep (food + water + heat by coal or power, wood only as an unpowered fallback).
+  * **Upkeep:** Food + Water + heat (power, coal or wood).
+* **Tier 4: Apartment (16 colonists, 4x4)**, unlocked by Civic Governance.
   * **Upkeep:** Food + Water + mandatory electricity + Comfort (`colony-furniture`, 0.1 per colonist per interval).
-* **Tier 4: Interplanetary Arcologies / Habitat Domes** (planned, #63): **capacity 32+**, required on hostile planets and orbital platforms; acts as both Housing and Territory Emitter.
+* **Tier 5: Interplanetary Arcologies / Habitat Domes** (planned, #63): **capacity 32+**, required on hostile planets and orbital platforms; acts as both Housing and Territory Emitter.
   * **Upkeep:** Pressurized Air/Water + Multi-Planet Luxury Goods + Bioflux/Advanced Medicine.
 
 ### 2.3 Desirability, Migration & Natural Reproduction
@@ -312,7 +314,7 @@ A **Toolsmith** (`model/toolsmith.lua`, a staffed hut on the preserve job) makes
 Colonies have their own **Tech Subtree** researched in a **Town Archive** (early) or **University** (late) staffed by educated colonists. Every technology is paid for with colony packs, never vanilla science, but the **two trees interlock through prerequisites** so a colony tier never gets ahead of the factory that must build it. The tree as built (`prototypes/technology.lua`):
 1. **Frontier Charter** (10 packs; Settlement): unlocks the fish Frontier Charter recipe and gates everything below.
 2. **Tier 1** (10-25 packs): Permanent Housing (Cabin), Hunting & Fishing (Lodge, bow, arrows, Dock, rod), Food Preservation (Salt Pan, Smokehouse, preserved packs), Cemetery, Advanced Agriculture (Farm Hut, Plot, Hoe), and Logistics (Watchtower, Demand Crate, marker, rifle, Haul Station, trailer; **needs vanilla Logistics**).
-3. **Tier 2** (15-40 packs): Warehousing, Steel Tools (**needs Steel Processing**), Water Infrastructure (Well, bottling, Homestead, Furniture; **needs Automation 2** for the fluid-capable assembler), Recreation (Tavern, ale), Medicine (Clinic, Herbal Medicine), and Motor Pool (**needs Automobilism**).
+3. **Tier 2** (15-40 packs): Warehousing, Steel Tools (**needs Steel Processing**), Water Infrastructure (Well, bottling, Homestead, Furniture; **needs Automation 2** for the fluid-capable assembler), Townhouse (12-colonist brick-and-iron housing; **needs Steel Processing**), Recreation (Tavern, ale), Medicine (Clinic, Herbal Medicine), and Motor Pool (**needs Automobilism**).
 4. **Tier 3** (40-50 packs): Civic Governance (University, Apartment, Kitchen, Civic Treatise recipe; **needs Concrete** and the circuits it implies) and Rail Transit (Passenger Platform, Coach, Canteen; **needs Railway**).
 5. **Known gap:** every tech still costs only Frontier Charters, so the Civic Treatise recipe has no consumer yet; #98 tracks the pack-economy cleanup.
 

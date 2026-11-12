@@ -104,7 +104,7 @@ end)
 commands.add_command("colony-status", "Population, housing, stock and desirability of the nearest colony.", function(cmd)
   with_colony(cmd, function(p, c)
     local s = colony_mod.stats(c)
-    p.print(string.format("pop %d/%d  food %d (target %d)  desirability %.1f  tents %d cabins %d homesteads %d apartments %d  huts %d towers %d crates %d machines %d",
-      s.pop, s.capacity, s.food, s.food_target, s.d, s.tents, s.cabins, s.homesteads, s.apartments, s.huts, s.towers, s.crates, s.machines))
+    p.print(string.format("pop %d/%d  food %d (target %d)  desirability %.1f  tents %d cabins %d homesteads %d townhouses %d apartments %d  huts %d towers %d crates %d machines %d",
+      s.pop, s.capacity, s.food, s.food_target, s.d, s.tents, s.cabins, s.homesteads, s.townhouses, s.apartments, s.huts, s.towers, s.crates, s.machines))
   end)
 end)

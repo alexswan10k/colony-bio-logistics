@@ -570,6 +570,39 @@ def apartment():
 
 
 @asset
+def townhouse():
+    """two-storey brick-and-iron townhouse: flat zinc roof, iron bands, sash windows, shared brick with the
+    apartment tier but a small front footprint (4x3) - the middle rung between the timber homestead and the
+    three-storey apartment (#43)."""
+    a, b = building(4, 3, top=210, persp=.15)
+    x0, y0, x1, y1 = site(b, .10, .24)
+    wh = 3.35
+    wall, roof = (178, 106, 74), (82, 88, 96)
+    b.ground(x0 - 6, y0 - 6, x1 + 6, b.base + 4, (20, 14, 8), .4)
+    plinth(b, x0, y0, x1, y1, z1=.2)
+    walls(b, x0, y0, x1, y1, wh, wall, brick(15, 7), z0=.2)
+    # iron bands between the storeys and at the parapet line
+    for z in (wh * .5, wh):
+        b.face([(x0, y1, z - .09), (x1, y1, z - .09), (x1, y1, z + .07), (x0, y1, z + .07)], IRON, shade=.22)
+    flat_roof(b, x0, y0, x1, y1, wh, roof, par=.14, tex=speckle(.6))
+    # parapet: brick upstand around the roof edge with an iron coping
+    b.box(x0 - 3, y0 - 3, x1 + 3, y1 + 3, wh, wh + .26, mul(wall, .86), top=mul(IRON_D, 1.05))
+    eave_shadow(a, b, x0, x1, y1, wh, .16)
+    # two storeys of sash windows with iron lintels
+    for z in (.62, 1.62):
+        for i in range(4):
+            wx = x0 + 12 + i * (x1 - x0 - 24) / 4
+            window(a, b, wx, y1, 15, .6, z, lit=(i + (1 if z > 1 else 0)) % 3 != 0)
+            b.face([(wx - 2, y1, z + .58), (wx + 17, y1, z + .58), (wx + 17, y1, z + .66), (wx - 2, y1, z + .66)],
+                   IRON, shade=.25)
+    # entrance: iron porch over a half-glazed door
+    door(a, b, x0 + (x1 - x0) / 2 - 11, y1, 22, 1.2, z0=.2, col=(58, 74, 96))
+    porch(a, b, x0 + (x1 - x0) / 2 - 30, x0 + (x1 - x0) / 2 + 30, y1, z=1.45, depth=16, col=(52, 62, 76))
+    chimney(b, x0 + 16, y0 + 16, 12, 10, wh - .25, wh + .8, BRICK)
+    finish(a, b, "townhouse", 4, 3)
+
+
+@asset
 def hall():
     """civic hall: hipped roof, central clock tower and flag, double doors, steps and lamps"""
     a, b = building(3, 3, top=230, persp=.16)

@@ -17,7 +17,8 @@ local function sprite(file, extra)
   return {layers = {main, shadow}}
 end
 
-local function chest_clone(base, name, art, size, half)
+local function chest_clone(base, name, art, size, half, half_y)
+  half_y = half_y or half
   local e = table.deepcopy(data.raw["container"][base])
   e.name = name
   e.minable = {mining_time = 0.5, result = name}
@@ -26,8 +27,8 @@ local function chest_clone(base, name, art, size, half)
   e.localised_description = {"entity-description." .. name}
   e.picture = sprite(art)
   e.icon = G .. "icon-" .. art .. ".png"; e.icon_size = 64; e.icons = nil
-  e.collision_box = {{-half + 0.1, -half + 0.1}, {half - 0.1, half - 0.1}}
-  e.selection_box = {{-half, -half}, {half, half}}
+  e.collision_box = {{-half + 0.1, -half_y + 0.1}, {half - 0.1, half_y - 0.1}}
+  e.selection_box = {{-half, -half_y}, {half, half_y}}
   e.circuit_connector = nil
   e.fast_replaceable_group = nil
   e.next_upgrade = nil
@@ -57,6 +58,13 @@ cabin.fast_replaceable_group = "colony-housing"
 cabin.next_upgrade = "colony-housing-homestead"
 local homestead = chest_clone("steel-chest", "colony-housing-homestead", "homestead", 8, 1.5)
 homestead.fast_replaceable_group = "colony-housing"
+homestead.next_upgrade = "colony-housing-townhouse"
+-- Townhouse (#96): the brick-and-iron middle rung between homestead and apartment. Same 3x3 box as the
+-- homestead so the next_upgrade chain stays legal (the engine requires identical bounding boxes); the
+-- colony-housing fast-replaceable group is what makes it replace any rung in place. It does not chain into
+-- the 4x4 apartment - that hop never existed and can't without resizing a released tier.
+local townhouse = chest_clone("steel-chest", "colony-housing-townhouse", "townhouse", 12, 1.5)
+townhouse.fast_replaceable_group = "colony-housing"
 local apartment = chest_clone("steel-chest", "colony-housing-apartment", "apartment", 16, 2.0)
 apartment.fast_replaceable_group = "colony-housing"
 local well = chest_clone("iron-chest", "colony-well", "well", 6, 0.5)
@@ -293,7 +301,7 @@ end
 ring(forester, 20, "yellow")        -- forest.RADIUS: it plants close to home, where the woodcutter can reach
 
 data:extend({
-  hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, forester, huntinglodge, fishingdock, saltpan,
+  hall, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, warehouse, haul_station, compost_bin,
   ledger_entity,
   plot, bush, sink, marker, cemetery, grave,
@@ -301,6 +309,7 @@ data:extend({
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
   item_of(cabin, "cabin", "z[colony]-c[housing-cabin]"),
   item_of(homestead, "homestead", "z[colony]-c1[housing-homestead]"),
+  item_of(townhouse, "townhouse", "z[colony]-c15[housing-townhouse]"),
   item_of(apartment, "apartment", "z[colony]-c2[housing-apartment]"),
   item_of(well, "well", "z[colony]-k1[well]"),
   item_of(archive, "town-archive", "z[colony]-k2[town-archive]"),
@@ -358,6 +367,7 @@ data:extend({
   recipe("colony-housing-tent", {wood = 20}, 2, 1, false),
   recipe("colony-housing-cabin", {wood = 40, ["stone-brick"] = 10, ["iron-plate"] = 10}, 4, 1, false),
   recipe("colony-housing-homestead", {wood = 60, ["stone-brick"] = 20, ["iron-plate"] = 20}, 5, 1, false),
+  recipe("colony-housing-townhouse", {["stone-brick"] = 40, ["iron-plate"] = 20, ["steel-plate"] = 5}, 6, 1, false),
   recipe("colony-housing-apartment", {["stone-brick"] = 50, concrete = 20, ["iron-plate"] = 30, ["electronic-circuit"] = 10}, 8, 1, false),
   recipe("colony-well", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-ledger", {wood = 10, ["iron-plate"] = 5, ["copper-cable"] = 5, ["electronic-circuit"] = 2}, 2, 1, false),

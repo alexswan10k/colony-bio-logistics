@@ -50,7 +50,7 @@ function M.colony_advice(colony, st, counts)
   local merged = colony_mod.tool_gaps(colony)
   return advice.colony{pop = st.pop, capacity = st.capacity, food = st.food,
     haul_rank = jobs.effective(colony.priority).haul, haulers = counts.haul or 0,
-    houses = st.tents + st.cabins + (st.homesteads or 0) + (st.apartments or 0),
+    houses = st.tents + st.cabins + (st.homesteads or 0) + (st.townhouses or 0) + (st.apartments or 0),
     hall_stock = stock, tool_gaps = merged}
 end
 
@@ -160,7 +160,7 @@ local function open_house(player, e)
   local frame = player.gui.relative.add{type = "frame", name = HOUSE_FRAME, direction = "vertical",
     caption = {"colony-gui.household"}, anchor = {gui = defines.relative_gui_type.container_gui,
       position = defines.relative_gui_position.right,
-      names = {"colony-housing-tent", "colony-housing-cabin", "colony-housing-homestead", "colony-housing-apartment"}}}
+      names = {"colony-housing-tent", "colony-housing-cabin", "colony-housing-homestead", "colony-housing-townhouse", "colony-housing-apartment"}}}
   local body = frame.add{type = "flow", name = "body", direction = "vertical"}
   fill_house(body, h, colony)
   scheduler.after(30, "gui.refresh_house", {player_index = player.index, un = e.unit_number, colony_id = colony.id})
@@ -709,7 +709,7 @@ local function update_info(body, colony)
   end
 
   if body.status_housing then
-    body.status_housing.caption = {"colony-gui-info.housing", st.tents, st.cabins, st.homesteads or 0, st.apartments or 0, math.max(st.capacity - st.pop, 0)}
+    body.status_housing.caption = {"colony-gui-info.housing", st.tents, st.cabins, st.homesteads or 0, st.townhouses or 0, st.apartments or 0, math.max(st.capacity - st.pop, 0)}
   end
 
   local colour = st.food_ratio < 0.5 and "red" or (st.food_ratio < 1 and "orange" or "green")

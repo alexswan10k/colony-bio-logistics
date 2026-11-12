@@ -108,6 +108,12 @@ data:extend({
       unlock("colony-housing-homestead"),
       unlock("colony-furniture"),
     }),
+  -- Townhouse (#96): the brick-and-steel housing rung between homestead and apartment. Before concrete -
+  -- the town needs a steel line and a brick kiln, not a concrete mixer.
+  tech("colony-town-life", "icon-townhouse.png", 30, {"colony-frontier-pack"}, 15,
+    {"colony-water-infrastructure", "steel-processing"}, {
+      unlock("colony-housing-townhouse"),
+    }),
   tech("colony-advanced-agriculture", "icon-farm-hut.png", 25, {"colony-frontier-pack"}, 15,
     {"colony-frontier-charter"}, {
       unlock("colony-farm-hut"),

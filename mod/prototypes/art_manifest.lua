@@ -22,6 +22,7 @@ return {
   ["grave"] = {width = 100, height = 146, scale = 0.5, shift = {0, -0.453125}},
   ["haul-station"] = {width = 228, height = 389, scale = 0.5, shift = {0, -1.35156}},
   ["homestead"] = {width = 228, height = 379, scale = 0.5, shift = {0, -1.27344}},
+  ["townhouse"] = {width = 292, height = 414, scale = 0.5, shift = {0, -1.04688}},
   ["hunting-lodge"] = {width = 164, height = 295, scale = 0.5, shift = {0, -1.11719}},
   ["icon-herbal-medicine"] = {width = 64, height = 64, scale = 0.5, shift = {0, 0}},
   ["icon-passenger-coach"] = {width = 64, height = 64, scale = 0.5, shift = {0, 0}},

@@ -36,6 +36,14 @@ M.TIERS = {
       {id = "heat", options = {{power = true}, {item = "coal", per = 0.5}, {item = "wood", per = 0.5}}},
     },
   },
+  townhouse = {
+    capacity = 12, buffer_intervals = 6,
+    needs = {
+      {id = "food", critical = true, options = M.FOOD},
+      {id = "water", critical = true, options = M.WATER},
+      {id = "heat", options = {{power = true}, {item = "coal", per = 0.5}, {item = "wood", per = 0.5}}},
+    },
+  },
   apartment = {
     capacity = 16, buffer_intervals = 6,
     needs = {

@@ -33,6 +33,9 @@ core.register("m1_colony", {
     local homestead_pos = {p.x + 6, p.y + 14}
     ctx.power_at({x = homestead_pos[1], y = homestead_pos[2]})
     local homestead = build("colony-housing-homestead", homestead_pos)
+    local townhouse_pos = {p.x + 12, p.y + 14}
+    ctx.power_at({x = townhouse_pos[1], y = townhouse_pos[2]})
+    local townhouse = build("colony-housing-townhouse", townhouse_pos)
     local well_ent = build("colony-well", {p.x + 8, p.y + 4})
     -- Fishing Dock (#80): water access is real. Carve a small pond, put the dock beside it, and check that a
     -- dock with no water in reach is refused and refunded rather than sitting there doing nothing.
@@ -182,12 +185,19 @@ core.register("m1_colony", {
     supply_crate.insert{name = "coal", count = 50}
     c.crates[demand_crate.unit_number].filters = {{item = "stone", count = 30}}
     warehouse.insert{name = "stone", count = 100}
-    ctx.check("houses registered", tent and cabin and homestead and c.houses[tent.unit_number] and c.houses[cabin.unit_number] and c.houses[homestead.unit_number] ~= nil)
+    ctx.check("houses registered", tent and cabin and homestead and townhouse and
+      c.houses[tent.unit_number] and c.houses[cabin.unit_number] and c.houses[homestead.unit_number] and
+      c.houses[townhouse.unit_number] ~= nil)
     ctx.check("well registered", well_ent and well_ent.valid and c.wells[well_ent.unit_number] ~= nil)
-    ctx.check("homestead increases capacity to 15", colony.capacity(c) == 15, colony.capacity(c))
-    ctx.check("cabin has fast_replaceable_group", cabin.prototype.fast_replaceable_group == "colony-housing")
+    ctx.check("capacity reaches 27 (1 + 6 + 8 + 12)", colony.capacity(c) == 27, colony.capacity(c))
     ctx.check("homestead has fast_replaceable_group", homestead.prototype.fast_replaceable_group == "colony-housing")
+    ctx.check("townhouse has fast_replaceable_group", townhouse.prototype.fast_replaceable_group == "colony-housing")
     ctx.check("cabin upgrades to homestead", cabin.prototype.next_upgrade and cabin.prototype.next_upgrade.name == "colony-housing-homestead")
+    ctx.check("homestead upgrades to townhouse", homestead.prototype.next_upgrade and homestead.prototype.next_upgrade.name == "colony-housing-townhouse")
+    local tsb, hsb = townhouse.prototype.selection_box, homestead.prototype.selection_box
+    ctx.check("townhouse has the same bounding box as the homestead (fast-replace rule)",
+      tsb.right_bottom.x - tsb.left_top.x == hsb.right_bottom.x - hsb.left_top.x,
+      (tsb.right_bottom.x - tsb.left_top.x) .. " vs " .. (hsb.right_bottom.x - hsb.left_top.x))
     local led = colony.ledger_snapshot(c)
     ctx.check("ledger aggregates stock and hut contents", led and led.totals["colony-meat"] == 2 and led.totals.stone == 100,
       led and (led.totals["colony-meat"] or 0) .. " meat, " .. (led.totals.stone or 0) .. " stone")
@@ -207,13 +217,13 @@ core.register("m1_colony", {
     ctx.check("shifting job target decrements", colony.shift_job_target(c, "mine", -1) == 3)
     colony.set_job_target(c, "mine", nil)
     ctx.check("resetting job target restores auto", colony.job_target(c, "mine") == nil)
-    ctx.check("capacity 15", colony.capacity(c) == 15, colony.capacity(c))
+    ctx.check("capacity 27", colony.capacity(c) == 27, colony.capacity(c))
     ctx.check("hut does not spawn forage patches",
       #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30} == patches_pre, patches_pre)
     ctx.check("logistics marker item and recipe exist",
       prototypes.item["colony-logistics-marker"] ~= nil and prototypes.recipe["colony-logistics-marker"] ~= nil)
     local st = colony.stats(c)
-    ctx.check("colony stats: capacity 15", st.capacity == 15, st.capacity)
+    ctx.check("colony stats: capacity 27", st.capacity == 27, st.capacity)
     -- watchtower (design §2.1): built inside territory, claims the chunks around itself; removing it gives them back
     local outside = build("colony-watchtower", {p.x + 70, p.y})
     ctx.check("watchtower outside territory rejected", not (outside and outside.valid))

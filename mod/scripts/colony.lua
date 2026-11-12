@@ -5,6 +5,7 @@ local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local territory = require("scripts.territory")
 local farm = require("scripts.model.farm")
+local specialization = require("scripts.model.specialization")
 local crates = require("scripts.model.crates")
 local construct = require("scripts.model.construct")
 local desirability = require("scripts.model.desirability")
@@ -309,6 +310,11 @@ function M.serve_taverns(colony, houses, occ)
   end
   return coverage
 end
+
+-- The town's specialisation from the last sample, and its parts, so the work loop can add exactly +1 item to a
+-- matching job's trip (#46). nil while the first sample hasn't landed (no bonus yet, no failure either).
+function M.spec_of(colony) return colony and colony.spec or nil end
+function M.spec_parts(colony) return colony and colony.spec_parts or nil end
 
 -- Is this colonist Inspired (+25% work speed)? True when its house was served by a Tavern last evaluation.
 function M.is_inspired(colony, un)
@@ -1064,6 +1070,18 @@ local function sample_scenic(colony)
   }
 end
 
+-- Specialization (#46): the town's land-shaped specialty from the huts the player built there. A town builds
+-- docks near shore, farms on plants, woodcutters in woods, miners near ore - each hut is the geography. Count
+-- them cheaply on the same cadence as the scenic sample; zero tile scans.
+local function refresh_specialization(colony)
+  local huts = {}
+  for _, h in pairs(colony.huts or {}) do
+    if h.entity and h.entity.valid then huts[#huts + 1] = {name = h.entity.name, job = h.job} end
+  end
+  local census = specialization.census(huts)
+  colony.spec_parts, colony.spec = specialization.score(census)
+end
+
 -- A colonist packs up and walks away (#29). The newest arrival goes first; children stay (#88). Unlike starvation
 -- this leaves no body: destroying the entity is enough, because work's on_object_destroyed handler returns whatever
 -- the colonist was carrying, frees its hut seat and drops its job label.
@@ -1291,6 +1309,7 @@ function M.evaluate(data)
   pop = M.live_colonists(colony)
   if (colony.scenic_n or 0) <= 0 then
     sample_scenic(colony)
+    refresh_specialization(colony)
     colony.scenic_n = M.SCENIC_EVERY
   else colony.scenic_n = colony.scenic_n - 1 end
   local capacity = M.capacity(colony)

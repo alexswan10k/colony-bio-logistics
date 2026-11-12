@@ -32,9 +32,11 @@ function M.yield_for(fertility)
   return math.max(0, math.floor(M.YIELD_BASE * (fertility or 0) + 0.5))
 end
 
--- Yield with optional fertilizer boost (#44): fertilizer doubles crop yield (2x).
-function M.harvest_yield(fertility, fertilized)
-  local base = M.yield_for(fertility)
+-- Yield with optional fertilizer boost (#44): fertilizer doubles crop yield (2x). Bonus is the per-harvest
+-- bonus the specialization score can add on a fertile town (#46); it exists so tests and the overlay can
+-- distinguish base yield from town bonus.
+function M.harvest_yield(fertility, fertilized, bonus)
+  local base = M.yield_for(fertility) + (bonus or 0)
   return (fertilized and (base * 2)) or base
 end
 

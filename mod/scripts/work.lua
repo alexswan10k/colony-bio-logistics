@@ -2735,7 +2735,7 @@ scheduler.register("work.finish", function(d)
   local pos, k, item, n = site.position, key(site), site.name, 0
   if st.job == "chop" then
     colony.claimed[k] = nil; site.destroy()
-    item, n = M.YIELD.chop.item, M.YIELD.chop.count
+    item, n = M.YIELD.chop.item, M.YIELD.chop.count + (colony_mod.spec_of and colony_mod.spec_of(colony) == "forest" and 1 or 0)
   elseif st.job == "forage" then
     colony.claimed[k] = nil; site.destroy()
     item, n = M.YIELD.forage.item, M.YIELD.forage.count
@@ -2745,7 +2745,8 @@ scheduler.register("work.finish", function(d)
     local plot = colony.plots and colony.plots[site.unit_number]
     if plot and plot.entity.valid then
       if plot.stage == farm.RIPE then
-        n = farm.harvest_yield(farm.fertility(site.surface.get_tile(site.position).name), plot.fertilized)
+        n = farm.harvest_yield(farm.fertility(site.surface.get_tile(site.position).name), plot.fertilized,
+          colony_mod.spec_of and colony_mod.spec_of(colony) == "fertile" and 1 or 0)
         item = "colony-produce"
         plot.stage, plot.ripe_at, plot.fertilized = farm.FALLOW, nil, nil
         site.graphics_variation = farm.FALLOW
@@ -2808,7 +2809,7 @@ scheduler.register("work.finish", function(d)
       end
     end
   elseif st.job == "fish" then
-    item, n = "colony-fish", fishing.FISH_PER_TRIP
+    item, n = "colony-fish", fishing.FISH_PER_TRIP + (colony_mod.spec_of and colony_mod.spec_of(colony) == "coast" and 1 or 0)
   elseif st.job == "mine" and site.type == "simple-entity" then
     -- A rock: take its whole yield of the targeted ore (or best-ranked ore) that the colony still wants, and it is gone.
     if st.ore and rock_yield(site, st.ore) > 0 and (st.overflow or not colony_mod.quota_met(colony, st.ore)) then
@@ -2824,7 +2825,7 @@ scheduler.register("work.finish", function(d)
       e.surface.pollute(pos, M.MINE_POLLUTION)
     end
   elseif st.job == "mine" then
-    n = math.min(M.MINE_PER_TRIP, site.amount or 0)
+    n = math.min(M.MINE_PER_TRIP + (colony_mod.spec_of and colony_mod.spec_of(colony) == "industrial" and 1 or 0), site.amount or 0)
     if n > 0 then
       if site.amount > n then
         site.amount = site.amount - n

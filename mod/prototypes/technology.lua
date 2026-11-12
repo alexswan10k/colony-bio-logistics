@@ -107,6 +107,9 @@ data:extend({
       unlock("colony-farm-hut"),
       unlock("colony-farm-plot"),
       unlock("colony-hoe"),
+      -- Forestry (#97): the same land-use tier, and the answer to a colony that has cut its own forest down.
+      unlock("colony-forester-hut"),
+      unlock("colony-spade"),
     }),
   tech("colony-recreation", "icon-tavern.png", 40, {"colony-frontier-pack"}, 15,
     {"colony-advanced-agriculture", "colony-water-infrastructure"}, {

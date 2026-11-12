@@ -78,6 +78,14 @@ Three headless gates cover the things the unit tests and the playable spike cann
 - `TICKS=9000 scripts/headless-spike.sh m1_haul_station` - the #94 Haul Station spike (22 checks): a hauler checks
   a Wooden Trailer out of the station within `trailer.REACH`, carries the full 60 in one trip at the slower
   trailer speed, returns it (wearing the station's counter) and the station reports its trailers on hover.
+- `TICKS=9000 scripts/headless-spike.sh m1_forest` - the #97 Forester's Hut spike (38 checks). On bare grass
+  (the harness destroys every entity first, so any tree afterwards was planted): an unsupplied hut reports no
+  site at all, a stocked one (12 wood + 2 spades) plants 11 trees, every tree is on the shared 4-tile lattice,
+  inside the 20-tile radius, on plantable soil and at least `forest.SPACING` from its neighbours, the hut paid
+  one wood per tree and its spade wore, a woodcutter hut built beside the nursery then fells one of those trees
+  and the wood comes back out, and an emptied chest makes the hut report `colony-advice.hut-no-inputs` rather
+  than claiming it is working. Also profiles `work.site_count` on a forest hut (one scan ~0.27 ms, called once
+  per feedback pass, never per tick).
 - `scripts/headless-spike.sh m1_stats` - the #89 production statistics spike: `LuaFlowStatistics:on_flow` takes a
   plain prototype name as id, positive count feeds the input (production) counter, negative the output
   (consumption) counter, and the merged counts appear a tick later. The spike nets everything back to baseline.

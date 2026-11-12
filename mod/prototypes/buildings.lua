@@ -67,6 +67,9 @@ local miner = chest_clone("iron-chest", "colony-miner-hut", "miner-hut", 8, 1)
 -- so the colony's work area (and therefore its huts and opted-in machines) can creep outward.
 local watchtower = chest_clone("steel-chest", "colony-watchtower", "watchtower", 4, 1)
 local farmhut = chest_clone("iron-chest", "colony-farm-hut", "farm-hut", 8, 1)
+-- Forester's Hut (#97): replants the trees a woodcutter fells, so a mature colony is not slowly stripped bare.
+-- It holds the wood it plants with (one per tree) and the spades it works with.
+local forester = chest_clone("iron-chest", "colony-forester-hut", "forester-hut", 8, 1)
 -- Hunting Lodge (#79): hunters work the roaming game around the lodge. The hut holds the rifles and the
 -- meat the hunters bring back, exactly like the other labour huts.
 local huntinglodge = chest_clone("iron-chest", "colony-hunting-lodge", "hunting-lodge", 8, 1)
@@ -267,9 +270,10 @@ ring(forager, 96, "yellow")           -- colony.FORAGE_RADIUS
 for _, hut in ipairs{woodcutter, miner, farmhut, huntinglodge, fishingdock, smokehouse, kitchen, toolsmith} do
   ring(hut, 48, "yellow")           -- colony.HUT_RADIUS
 end
+ring(forester, 20, "yellow")        -- forest.RADIUS: it plants close to home, where the woodcutter can reach
 
 data:extend({
-  hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, huntinglodge, fishingdock, saltpan,
+  hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, warehouse, haul_station, compost_bin,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
@@ -285,6 +289,7 @@ data:extend({
   item_of(miner, "miner-hut", "z[colony]-f[miner-hut]"),
   item_of(watchtower, "watchtower", "z[colony]-g[watchtower]"),
   item_of(farmhut, "farm-hut", "z[colony]-h[farm-hut]"),
+  item_of(forester, "forester-hut", "z[colony]-h2[forester-hut]"),
   item_of(huntinglodge, "hunting-lodge", "z[colony]-i[hunting-lodge]"),
   item_of(fishingdock, "fishing-dock", "z[colony]-j[fishing-dock]"),
   item_of(saltpan, "salt-pan", "z[colony]-k[salt-pan]"),
@@ -420,6 +425,7 @@ data:extend({
   recipe("colony-miner-hut", {wood = 20, stone = 10}, 2, 1, false),
   recipe("colony-watchtower", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 4, 1, false),
   recipe("colony-farm-hut", {wood = 20, ["iron-plate"] = 5}, 2, 1, false),
+  recipe("colony-forester-hut", {wood = 20, ["iron-plate"] = 5}, 2, 1, false),
   recipe("colony-hunting-lodge", {wood = 20, ["iron-plate"] = 8}, 2, 1, false),
   recipe("colony-fishing-dock", {wood = 20, ["iron-plate"] = 6}, 2, 1, false),
   recipe("colony-salt-pan", {wood = 10, ["stone-brick"] = 10}, 2, 1, false),
@@ -453,6 +459,7 @@ data:extend({
   recipe("colony-logistics-marker", {wood = 2, ["iron-plate"] = 2}, 1, 1, false),
   tool("colony-basket", "icon-basket.png"), tool("colony-axe", "icon-axe.png"), tool("colony-pickaxe", "icon-pickaxe.png"),
   tool("colony-hoe", "icon-hoe.png"), tool("colony-rifle", "icon-rifle.png"), tool("colony-rod", "icon-rod.png"),
+  tool("colony-spade", "icon-spade.png"),
   tool("colony-steel-axe", "icon-steel-axe.png"), tool("colony-steel-pickaxe", "icon-steel-pickaxe.png"),
   tool("colony-steel-hoe", "icon-steel-hoe.png"),
   tool("colony-bow", "icon-bow.png"),
@@ -466,6 +473,8 @@ data:extend({
   recipe("colony-axe", {wood = 2, ["iron-plate"] = 3}, 1, 1, false),
   recipe("colony-pickaxe", {wood = 2, ["iron-plate"] = 3}, 1, 1, false),
   recipe("colony-hoe", {wood = 2, ["iron-plate"] = 3}, 1, 1, false),
+  -- Spade (#97): the Forester's Hut's tool. Mirrors workshop.RECIPES.
+  recipe("colony-spade", {wood = 2, ["iron-plate"] = 2}, 1, 1, false),
   -- Tier-2 steel (#95): no wood. Mirrors workshop.RECIPES. Unlocked by colony-steel-tools.
   recipe("colony-steel-axe", {["iron-plate"] = 2, ["steel-plate"] = 1}, 2, 1, false),
   recipe("colony-steel-pickaxe", {["iron-plate"] = 2, ["steel-plate"] = 1}, 2, 1, false),

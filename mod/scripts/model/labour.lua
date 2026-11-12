@@ -7,6 +7,7 @@
 ---@field capacity integer
 ---@field keep string[]|nil
 ---@field inputs table[]|nil
+---@field requires string[]|nil
 local yields = require("scripts.model.yields")
 
 local M = {}
@@ -20,6 +21,11 @@ M.HUTS = {
   ["colony-farm-hut"] = {job = "farm", tool = "colony-hoe",
     tools = {"colony-steel-hoe", "colony-hoe"}, capacity = 3,
     keep = {"colony-fertilizer"}, inputs = {{item = "colony-fertilizer", count = 6}}},
+  -- Forester's Hut (#97): replants trees so a mature colony can keep a woodcutter busy. Tooled like a
+  -- woodcutter, but *supply*-gated as well: it spends one wood out of its own chest per tree planted
+  -- (model/forest.lua), so `requires` tells the status line what it is actually waiting for.
+  ["colony-forester-hut"] = {job = "forest", tool = "colony-spade", capacity = 2,
+    keep = {"wood"}, inputs = {{item = "wood", count = 10}}, requires = {"wood"}},
   ["colony-hunting-lodge"] = {job = "hunt", tool = "colony-bow",
     tools = {"pistol", "submachine-gun", "colony-bow", "colony-rifle"},
     keep = {"colony-arrow", "firearm-magazine", "piercing-rounds-magazine"},

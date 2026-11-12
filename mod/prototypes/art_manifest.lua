@@ -18,6 +18,7 @@ return {
   ["farm-plot-ripe"] = {width = 64, height = 64, scale = 0.5, shift = {0, 0}},
   ["fishing-dock"] = {width = 164, height = 280, scale = 0.5, shift = {0, -1}},
   ["forager-hut"] = {width = 164, height = 285, scale = 0.5, shift = {0, -1.03906}},
+  ["forester-hut"] = {width = 164, height = 290, scale = 0.5, shift = {0, -1.07812}},
   ["grave"] = {width = 100, height = 146, scale = 0.5, shift = {0, -0.453125}},
   ["haul-station"] = {width = 228, height = 389, scale = 0.5, shift = {0, -1.35156}},
   ["homestead"] = {width = 228, height = 379, scale = 0.5, shift = {0, -1.27344}},

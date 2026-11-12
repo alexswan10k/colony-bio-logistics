@@ -195,3 +195,21 @@ haul_row("trailer (0.6x)", trailer.CAPACITY, 0.2 / trailer.SPEED)
 haul_row("truck (2.5x)", motor.CAPACITY, 0.2 / 2.5)
 print(("trailer wears after %d trips, costs 10 wood + 2 iron; station 20 wood + 10 stone, no power, Colony Logistics."):format(trailer.USES))
 print("trailer is 3x per trip but 0.6x speed: net bulk wins on big deficits; trucks still win when a pool can dispatch.")
+
+print("\n== Q14 (#97): replanting. One wood out of the nursery's chest -> one tree -> 4 wood for a woodcutter.")
+local forest = require("scripts.model.forest")
+print(("spacing %d tiles, radius %d, %d wood per tree, %d wood back per chop: net %+d wood per tree once it is felled")
+  :format(forest.SPACING, forest.RADIUS, forest.SAPLING_COST, forest.WOOD_PER_TREE, forest.net_wood()))
+print("walk-s  planter trips/min  trees/h  wood in/h  wood out/h  cutters_kept_busy")
+for _, walk in ipairs({12, 20, 30}) do
+  local ptrip = yields.WORK_TICKS + walk * 60
+  local trees_h = per_min(1, ptrip) * 60
+  -- One 3-worker woodcutter clears trees at three trips per trip-time; a planter puts back one per own trip.
+  local cut_trees_h = 3 * per_min(1, trip) * 60
+  print(("%6d  %17.2f  %7.1f  %9.1f  %10.1f  %17.2f"):format(walk, per_min(1, ptrip), trees_h,
+    trees_h * forest.SAPLING_COST, trees_h * forest.WOOD_PER_TREE, trees_h / cut_trees_h))
+end
+print(("one nursery (2 foresters, 12 s walk) replants %.0f trees/h; one 3-worker woodcutter clears %.0f/h, so a")
+  :format(2 * per_min(1, yields.WORK_TICKS + 720) * 60, 3 * per_min(1, trip) * 60))
+print("clear-cut still outruns its own nursery by ~1.5x. Forestry holds a managed woodlot (and closes the drain")
+print("on territory that has already been stripped); it is not a wood source, because a standing tree is free.")

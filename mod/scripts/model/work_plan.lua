@@ -80,6 +80,13 @@ function M.choose(s)
   local p_capped = headcount.is_capped(targets, "preserve", counts.preserve)
   local can_preserve = p_rank > 0 and (slots.preserve or 0) > 0 and not p_capped and (counts.preserve or 0) < p_cap
 
+  -- Forestry (#97): a Forester's Hut only has open slots while it holds the wood it plants with (the adapter
+  -- closes them otherwise), and those tooled slots are the whole cap - there is no share of the town to fight
+  -- over, exactly like a Clinic or a manned tower.
+  local fo_rank = jobs.rank(priority, "forest")
+  local fo_capped = headcount.is_capped(targets, "forest", counts.forest)
+  local can_forest = fo_rank > 0 and (slots.forest or 0) > 0 and not fo_capped
+
   -- Doctors (#47): a Clinic only has an open slot while it holds medicine and someone is sick (the adapter closes
   -- it otherwise), and it holds two, so the clinic's own capacity is the cap.
   local h_rank = jobs.rank(priority, "heal")
@@ -126,6 +133,7 @@ function M.choose(s)
   local better_than_haul = (can_heal and h_rank < haul_rank)
       or (can_construct and c_rank < haul_rank)
       or (can_preserve and p_rank < haul_rank)
+      or (can_forest and fo_rank < haul_rank)
       or (can_research and r_rank < haul_rank)
       or (can_guard and g_rank < haul_rank)
       or (harvest_rank and harvest_rank < haul_rank)
@@ -136,25 +144,33 @@ function M.choose(s)
 
   -- Guard duty first among the dedicated posts: a manned tower is a standing order, not a surplus share.
   if can_guard and (not harvest_rank or g_rank <= harvest_rank) and (not can_construct or g_rank <= c_rank)
-      and (not can_preserve or g_rank <= p_rank) and (not can_research or g_rank <= r_rank)
+      and (not can_preserve or g_rank <= p_rank) and (not can_forest or g_rank <= fo_rank)
+      and (not can_research or g_rank <= r_rank)
       and (not can_heal or g_rank <= h_rank) then
     return "guard"
   end
 
   if can_heal and (not harvest_rank or h_rank <= harvest_rank) and (not can_construct or h_rank <= c_rank)
-      and (not can_preserve or h_rank <= p_rank) and (not can_research or h_rank <= r_rank) then
+      and (not can_preserve or h_rank <= p_rank) and (not can_forest or h_rank <= fo_rank)
+      and (not can_research or h_rank <= r_rank) then
     return "heal"
   end
 
   -- Check construction if prioritized
   if can_construct and (not harvest_rank or c_rank <= harvest_rank) and (not can_preserve or c_rank <= p_rank)
-      and (not can_research or c_rank <= r_rank) then
+      and (not can_forest or c_rank <= fo_rank) and (not can_research or c_rank <= r_rank) then
     return "construct"
   end
 
   -- Check preserve if prioritized
-  if can_preserve and (not harvest_rank or p_rank <= harvest_rank) and (not can_research or p_rank <= r_rank) then
+  if can_preserve and (not harvest_rank or p_rank <= harvest_rank) and (not can_forest or p_rank <= fo_rank)
+      and (not can_research or p_rank <= r_rank) then
     return "preserve"
+  end
+
+  -- Check forestry if prioritized
+  if can_forest and (not harvest_rank or fo_rank <= harvest_rank) and (not can_research or fo_rank <= r_rank) then
+    return "forest"
   end
 
   -- Check research if prioritized
@@ -252,6 +268,7 @@ function M.choose(s)
   if can_heal then return "heal" end
   if can_construct then return "construct" end
   if can_preserve then return "preserve" end
+  if can_forest then return "forest" end
   if can_research then return "research" end
 
   if haul_on and s.haul and not haul_capped then return "haul" end

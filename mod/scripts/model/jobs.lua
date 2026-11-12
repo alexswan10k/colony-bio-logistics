@@ -7,11 +7,12 @@ local M = {}
 
 -- Implemented roles. Guards are watchtower duty (#56 first slice): staffed at a garrisoned tower, at the
 -- cost of the rifles in its stock room wearing out.
-M.JOBS = {"haul", "forage", "chop", "mine", "farm", "hunt", "fish", "preserve", "construct", "research", "heal", "guard"}
+M.JOBS = {"haul", "forage", "chop", "mine", "farm", "forest", "hunt", "fish", "preserve", "construct", "research", "heal", "guard"}
 M.MAX_RANK = 4
 -- Haul rank 1, the harvest roles, construction and research in one rank-2 group: harvesting splits by food ratio,
 -- construction/preserve/research are capped to their own share of the workforce rather than a food share.
-M.DEFAULT = {haul = 1, forage = 2, chop = 2, mine = 2, farm = 2, hunt = 2, fish = 2, preserve = 2,
+-- Forestry (#97) has no share of its own: its huts' tooled slots are the whole cap, like a Clinic or a tower.
+M.DEFAULT = {haul = 1, forage = 2, chop = 2, mine = 2, farm = 2, forest = 2, hunt = 2, fish = 2, preserve = 2,
   construct = 2, research = 2, heal = 2, guard = 2}
 
 ---@return table<string, integer>

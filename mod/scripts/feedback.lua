@@ -55,11 +55,15 @@ local function hut_status(colony, h, stock, haul_rank)
       doctors = workers}
     return r, {"colony-status." .. r.key, r.args[1], r.args[2], r.args[3]}, illness.MEDICINE
   end
+  -- A supply-gated hut is not staffable without its inputs. Most have no tool at all (a Smokehouse or Kitchen),
+  -- but a Forester's Hut (#97) is tooled *and* supply-gated: it plants with wood out of its own chest, so
+  -- `requires` names what it is actually waiting for and its line reads "no inputs", not "working".
   local inputs_missing = false
-  if not def.tool and workers == 0 then
+  local gated = def.requires or (not def.tool and def.keep)
+  if gated and workers == 0 then
     local inv = h.entity.get_inventory(defines.inventory.chest)
     inputs_missing = true
-    for _, it in ipairs(def.keep or {}) do
+    for _, it in ipairs(def.requires or def.keep or {}) do
       if inv and inv.get_item_count(it) > 0 then inputs_missing = false end
     end
   end

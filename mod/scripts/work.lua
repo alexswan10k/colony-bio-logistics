@@ -14,6 +14,7 @@ local commute = require("scripts.model.commute")
 local haul_plan = require("scripts.model.haul_plan")
 local sites = require("scripts.model.sites")
 local farm = require("scripts.model.farm")
+local forest = require("scripts.model.forest")
 local mine_plan = require("scripts.model.mine_plan")
 local crates = require("scripts.model.crates")
 local compost = require("scripts.model.compost")
@@ -54,11 +55,16 @@ M.YIELD = {forage = yields.FORAGE, chop = yields.CHOP}
 M.MINE_PER_TRIP = yields.MINE_PER_TRIP   -- each unit becomes exactly one item (design §4.2)
 M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still feeds the biters
 M.CARRY_CAP = yields.CARRY_CAP
+M.PLANT_REACH = 1.6          -- a forester plants from here (tiles): clear of the sapling, still "at" the hole (#97)
 M.ORES = mine_plan.ORES   -- every ore a Miner's Hut can be pointed at
-M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", hunt = "hunter",
-  fish = "fisher", preserve = "preserver", haul = "hauler", construct = "builder", research = "scholar", heal = "doctor", guard = "guard"}
+M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", forest = "forester",
+  hunt = "hunter", fish = "fisher", preserve = "preserver", haul = "hauler", construct = "builder",
+  research = "scholar", heal = "doctor", guard = "guard"}
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
+-- A planting spot has no entity to key on, so the lattice position is its identity (#97). Two foresters never
+-- claim the same hole in the ground.
+local function plant_key(spot) return "plant:" .. spot.x .. "," .. spot.y end
 
 -- How close a harvester stands to its site: right at the edge of the thing being worked, not somewhere near it.
 -- The radius is measured from the entity's centre, so it must clear the collision box or the command never
@@ -172,6 +178,13 @@ local function chest_contents(entity)
   local out = {}
   for _, item in ipairs(inv.get_contents()) do out[item.name] = item.count end
   return out
+end
+
+-- A Forester's Hut plants with wood out of its own chest (model/forest.lua, #97): without it the hut has
+-- nothing to plant *with*, so it closes its slots and its status line reports a supply problem rather than a
+-- missing site. Declared up here because `job_slots` asks before `find_site` does.
+local function forest_ready(h)
+  return ((chest_contents(h.entity) or {}).wood or 0) >= forest.SAPLING_COST
 end
 
 local function update_lab_status(entity, workers, capacity)
@@ -492,6 +505,8 @@ local function hut_resources(h)
     return {"colony-fish"}
   elseif h.job == "farm" then
     return {"colony-produce"}
+  elseif h.job == "forest" then
+    return {"wood"}       -- the same wood a woodcutter is after: a town at its wood limit does not plant either
   end
   return nil
 end
@@ -638,6 +653,7 @@ local function job_slots(colony)
     if (colony.no_site[h.entity.unit_number] or 0) > game.tick then allowed = 0 end
     -- A supply-gated hut is a slot only while it can work: otherwise a colonist is sent to it, finds no site and idles.
     if h.job == "preserve" and not preserve_ready(colony, h) then allowed = 0 end
+    if h.job == "forest" and not forest_ready(h) then allowed = 0 end   -- nothing to plant with (#97)
     if allowed > 0 then active[h.job] = (active[h.job] or 0) + 1 end
     list[#list + 1] = {id = h.entity.unit_number, job = h.job, allowed = allowed, workers = workers, hut = h}
   end
@@ -662,7 +678,7 @@ for _, j in ipairs(work_plan.FOOD) do FOOD_JOB[j] = true end
 -- exact thing". Mine is shared (an ore tile feeds any miner) and preserve/fish/research/heal/guard work at their
 -- own hut, which must stay repairable while someone is inside: claiming a hut's own position used to hide a
 -- damaged hut from builders for as long as its worker stood there.
-local CLAIM_JOB = {chop = true, forage = true, farm = true, construct = true, hunt = true}
+local CLAIM_JOB = {chop = true, forage = true, farm = true, forest = true, construct = true, hunt = true}
 
 local function colony_missing_jobs(colony)
   local empty = {}
@@ -836,6 +852,71 @@ local function eff_ore_groups(colony, hut)
   return groups
 end
 
+-- Forester's Hut (#97) -----------------------------------------------------------------------------------
+-- Replanting is what stops chopping from being a one-way drain on the colony's own territory. The rules
+-- (lattice, soil, spacing to a standing tree) are pure and live in model/forest.lua; this supplies the three
+-- facts only the world knows: the land, the tile, and whether the engine would let a tree stand there.
+local tree_proto
+local function plant_tree_name()
+  if tree_proto == nil then
+    tree_proto = forest.tree(function(name) return prototypes.entity[name] ~= nil end) or false
+  end
+  return tree_proto or nil
+end
+
+-- A planting spot for this hut, or (with `count_only`) how many it can see - the status line asks the same
+-- question the trip asks, so "nothing to plant" never disagrees with what the forester actually does.
+local function plant_scan(colony, hut, count_only)
+  local s, base = hut.entity.surface, hut.entity.position
+  local tree_name = plant_tree_name()
+  if not tree_name then return count_only and 0 or nil end
+  local trees = {}
+  -- RADIUS + SPACING, not just RADIUS: a spot on the outer ring must still see a tree standing just past it.
+  for _, t in ipairs(s.find_entities_filtered{position = base, radius = forest.RADIUS + forest.SPACING, type = "tree"}) do
+    if t.valid then trees[#trees + 1] = t.position end
+  end
+  local cands = forest.candidates(base, forest.RADIUS)
+  local function accept(spot)
+    local owner = territory.owner_at(colony.surface_index, spot)
+    if not (owner == nil or owner == colony.id) then return false end
+    if not forest.plantable(s.get_tile(spot).name) then return false end
+    if colony.claimed[plant_key(spot)] then return false end
+    return s.can_place_entity{name = tree_name, position = spot, force = "neutral"}
+  end
+  if not count_only then return forest.choose(cands, trees, accept) end
+  local n = 0
+  for _, spot in ipairs(cands) do
+    if not forest.blocked(spot, trees) and accept(spot) then n = n + 1 end
+  end
+  return n
+end
+
+-- Plant the claimed hole (#97): the hut pays one wood, the world gets one tree. Everything is re-checked
+-- because the walk took time - the player may have paved over the spot, built on it, or another tree may have
+-- grown into the gap. Returns true only when a tree actually stands there, so a wasted walk costs no spade.
+local function plant(colony, hut, st)
+  if st.site_key then colony.claimed[st.site_key] = nil end
+  local spot = st.site
+  if not (spot and spot.x and hut.entity.valid) then return false end
+  local s = hut.entity.surface
+  local tree_name = plant_tree_name()
+  if not tree_name then return false end
+  local owner = territory.owner_at(colony.surface_index, spot)
+  if not (owner == nil or owner == colony.id) then return false end
+  if not forest.plantable(s.get_tile(spot).name) then return false end
+  if not s.can_place_entity{name = tree_name, position = spot, force = hut.entity.force} then return false end
+  if hut.entity.remove_item{name = "wood", count = forest.SAPLING_COST} < forest.SAPLING_COST then return false end
+  local tree = s.create_entity{name = tree_name, position = spot, force = hut.entity.force}
+  if not tree then
+    hut.entity.insert{name = "wood", count = forest.SAPLING_COST}   -- the engine refused: the wood is not spent
+    return false
+  end
+  stats.consumed(colony, "wood", forest.SAPLING_COST)
+  colony.ledger_cache = nil
+  popup(s, spot, "🌱")
+  return true
+end
+
 -- Harvest only in range and never on another colony's land (design §2.1), preferring the nearest site so
 -- colonists visibly work the forest / berry patch / ore next to their hut instead of walking to a random
 -- tree on the far edge of the radius.
@@ -977,6 +1058,11 @@ local function find_site(colony, e, hut, is_overflow, home)
       end
     end
     return best
+  elseif hut.job == "forest" then
+    -- The hut is the workplace, but the *site* is the hole in the ground it plants in, so the colonist really
+    -- walks out to it (like a harvester) instead of planting through the wall (#97).
+    if not forest_ready(hut) then return nil end
+    return plant_scan(colony, hut)
   elseif hut.job == "research" then
     -- The archive or university is its own workplace (#42). Scholars staff the facility when it holds science packs.
     local packs = science.PACKS_BY_LAB[hut.entity.name] or {}
@@ -1000,6 +1086,12 @@ function M.site_count(h)
   if not (colony and h.entity.valid) then return 0 end
   if h.job == "guard" then return nil end   -- not a resource job; no quota to miss and the tower always stands
   if h.job == "research" or h.job == "preserve" or h.job == "fish" or h.job == "heal" then return 1 end
+  if h.job == "forest" then
+    -- "Nothing to plant" is only a fact once the hut can actually plant: an empty chest is reported as a supply
+    -- problem instead, so the status line never tells the player to move a hut that just needs wood.
+    if not forest_ready(h) then return nil end
+    return plant_scan(colony, h, true)
+  end
   local s, base = h.entity.surface, h.entity.position
   local radius = h.job == "forage" and colony_mod.FORAGE_RADIUS or colony_mod.HUT_RADIUS
   local in_territory = function(t) return harvestable(colony, t) end
@@ -1835,13 +1927,29 @@ local function start_trip(colony, un, hut, is_overflow)
     if quota_item then
       if e and e.valid and not is_overflow then popup(e.surface, e.position, {"colony-message.quota-reached", item_name(quota_item)}) end
     else
-      colony.no_site[hut.entity.unit_number] = game.tick + 600
+      -- A Forester's Hut with an empty chest has nothing to plant *with*: that is a supply problem, not a
+      -- missing site, and its own status line already says so (#97).
+      if not (hut.job == "forest" and not forest_ready(hut)) then
+        colony.no_site[hut.entity.unit_number] = game.tick + 600
+      end
     end
     return false
   end
   -- Resources are shared; trees/patches/plots are not; an animal is claimed by unit_number because its
   -- position moves under our feet. `site_key` is written only for the jobs that actually claim something,
   -- because construct_scan rebuilds the claim set from it.
+  if hut.job == "forest" then
+    -- A planting spot claims itself by position (#97): the walk is to the hole, so the trip is a normal
+    -- to_site trip with a position instead of an entity, and the claim keeps two foresters off one hole.
+    local pk = plant_key(site)
+    colony.claimed[pk] = true
+    storage.unit_state[un] = {colony_id = colony.id, job = "forest", hut = hut, state = "to_site",
+      site = site, site_key = pk, overflow = is_overflow}
+    set_label(e, M.LABELS.forest .. (colony_mod.is_inspired(colony, un) and " ★" or "")
+      .. (colony_mod.is_sick(un) and " 🤒" or ""))
+    go(e, site, M.PLANT_REACH)
+    return true
+  end
   if hut.job == "hunt" then
     colony.claimed["boar:" .. site.unit_number] = true
   elseif hut.job ~= "mine" and hut.job ~= "fish" and hut.job ~= "preserve" and hut.job ~= "research"
@@ -2593,6 +2701,23 @@ scheduler.register("work.finish", function(d)
   local e = colony and colony.colonists[d.un]
   if not (e and e.valid and colony.hall.valid) then return end
   local hut, site = st.hut, st.site
+  if st.job == "forest" then
+    -- Replanting (#97): a position trip, so there is no site entity to validate - plant() re-checks the hole.
+    if not (hut and hut.entity.valid) then
+      if hut and hut.workers then hut.workers[d.un] = nil end
+      M.release(st)
+      M.assign(colony, d.un)
+      return
+    end
+    -- One planted tree = one spade use; a walk that ends on a paved-over hole wears nothing.
+    if plant(colony, hut, st) then use_tool(hut) end
+    -- Nothing to carry home: back to the hut, where the keep-post fast path claims the next hole. The forester
+    -- walks out to every tree it plants, the same way a harvester walks out to every tree it fells.
+    st.site, st.site_key, st.carry = nil, nil, nil
+    st.state = "to_hut"
+    go(e, hut.entity.position, 3)
+    return
+  end
   if not (hut and hut.entity.valid and site and site.valid) then
     -- tree cut by the player, ore exhausted or hut removed while we were working: no yield, retry
     if hut and hut.workers then hut.workers[d.un] = nil end
@@ -3086,7 +3211,12 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     local e = unit_entity(colony, ev.unit_number)
     if e and e.valid then
       e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
-      if st.site and st.site.valid then work_ring(e, st.site.position, site_radius(st.site) * 0.75) end
+      if st.site and st.site.valid then
+        work_ring(e, st.site.position, site_radius(st.site) * 0.75)
+      elseif st.site and st.site.x then
+        -- A planting hole (#97) is a position, not an entity: ring the spot itself, at the sapling's size.
+        work_ring(e, st.site, 0.75)
+      end
     end
     if st.hut and st.hut.job == "research" and st.hut.entity.valid then
       local def = labour.HUTS[st.hut.entity.name]

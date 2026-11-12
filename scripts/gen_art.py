@@ -131,6 +131,15 @@ def em_mug(a, cx, cy):
     a.arc(cx + 6, cy + 2, 4, 4, 270, 90, 2, (236, 180, 70))
 
 
+def em_sapling(a, cx, cy):
+    """Forester's Hut (#97): a young tree, stem and three leaves."""
+    a.line([(cx, cy + 9), (cx, cy - 3)], 2.2, (124, 88, 52))
+    a.ell(cx - 9, cy - 3, cx + 1, cy + 5, (92, 150, 68), shade=.28, edge=.4)
+    a.ell(cx - 1, cy - 3, cx + 9, cy + 5, (104, 160, 76), shade=.28, edge=.4)
+    a.ell(cx - 5, cy - 11, cx + 5, cy - 1, (116, 172, 84), shade=.25, edge=.4)
+    a.ell(cx - 9, cy + 1, cx - 4, cy + 9, (78, 62, 44), shade=.2)   # soil, half-buried root ball
+
+
 # buildings -------------------------------------------------------------------------------------------------
 # Every building is drawn in a real 3/4 top-down projection (artlib.View): the ground footprint is a
 # screen-aligned square, height is foreshortened (1 tile high = 16 screen px at scale 0.5), and a slight
@@ -813,6 +822,53 @@ def woodcutter_hut():
     a.line([(cx, cy - 2), (cx + 8, cy - 14)], 2, WOOD_D)
     a.poly([(cx + 6, cy - 14), (cx + 12, cy - 20), (cx + 14, cy - 12), (cx + 8, cy - 10)], STEEL, shade=.3)
     finish(a, b, "woodcutter-hut", 2, 2)
+
+def sapling(a, b, x, y, h=1.0):
+    """A young tree standing at plan position (x, y): bare stem with a small crown, in the 3/4 view (#97)."""
+    sx, base, top = b.sx(x, y), b.sy(y, 0), b.sy(y, h)
+    a.line([(sx, base), (sx, top)], max(1.2, 1.8 * h), (124, 90, 54), shade=.2)
+    for dx, dz, r in ((-4, .62, 4.4), (4, .55, 4.0), (0, 1.0, 4.8), (-1, .34, 3.6)):
+        cy = b.sy(y, h * dz)
+        a.ell(sx + dx - r, cy - r, sx + dx + r, cy + r, (96, 154, 72), shade=.28, edge=.4, hi=.4)
+
+@asset
+def forester_hut():
+    """tree nursery: plank hut with a mossy green roof, a fenced seedbed of saplings out front and bundles of
+    lifted saplings leaning on the wall, ready to go back into the gaps the woodcutter left"""
+    a, b = building(2, 2, top=150, persp=.18)
+    x0, y0, x1, y1 = site(b, .10, .22)
+    b.ground(x0 - 4, y0 - 4, x1 + 4, b.base + 4, (20, 14, 8), .36)
+    plinth(b, x0, y0, x1, y1)
+    wh, pitch = 2.8, .68
+    wall, roof = (156, 132, 96), (74, 110, 64)   # mossy green roof: a nursery, not another log shed
+    walls(b, x0, y0, x1, y1, wh, wall, planks_h(7))
+    hip_roof(b, x0, y0, x1, y1, wh + .04, wh + pitch, 8, roof, shingle_p(8, 5), hipf=.3)
+    eave_shadow(a, b, x0, x1, y1, wh, .18)
+    door(a, b, x0 + 22, y1, 26, 1.25, col=DARKWOOD)
+    window(a, b, x0 + 6, y1, 12, .5, .7, lit=True)
+    sign(a, b, x1 - 8, y1, wh - .35, em_sapling, 22, 20)
+    # fenced seedbed (front-left): dark soil, three rows of saplings, a low rail fence in front of them
+    bed0, bed1, bedf = x0 + 4, x0 + 40, y1 - 28
+    b.face([(bed0, bedf, .03), (bed1, bedf, .03), (bed1, y1 - 3, .03), (bed0, y1 - 3, .03)],
+           SOIL, shade=.12, tex=speckle(.9, 48))
+    for row in range(3):
+        for col in range(3):
+            sapling(a, b, bed0 + 7 + col * 12, bedf + 5 + row * 8, .75)
+    for fx in (bed0, bed1):
+        b.box(fx - 2, bedf - 2, fx + 2, bedf + 2, .03, .62, DARKWOOD)
+        b.box(fx - 2, y1 - 5, fx + 2, y1 - 1, .03, .62, DARKWOOD)
+    for ry in (bedf, y1 - 3):
+        b.face([(bed0 - 2, ry - 1, .58), (bed1 + 2, ry - 1, .58), (bed1 + 2, ry + 1, .66), (bed0 - 2, ry + 1, .66)],
+               WOOD_L, shade=.2)
+    # bundles of lifted saplings leaning on the right-hand wall, roots wrapped in sacking
+    for dx, tilt in ((2, 3), (10, 1), (18, 4)):
+        cx, cy = b.sx(x1 - 22 + dx, y1 - 12), b.sy(y1 - 12, 0)
+        a.line([(cx, cy), (cx + tilt, cy - 30)], 2.2, (128, 92, 54), shade=.2)
+        for dz, r in ((30, 6.5), (22, 5.2), (15, 4.2)):
+            a.ell(cx + tilt - r, cy - dz - r, cx + tilt + r, cy - dz + r,
+                  (98, 156, 74), shade=.3, edge=.4, hi=.4)
+        a.ell(cx - 4, cy - 5, cx + 4, cy + 3, (188, 168, 128), shade=.3)   # sacking round the root ball
+    finish(a, b, "forester-hut", 2, 2)
 
 @asset
 def miner_hut():
@@ -1730,6 +1786,13 @@ def icons_tools():
     a.ell(50, 40, 58, 48, (206, 60, 50), shade=.3)
     a.rect(16, 44, 26, 54, IRON_D, r=2, shade=.3)
     done(a, "icon-rod")
+    a = Art(64, 64)                                                                                     # spade
+    a.line([(20, 8), (20, 30)], 5, WOOD, shade=.25)                                                    # shaft
+    a.line([(12, 8), (28, 8)], 4, WOOD_D, shade=.2)                                                    # T-grip
+    a.poly([(10, 30), (30, 30), (28, 46), (20, 56), (12, 46)], STEEL, shade=.32, tex=speckle(.5, 40))
+    a.glint(13, 32, 22, 44, .35)
+    a.line([(20, 28), (20, 32)], 4, IRON_D, shade=.2)                                                  # socket
+    done(a, "icon-spade")
     a = Art(64, 64)                                                                                     # bow
     a.arc(26, 32, 22, 26, 275, 85, 5, WOOD, shade=.25)
     a.line([(24, 8), (24, 56)], 1.5, (224, 224, 230), shade=0, edge=.2)

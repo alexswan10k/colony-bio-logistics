@@ -16,6 +16,7 @@ M.RECIPES = {
   ["colony-steel-pickaxe"] = {["iron-plate"] = 2, ["steel-plate"] = 1},
   ["colony-steel-hoe"] = {["iron-plate"] = 2, ["steel-plate"] = 1},
   ["colony-rod"] = {wood = 3, ["iron-plate"] = 2},
+  ["colony-spade"] = {wood = 2, ["iron-plate"] = 2},   -- Forester's Hut (#97): plants saplings
   ["colony-bow"] = {wood = 4},
   ["colony-arrow"] = {wood = 1},
   ["colony-rifle"] = {wood = 4, ["iron-plate"] = 6, ["copper-plate"] = 2},

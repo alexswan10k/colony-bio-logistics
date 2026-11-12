@@ -12,6 +12,7 @@ local trailer = require("scripts.model.trailer")
 local haul_plan = require("scripts.model.haul_plan")
 local material_priority = require("scripts.model.material_priority")
 local farm = require("scripts.model.farm")
+local forest = require("scripts.model.forest")
 local advice = require("scripts.model.advice")
 local desirability = require("scripts.model.desirability")
 local breeding = require("scripts.model.breeding")
@@ -186,6 +187,13 @@ end)
 -- ---------- labour hut panel ----------
 -- While the panel is open, the hut's working radius is drawn in the world (the same idea as the Town
 -- Hall's territory rectangle) so "why is nothing being harvested?" is answerable at a glance.
+local function hut_radius(h)
+  if h.job == "forage" then return colony_mod.FORAGE_RADIUS end
+  if h.job == "guard" then return garrison.RANGE end
+  if h.job == "forest" then return forest.RADIUS end
+  return colony_mod.HUT_RADIUS
+end
+
 local function draw_hut_range(h, sites)
   -- A garrisoned tower draws its engagement circle instead: that is the radius that matters (#56).
   if h.job == "guard" then
@@ -196,7 +204,7 @@ local function draw_hut_range(h, sites)
   if sites == nil and h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" then
     sites = work.site_count(h)
   end
-  local r = (h.job == "forage" and colony_mod.FORAGE_RADIUS or colony_mod.HUT_RADIUS)
+  local r = hut_radius(h)
   local is_empty = (sites ~= nil and sites == 0)
   local color = is_empty and {1.0, 0.25, 0.25, 0.75} or {0.9, 0.9, 0.3, 0.7}
   local width = is_empty and 3 or 2
@@ -214,12 +222,15 @@ function M.hut_reason(h, def, tools, workers)
   if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" and h.job ~= "guard" then
     sites = work.site_count(h)
   end
+  -- Supply-gated huts (#81, #97): no tool at all, or a tool *and* an input (the Forester's Hut plants with wood
+  -- from its own chest), so `requires` names what the hut is actually waiting for.
   local inputs_missing = false
-  if not def.tool and workers == 0 then
+  local gated = def.requires or (not def.tool and def.keep)
+  if gated and workers == 0 then
     local inv = h.entity.type == "lab" and h.entity.get_inventory(defines.inventory.lab_input)
       or h.entity.get_inventory(defines.inventory.chest)
     inputs_missing = true
-    for _, item in ipairs(def.keep or {}) do
+    for _, item in ipairs(def.requires or def.keep or {}) do
       if inv and inv.get_item_count(item) > 0 then inputs_missing = false end
     end
   end
@@ -280,7 +291,7 @@ local function fill_hut(frame, h)
   local more = row.add{type = "button", name = "colony_hut_limit_more", caption = "+",
     tooltip = {"colony-gui-hut.limit-tt"}}
   more.style.width = 24
-  local r = (h.job == "forage" and colony_mod.FORAGE_RADIUS or (h.job == "guard" and garrison.RANGE) or colony_mod.HUT_RADIUS)
+  local r = hut_radius(h)
   frame.add{type = "label", caption = {"colony-gui-hut.range", r}}
   if def.tool then
     frame.add{type = "label", caption = {"colony-gui-hut.tools", tools}}

@@ -9,7 +9,7 @@ local M = {}
 M.FOOD = {{item = "colony-forage", per = 1}, {item = "colony-fish", per = 1}, {item = "colony-meat", per = 1},
   {item = "raw-fish", per = 1}, {item = "colony-produce", per = 1},
   {item = "colony-preserved-fish", per = 1}, {item = "colony-preserved-meat", per = 1},
-  {item = "colony-bread", per = 1}}
+  {item = "colony-bread", per = 1}, {item = "colony-canned-fish", per = 1}, {item = "colony-canned-meat", per = 1}}
 
 M.WATER = {{item = "colony-water", per = 0.5}}
 

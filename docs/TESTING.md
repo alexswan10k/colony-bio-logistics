@@ -104,6 +104,8 @@ Three headless gates cover the things the unit tests and the playable spike cann
   field that reaches the wire (`max` is ignored), replacing the whole array clears stale signals, two sections
   sum onto one network, 30 filters fit in a section, values above int32 are rejected, and `LuaWireConnector`
   methods are bound (`.`, not `:`). Also measures the write: 20 filters ~0.027 ms.
+- `TICKS=19500 scripts/headless-spike.sh m2_cold` - the #45 cold chain spike (24 checks): prototypes for the cannery, refrigerator crate registration, the cold pass reviving a near-spoiled warehouse stack from Lua (control chest untouched), the refrigerated wagon reviving its cargo from the rail, and the whole town economy producing canned goods through real colonist work (six seeded colonists, inputs consumed in cannery order, verified via the work loop's own counter `work.cans_made` and the production statistics hook). Also checks the Cold Chain technology's prereqs (Food Preservation only), costs Frontier Charters and unlocks everything on research.
+- `scripts/headless-spike.sh s15_spoil` - the #45 engine probe (13 checks) behind the refrigerated buildings: `spoil_tick` is readable but **the engine forbids extending it** ("can not be set to longer than the item's normal spoil ticks"); `spoil_percent` is read/write in [0,1], and a downward write revives a near-spoiled stack (0.99999 -> 0). Verified on chest stacks and on a cargo-wagon's inventory with rails laid in-world. Also: `prototypes.item[].spoil_ticks` is not exposed at runtime, and `spoil_time_modifier` is a map difficulty setting, not per-building (useless for this).
 - `scripts/headless-spike.sh m1_stats` - the #89 production statistics spike: `LuaFlowStatistics:on_flow` takes a
   plain prototype name as id, positive count feeds the input (production) counter, negative the output
   (consumption) counter, and the merged counts appear a tick later. The spike nets everything back to baseline.
@@ -220,6 +222,12 @@ Each of these cost a debugging round in a spike; check them before assuming the 
   array clears the rows it no longer mentions, so a shrunken list cannot leave a stale signal behind, and
   sections sum onto one network. A fresh combinator already has one section, so adopt section 1 instead of
   adding your own. Values outside int32 are rejected, so clamp before writing.
+- **Spoilage cannot be paused by extending `spoil_tick`.** The engine rejects any write above the base tick count,
+  and rejects `spoil_percent` writes above 1 or below 0. A downward write of `spoil_percent` to 0, however, is
+  accepted on any readable perishable stack and revives it - so a refrigerated building stamps its contents to 0
+  on whatever cadence it likes. `spoil_tick` itself is readable to the second for decay maths. Also worth knowing:
+  `LuaItemPrototype` at runtime does NOT expose `spoil_ticks` or `spoil_result` (they are data-stage only), and
+  `spoil_time_modifier` lives on `DifficultySettings`/`MapDifficultySettings`, a map-wide difficulty knob only.
 - **`LuaWireConnector` methods are bound: call them with `.`, not `:`.** `conn:connect_to(other)` passes the
   connector as the first argument and fails with "bool expected, got userdata"; `conn.connect_to(other)`
   works. This is the opposite of `LuaEntity`/`LuaInventory`, where `:` is required. Wiring from Lua is

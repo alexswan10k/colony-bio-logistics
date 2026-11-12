@@ -867,6 +867,15 @@ describe("housing", function()
     eq(d.water.count, 24)  -- 8 occ * 0.5 * 6 intervals
     eq(d.heat, nil)        -- powered
   end)
+  it("canned food is eaten last, after preserved and bread (#45)", function()
+    local fo = h.FOOD
+    local idx = {}
+    for i, o in ipairs(fo) do idx[o.item] = i end
+    truthy(idx["colony-canned-fish"] > idx["colony-preserved-fish"])
+    truthy(idx["colony-canned-meat"] > idx["colony-preserved-meat"])
+    truthy(idx["colony-canned-fish"] > idx["colony-bread"])
+    truthy(idx["colony-canned-meat"] > idx["colony-bread"])
+  end)
   it("townhouse requires food and water, heat from coal or power - no wood required (#96)", function()
     local stock = {["colony-meat"] = 12, ["colony-water"] = 6, coal = 6}
     local c, sat, score, crit = h.step(h.TIERS.townhouse, 12, stock, false, {})

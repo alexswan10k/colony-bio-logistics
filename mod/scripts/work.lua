@@ -23,6 +23,7 @@ local hunting = require("scripts.model.hunting")
 local wildlife = require("scripts.wildlife")
 local fishing = require("scripts.model.fishing")
 local preserve = require("scripts.model.preserve")
+local cans = require("scripts.model.cans")
 local kitchen = require("scripts.model.kitchen")
 local toolsmith = require("scripts.model.toolsmith")
 local workshop = require("scripts.model.workshop")
@@ -46,6 +47,7 @@ function M.bind(c) colony_mod = c end
 M.WORK_TICKS = yields.WORK_TICKS
 -- Tools the Toolsmith has made since the game started. A diagnostic for the spikes, not game state: it is not saved.
 M.tools_made = 0
+M.cans_made = 0
 M.RETRY_TICKS = 300
 M.SMALL_TOWN = 8           -- below this many colonists a harvester also checks for waiting deliveries
 M.HAUL_SWITCH_MIN = 4      -- items: a harvester only leaves a productive post for a haul worth the walk
@@ -641,6 +643,7 @@ end
 local function preserve_ready(colony, hut)
   if hut.entity.name == toolsmith.NAME then return toolsmith_pick(colony, hut) end
   if hut.entity.name == "colony-kitchen" then return kitchen.recipe(chest_contents(hut.entity) or {}) end
+  if hut.entity.name == "colony-cannery" then return cans.recipe(chest_contents(hut.entity) or {}) end
   return preserve.recipe(chest_contents(hut.entity) or {})
 end
 
@@ -1304,6 +1307,8 @@ local function hut_offer(h)
     demands = (#wanted_list > 0) and toolsmith.wants(chest_contents(h.entity) or {}, h.inflight, wanted_list) or {}
   elseif h.entity.name == "colony-kitchen" then
     demands = kitchen.wants(chest_contents(h.entity) or {}, h.inflight)
+  elseif h.entity.name == "colony-cannery" then
+    demands = cans.wants(chest_contents(h.entity) or {}, h.inflight)
   else
     demands = preserve.wants(chest_contents(h.entity) or {}, h.inflight)
   end
@@ -1341,7 +1346,8 @@ local function hut_collect_offer(h, colony)
       if c.name == "colony-fish" or c.name == "raw-fish" or c.name == "colony-meat"
         or c.name == "colony-forage" or c.name == "colony-produce"
         or c.name == "colony-bread" or c.name == "colony-preserved-fish"
-        or c.name == "colony-preserved-meat" then
+        or c.name == "colony-preserved-meat" or c.name == "colony-canned-fish"
+        or c.name == "colony-canned-meat" then
         has_food = true
       end
     end
@@ -2778,6 +2784,18 @@ scheduler.register("work.finish", function(d)
         stats.consumed(colony, kitchen.PRODUCE, kitchen.PRODUCE_PER_BATCH)
         stats.consumed(colony, kitchen.WATER, kitchen.WATER_PER_BATCH)
         item, n = recipe.product, kitchen.PRODUCT_PER_BATCH
+      end
+    elseif hut.entity.name == "colony-cannery" then
+      local recipe = cans.recipe(chest_contents(hut.entity) or {})
+      if recipe then
+        hut.entity.remove_item{name = "iron-plate", count = cans.PLATES_PER_BATCH}
+        hut.entity.remove_item{name = "colony-water", count = cans.WATER_PER_BATCH}
+        hut.entity.remove_item{name = recipe.raw, count = 1}
+        stats.consumed(colony, "iron-plate", cans.PLATES_PER_BATCH)
+        stats.consumed(colony, "colony-water", cans.WATER_PER_BATCH)
+        stats.consumed(colony, recipe.raw, 1)
+        item, n = recipe.product, cans.PRODUCT_PER_BATCH
+        M.cans_made = M.cans_made + 1
       end
     else
       local recipe = preserve.recipe(chest_contents(hut.entity) or {})

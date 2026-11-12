@@ -186,6 +186,19 @@ local warehouse = chest_clone("steel-chest", "colony-warehouse", "warehouse", 48
 -- Pool) for one 3x hand-load on foot, cheap bulk hauling before the Motor Pool (#60).
 -- TODO art: reuses the Warehouse sprite/icon until the Haul Station has its own.
 local haul_station = chest_clone("iron-chest", "colony-haul-station", "haul-station", 12, 1)
+-- Cannery (#45): the late-food tier. Colonists pickle preserved food into tins (iron plate for the can,
+-- colony water for the brine): same nutrition, but 4 hours of shelf life instead of 45 minutes.
+local cannery = chest_clone("iron-chest", "colony-cannery", "cannery", 8, 1)
+-- Refrigerated Warehouse (#45): bulk colony stock like a Warehouse, but everything inside stays fresh
+-- forever. Colonists stock it like any warehouse; the spoil countdown only resumes when goods leave (#45).
+local refrigerated_warehouse = chest_clone("steel-chest", "colony-refrigerated-warehouse", "refrigerated-warehouse", 64, 1.5)
+-- Refrigerated Wagon (#45): a cargo wagon in the cold chain. Its inventory never ages while it rides the
+-- rails, so preserved and canned food can cross the map. Shares the vanilla cargo-wagon sprites.
+local refrigerated_wagon = table.deepcopy(data.raw["cargo-wagon"]["cargo-wagon"])
+refrigerated_wagon.name = "colony-refrigerated-wagon"
+refrigerated_wagon.localised_name = {"entity-name.colony-refrigerated-wagon"}
+refrigerated_wagon.localised_description = {"entity-description.colony-refrigerated-wagon"}
+refrigerated_wagon.minable = {mining_time = 1, result = "colony-refrigerated-wagon"}
 -- Compost Bin (design §3.2, #78): where spoiled food goes to become something useful. Colonists clear
 -- `spoilage` out of houses and out of colony stock into it, and the bin turns batches of it into fertilizer,
 -- which is the input #44's farming slice spends.
@@ -303,7 +316,7 @@ ring(forester, 20, "yellow")        -- forest.RADIUS: it plants close to home, w
 data:extend({
   hall, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, warehouse, haul_station, compost_bin,
-  ledger_entity,
+  cannery, refrigerated_warehouse, refrigerated_wagon, ledger_entity,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -326,6 +339,12 @@ data:extend({
   item_of(smokehouse, "smokehouse", "z[colony]-l[smokehouse]"),
   item_of(kitchen, "kitchen", "z[colony]-l1[kitchen]"),
   item_of(toolsmith, "toolsmith", "z[colony]-l1[toolsmith]"),
+  item_of(cannery, "cannery", "z[colony]-l2[cannery]"),
+  item_of(refrigerated_warehouse, "refrigerated-warehouse", "z[colony]-l2[refrigerated-warehouse]"),
+  {type = "item", name = "colony-refrigerated-wagon", icon = G .. "icon-refrigerated-wagon.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-r[refrigerated-wagon]", place_result = "colony-refrigerated-wagon", stack_size = 10,
+   localised_name = {"item-name.colony-refrigerated-wagon"},
+   localised_description = {"item-description.colony-refrigerated-wagon"}},
   item_of(tavern, "tavern", "z[colony]-l1[tavern]"),
   item_of(motorpool, "motor-pool", "z[colony]-l2[motor-pool]"),
   item_of(platform, "passenger-platform", "z[colony]-l3[passenger-platform]"),
@@ -369,6 +388,9 @@ data:extend({
   recipe("colony-housing-homestead", {wood = 60, ["stone-brick"] = 20, ["iron-plate"] = 20}, 5, 1, false),
   recipe("colony-housing-townhouse", {["stone-brick"] = 40, ["iron-plate"] = 20, ["steel-plate"] = 5}, 6, 1, false),
   recipe("colony-housing-apartment", {["stone-brick"] = 50, concrete = 20, ["iron-plate"] = 30, ["electronic-circuit"] = 10}, 8, 1, false),
+  recipe("colony-refrigerated-warehouse", {["steel-plate"] = 60, ["iron-plate"] = 40, ["electronic-circuit"] = 5}, 5, 1, false),
+  recipe("colony-cannery", {["iron-plate"] = 30, ["steel-plate"] = 10, ["electronic-circuit"] = 2}, 4, 1, false),
+  recipe("colony-refrigerated-wagon", {["iron-plate"] = 40, ["steel-plate"] = 20, ["electronic-circuit"] = 5}, 6, 1, false),
   recipe("colony-well", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-ledger", {wood = 10, ["iron-plate"] = 5, ["copper-cable"] = 5, ["electronic-circuit"] = 2}, 2, 1, false),
   recipe("colony-furniture", {wood = 10, ["iron-plate"] = 2}, 2, 1, false),
@@ -455,6 +477,26 @@ data:extend({
    icon = G .. "icon-civic-pack.png", icon_size = 64,
    subgroup = "science-pack", order = "z[colony]-s3[civic-pack]",
    localised_name = {"item-name.colony-civic-pack"}},
+  -- Canning (#45): preserved food into tins - the smokehouse's successor tier. Unlocked by Cold Chain.
+  -- Canning takes the *preserved* tier as input: raw -> preserved -> canned, each rung buying shelf life.
+  {type = "recipe", name = "colony-canned-meat", enabled = false, energy_required = 8,
+   ingredients = {{type = "item", name = "colony-preserved-meat", amount = 1},
+                  {type = "item", name = "iron-plate", amount = 1},
+                  {type = "item", name = "colony-water", amount = 1}},
+   results = {{type = "item", name = "colony-canned-meat", amount = 1}},
+   icon = G .. "icon-canned-meat.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-a6[canned-meat]",
+   localised_name = {"recipe-name.colony-canned-meat"},
+   localised_description = {"recipe-description.colony-canned-meat"}},
+  {type = "recipe", name = "colony-canned-fish", enabled = false, energy_required = 8,
+   ingredients = {{type = "item", name = "colony-preserved-fish", amount = 1},
+                  {type = "item", name = "iron-plate", amount = 1},
+                  {type = "item", name = "colony-water", amount = 1}},
+   results = {{type = "item", name = "colony-canned-fish", amount = 1}},
+   icon = G .. "icon-canned-fish.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-a7[canned-fish]",
+   localised_name = {"recipe-name.colony-canned-fish"},
+   localised_description = {"recipe-description.colony-canned-fish"}},
   recipe("colony-forager-hut", {wood = 20}, 2, 1, false),
   recipe("colony-woodcutter-hut", {wood = 20, stone = 5}, 2, 1, false),
   recipe("colony-miner-hut", {wood = 20, stone = 10}, 2, 1, false),
@@ -532,6 +574,16 @@ data:extend({
    spoil_ticks = 60 * 60 * 45, spoil_result = "spoilage",
    localised_name = {"item-name.colony-preserved-fish"},
    localised_description = {"item-description.colony-preserved-fish"}},
+  {type = "item", name = "colony-canned-meat", icon = G .. "icon-canned-meat.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-a6[canned-meat]", stack_size = 100,
+   spoil_ticks = 60 * 60 * 240, spoil_result = "spoilage",
+   localised_name = {"item-name.colony-canned-meat"},
+   localised_description = {"item-description.colony-canned-meat"}},
+  {type = "item", name = "colony-canned-fish", icon = G .. "icon-canned-fish.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-a7[canned-fish]", stack_size = 100,
+   spoil_ticks = 60 * 60 * 240, spoil_result = "spoilage",
+   localised_name = {"item-name.colony-canned-fish"},
+   localised_description = {"item-description.colony-canned-fish"}},
   {type = "item", name = "colony-fish", icon = G .. "icon-fish.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-a2[fish]", stack_size = 100,
    spoil_ticks = 60 * 60 * 15, spoil_result = "spoilage", localised_name = {"item-name.colony-fish"},

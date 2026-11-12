@@ -106,6 +106,28 @@ def em_hunt(a, cx, cy):
         a.line([(cx + s * 5, cy), (cx + s * 10, cy - 2)], 2, (226, 216, 190))
 
 
+def em_frost(a, cx, cy):
+    """a six-spoked snowflake badge for cold-chain buildings"""
+    import math
+    col = (204, 232, 250)
+    for deg in (0, 60, 120):
+        dx, dy = math.cos(deg * math.pi / 180), math.sin(deg * math.pi / 180)
+        a.line([(cx - dx * 13, cy - dy * 13), (cx + dx * 13, cy + dy * 13)], 2.4, col)
+        for end in (-0.62, -0.88, 0.62, 0.88):
+            ex, ey = cx + dx * 13 * end, cy + dy * 13 * end
+            tx, ty = -dy * 4.2, dx * 4.2
+            a.line([(ex - tx, ey - ty), (ex + tx, ey + ty)], 1.8, col)
+
+
+def em_can(a, cx, cy):
+    """a sealed tin can: the emblem of the cannery"""
+    col = (176, 188, 198)
+    dark = (120, 132, 142)
+    a.ell(cx - 9, cy - 11, cx + 9, cy, col, shade=.28)
+    a.rect(cx - 9, cy - 5, cx + 9, cy + 9, col, shade=.22)
+    a.ell(cx - 9, cy + 4, cx + 9, cy + 9, col, shade=.34)
+    a.ell(cx - 6, cy - 7, cx + 6, cy - 3, dark, shade=.35)
+
 def em_fish(a, cx, cy):
     a.ell(cx - 10, cy - 5, cx + 5, cy + 5, (120, 170, 210), shade=.25)
     a.poly([(cx + 3, cy), (cx + 11, cy - 6), (cx + 11, cy + 6)], (120, 170, 210))
@@ -1324,6 +1346,62 @@ def warehouse():
     crate(a, b, x1 - 46, y1 - 18, .38)
     hoist(a, b, x1 - 14, y0 + 20, wh - .2)
     finish(a, b, "warehouse", 3, 3)
+
+@asset
+def cannery():
+    """tin canning line: iron box with a loading chute, a cooling rack of tins, a steam stack"""
+    a, b = building(2, 2, top=170, persp=.17)
+    x0, y0, x1, y1 = site(b, .10, .22)
+    wh = 2.45
+    wall = (150, 152, 158)
+    roof = (96, 102, 112)
+    b.ground(x0 - 4, y0 - 4, x1 + 4, b.base + 4, (20, 14, 8), .38)
+    plinth(b, x0, y0, x1, y1)
+    walls(b, x0, y0, x1, y1, wh, wall, tin(9), z0=.18)
+    flat_roof(b, x0, y0, x1, y1, wh, roof, par=.2, tex=tin(4))
+    # iron banding
+    for z in (1.15, 2.05):
+        b.face([(x0, y1, z - .06), (x1, y1, z - .06), (x1, y1, z + .05), (x0, y1, z + .05)], IRON, shade=.35)
+    door(a, b, x0 + 22, y1, 30, 1.15, col=(58, 52, 46))
+    window(a, b, x0 + 10, y1, 12, .5, .7, lit=False)
+    window(a, b, x0 + 80, y1, 12, .5, .7, lit=True)
+    # steam stack with a safety cap
+    chimney(b, x0 + 18, y0 + 18, 12, 10, wh - .2, wh + .85, STONE)
+    b.line((b.sx(x0 + 18, y0 + 18), b.sy(y0 + 18, wh + .85)),
+           (b.sx(x0 + 18, y0 + 18), b.sy(y0 + 18, wh + 1.15)), 3, IRON)
+    smoke(a, b.sx(x0 + 18, y0 + 18), b.sy(y0 + 18, wh + .9), 2, .4)
+    # tin cooling rack: rows of cans on the loading apron
+    for r in range(3):
+        for c in range(4):
+            cx, cy = x1 - 8 - c * 7, y1 - 10 - r * 6
+            a.ell(b.sx(cx, cy) - 3, b.sy(cy, .35 + r * .16) - 2, b.sx(cx, cy) + 3,
+                  b.sy(cy, .35 + r * .16) + 2, (186, 198, 208), shade=.3)
+    finish(a, b, "cannery", 2, 2)
+
+
+@asset
+def refrigerated_warehouse():
+    """cold store: the warehouse's bones under a steel skin, a freezer door and a snowflake badge"""
+    a, b = building(3, 3, top=200, persp=.16)
+    x0, y0, x1, y1 = site(b, .10, .24)
+    wh, pitch = 2.95, .85
+    wall, roof = (128, 148, 168), (96, 112, 128)
+    b.ground(x0 - 6, y0 - 6, x1 + 6, b.base + 4, (20, 14, 8), .4)
+    plinth(b, x0, y0, x1, y1, z1=.22)
+    walls(b, x0, y0, x1, y1, wh, wall, tin(10), z0=.22)
+    gable_roof(b, x0, y0, x1, y1, wh + .04, wh + pitch, 7, roof, tin(6), gable=wall, ridge_at=.5)
+    eave_shadow(a, b, x0, x1, y1, wh, .18)
+    # freezer door: dark panelled monolith with bolts
+    door(a, b, x0 + 32, y1, 52, 1.65, col=(58, 70, 84), step=False)
+    b.face([(x0 + 36, y1, 1.7), (x0 + 80, y1, 1.7), (x0 + 80, y1, 1.78), (x0 + 36, y1, 1.78)], IRON, shade=.3)
+    for m in range(4):
+        mx = x0 + 40 + m * 12
+        a.ell(b.sx(mx, y1) - 2, b.sy(y1, 1.55) - 2, b.sx(mx, y1) + 2, b.sy(y1, 1.55) + 2, IRON, shade=.35)
+    window(a, b, x0 + 10, y1, 13, .5, .75, lit=False)
+    window(a, b, x1 - 22, y1, 13, .5, .75, lit=True)
+    # snowflake badge above the door
+    em_frost(a, b.sx((x0 + x1) / 2, y1), b.sy(y1, wh - .35))
+    finish(a, b, "refrigerated-warehouse", 3, 3)
 
 
 @asset

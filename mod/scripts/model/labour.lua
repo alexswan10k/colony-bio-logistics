@@ -35,6 +35,8 @@ M.HUTS = {
   -- items that are *inputs*, so haulers do not treat them as hut output and cart them straight back to the hall.
   ["colony-smokehouse"] = {job = "preserve", capacity = 2,
     keep = {"colony-salt", "colony-meat", "colony-fish"}},
+  ["colony-cannery"] = {job = "preserve", capacity = 2,
+    keep = {"colony-preserved-meat", "colony-preserved-fish", "iron-plate", "colony-water"}},
   ["colony-kitchen"] = {job = "preserve", capacity = 2,
     keep = {"colony-produce", "colony-water"}},
   -- Toolsmith: the one hut that makes tools, from the wood, iron and copper haulers bring (model/toolsmith.lua).

@@ -74,6 +74,17 @@ data:extend({
     unlock("colony-salt-pan"), unlock("colony-salt-from-stone"), unlock("colony-smokehouse"),
     unlock("colony-frontier-pack-preserved"), unlock("colony-frontier-pack-preserved-fish"),
   }),
+  -- Cold Chain (#45): the late-food tier. Canning preserved food in tins buys four hours of shelf life for the
+  -- cost of an iron plate and a colony water; the refrigerated warehouse and wagon freeze the spoil countdown
+  -- while goods are inside them. Interlock: the player has steel, circuits and canning machinery before the
+  -- late-food tier appears (like Townhouse needing Steel Processing).
+  tech("colony-cold-chain", "icon-refrigerated-warehouse.png", 30, {"colony-frontier-pack"}, 15,
+    {"colony-food-preservation", "steel-processing", "electronics"}, {
+    unlock("colony-cannery"),
+    unlock("colony-canned-meat"), unlock("colony-canned-fish"),
+    unlock("colony-refrigerated-warehouse"),
+    unlock("colony-refrigerated-wagon"),
+  }),
   -- Vanilla interlock: advanced colony tiers ride the base game's tech, without making vanilla science a cost.
   -- A player who has not built belts, steel or concrete yet is not offered colony buildings they cannot build.
   tech("colony-logistics", "icon-watchtower.png", 15, {"colony-frontier-pack"}, 15,

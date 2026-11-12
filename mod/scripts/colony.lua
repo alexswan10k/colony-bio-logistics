@@ -70,11 +70,13 @@ M.SUPPLY_CRATE = "colony-supply-crate"
 M.DEMAND_CRATE = "colony-demand-crate"
 M.WAREHOUSE = "colony-warehouse"
 M.HAUL_STATION = "colony-haul-station"
+M.REFRIGERATED_WAREHOUSE = "colony-refrigerated-warehouse"
 M.CRATES = {
   [M.SUPPLY_CRATE] = crates.SUPPLY,
   [M.DEMAND_CRATE] = crates.DEMAND,
   [M.WAREHOUSE] = crates.WAREHOUSE,
   [M.HAUL_STATION] = crates.HAUL_STATION,
+  [M.REFRIGERATED_WAREHOUSE] = crates.REFRIGERATOR,
 }
 -- Compost Bin (#78, design §3.2): spoilage is removed from houses and stock by colonists and converted here.
 M.COMPOST_BIN = "colony-compost-bin"
@@ -370,6 +372,7 @@ function M.storage_crates(colony)
   local out = {}
   for _, c in ipairs(M.crate_list(colony, crates.WAREHOUSE)) do out[#out + 1] = c end
   for _, c in ipairs(M.crate_list(colony, crates.HAUL_STATION)) do out[#out + 1] = c end
+  for _, c in ipairs(M.crate_list(colony, crates.REFRIGERATOR)) do out[#out + 1] = c end
   table.sort(out, function(a, b) return (a.entity.unit_number or 0) < (b.entity.unit_number or 0) end)
   return out
 end
@@ -449,7 +452,8 @@ function M.storage_list(colony)
         end
       end
       list[#list + 1] = {
-        kind = c.kind == crates.HAUL_STATION and "haul_station" or "warehouse",
+        kind = c.kind == crates.HAUL_STATION and "haul_station" or
+          (c.kind == crates.REFRIGERATOR and "refrigerator" or "warehouse"),
         entity = c.entity,
         pos = c.entity.position,
         available = contents,
@@ -1551,7 +1555,7 @@ local function on_built(ev)
     colony.crates[e.unit_number] = {entity = e, kind = kind, colony_id = colony.id,
       filters = {}, inflight = {}, logistics_enabled = true,
       priority = 3,
-      accept_all = ((kind == crates.WAREHOUSE or kind == crates.HAUL_STATION) and true or nil),
+      accept_all = ((kind == crates.WAREHOUSE or kind == crates.HAUL_STATION or kind == crates.REFRIGERATOR) and true or nil),
       trailer_wear = 0, trailers_out = 0}
     script.register_on_object_destroyed(e)
     if dict then M.apply_tags(colony, e, dict) end

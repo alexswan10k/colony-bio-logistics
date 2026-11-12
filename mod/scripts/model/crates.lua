@@ -8,6 +8,7 @@ local M = {}
 
 M.SUPPLY, M.DEMAND, M.WAREHOUSE = "supply", "demand", "warehouse"
 M.HAUL_STATION = "station"   -- #94: bulk stock like a Warehouse, plus a trailer depot (work.lua checks the station back out)
+M.REFRIGERATOR = "refrigerator"   -- #45: bulk stock like a Warehouse, plus a spoil-pause pass between trips
 M.FILTER_ROWS = 4
 M.DEFAULT_COUNT = 50
 M.MAX_COUNT = 400

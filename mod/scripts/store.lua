@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 36
+local SCHEMA = 37
 
 local migrations = {
   [1] = function()
@@ -276,6 +276,12 @@ local migrations = {
     for _, c in pairs(storage.colonies or {}) do
       c.ledgers = c.ledgers or {}
     end
+  end,
+  [37] = function()
+    -- Cold Chain (#45): the relaxed check for the refrigeration pass. The pass discovers its targets from the
+    -- world and arms itself once, so the only layout change is a marker so a fresh world arms in on_init and
+    -- an existing save arms here. Replaced by the armed timer, which run for all subsequent save loads.
+    storage.cold_armed = true
   end,
 }
 

@@ -1214,7 +1214,7 @@ function fill_crate(frame, c)
   frame.clear()
   frame.add{type = "checkbox", name = "colony_crate_logistics", state = c.logistics_enabled ~= false,
     caption = {"colony-gui.logistics-enable"}, tooltip = {"colony-gui.logistics-enable-tt"}}
-  local is_wh = c.kind == crates.WAREHOUSE or c.kind == crates.HAUL_STATION
+  local is_wh = c.kind == crates.WAREHOUSE or c.kind == crates.HAUL_STATION or c.kind == crates.REFRIGERATOR
   local is_station = c.kind == crates.HAUL_STATION
   local p_lbl = is_wh and {"colony-gui-crate.storage-priority"} or {"colony-gui.priority-label"}
   local p_tt = is_wh and {"colony-gui-crate.storage-priority-tt"} or {"colony-gui.building-priority-tt"}
@@ -1291,9 +1291,9 @@ end
 local function open_crate(player, e)
   local old = player.gui.relative[CRATE_FRAME]; if old then old.destroy() end
   local name = (e.type == "entity-ghost") and e.ghost_name or e.name
-  local names = {colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE, colony_mod.HAUL_STATION}
+  local names = {colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE, colony_mod.HAUL_STATION, colony_mod.REFRIGERATED_WAREHOUSE}
   if e.type == "entity-ghost" then
-    names = {"entity-ghost", colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE, colony_mod.HAUL_STATION}
+    names = {"entity-ghost", colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE, colony_mod.HAUL_STATION, colony_mod.REFRIGERATED_WAREHOUSE}
   end
   local frame = player.gui.relative.add{type = "frame", name = CRATE_FRAME, direction = "vertical",
     caption = e.localised_name, anchor = {gui = defines.relative_gui_type.container_gui,
@@ -1315,7 +1315,7 @@ local function open_crate(player, e)
     else
       c = {entity = e, kind = kind, colony_id = colony.id,
         filters = {},
-        accept_all = ((kind == crates.WAREHOUSE or kind == crates.HAUL_STATION) and true or nil),
+        accept_all = ((kind == crates.WAREHOUSE or kind == crates.HAUL_STATION or kind == crates.REFRIGERATOR) and true or nil),
         priority = 3,
         logistics_enabled = true}
     end
@@ -1346,7 +1346,7 @@ function crate_ctx(ev)
     else
       c = {entity = e, kind = kind, colony_id = colony.id,
         filters = {},
-        accept_all = ((kind == crates.WAREHOUSE or kind == crates.HAUL_STATION) and true or nil),
+        accept_all = ((kind == crates.WAREHOUSE or kind == crates.HAUL_STATION or kind == crates.REFRIGERATOR) and true or nil),
         priority = 3,
         logistics_enabled = true}
     end

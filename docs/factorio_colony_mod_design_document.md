@@ -123,6 +123,19 @@ output and cart them straight back. One raw + one salt cures into one preserved 
 (45 min vs 15-20)** and the same nutrition: the payoff of this tier is shelf life, not throughput (#81), and
 keeping every food option at `per = 1` also keeps housing's demand sizing honest. Preserved food is **eaten
 last** in `housing.FOOD`, because it is the food that keeps.
+**M2 cold chain (implemented, #45):** the late-food tier. The **Cannery** (2 colonists, labour job `preserve`,
+no tool) pickles preserved meat/fish into tins: `1 preserved + 1 iron-plate + 1 colony-water -> 1 colony-canned-*`
+with the same nutrition and **4 hours** of shelf life (~5x the smokehouse). It is a successor tier, not a
+shortcut: raw food must be cured *first*, so canning adds shelf life on top of the preserved tier rather than
+bypassing it. Canned food is eaten **last** in `housing.FOOD` (after bread), and cannery work is counted by
+`work.cans_made` like the Toolsmith's `tools_made`. The **Refrigerated Warehouse** (3x3, colony crate of kind
+`refrigerator`) and the **Refrigerated Wagon** (cargo-wagon clone) freeze the spoil countdown of everything
+they hold: the engine forbids growing `spoil_tick` past the item's base (the naive pause is impossible), but
+`LuaItemStack.spoil_percent` is read/write and a downward write revives a near-spoiled stack, so a pass every
+600 ticks stamps all readable perishable stacks back to 0 (`scripts/cold.lua`, proven by `s15_spoil`, 13/13).
+Contents effectively never spoil while they stay inside; the countdown resumes only when goods leave (they were
+revived to 0). Both are gated by the new **Cold Chain** technology (30 Frontier Charters, needs Food
+Preservation and vanilla Steel Processing and Electronics - the same vanilla-interlock rule as Townhouse).
 
 2. **Mid Game (Agriculture & Salt/Smoke Preservation - Medium Shelf Life):**
    * **Farms / Greenhouses:** Require water, seeds, and fertilizer (yielding $2\times$ crops when built on lush/fertile soil tiles).

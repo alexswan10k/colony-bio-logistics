@@ -2,7 +2,7 @@
 Policy: **no feature blocks on art.** Every entity ships with a placeholder (tinted vanilla sprite + generated icon) until the milestone's playtest passes.
 Minimum assets per milestone:
 - M1: colonist (walk/idle/work), town hall, tent/shack, labour huts (forager/woodcutter/miner/farm), crates x3, compost bin, hunting lodge, wild boar, fishing dock, salt pan, smokehouse, selection tool/shortcut icons, badge icon, ~16 item icons (incl. basket/axe/pickaxe/hoe/rifle/rod, meat/fish/fertilizer/salt/preserved meat/preserved fish).
-- M2: 3 science packs, archive/university, homestead, townhouse, apartment, farm, kitchen, smokehouse, salt pan, clinic, taverns, passenger coach + platform, canteen, resort.
+- M2: 3 science packs, archive/university, homestead, townhouse, apartment, farm, kitchen, smokehouse, salt pan, clinic, taverns, passenger coach + platform, canteen, resort, cannery, refrigerated warehouse, refrigerated wagon, canned food icons.
 - M3: armory, watchtower, patrol post, motor pool, whistle tool.
 - M4: habitat dome, orbital dome, hydroponics, nursery, airlock, pod item, suits, gear icons.
 Decision needed from owner: placeholder-only for MVP vs commissioned/AI-generated sprites.

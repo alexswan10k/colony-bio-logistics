@@ -144,6 +144,30 @@ describe("tech audit", function()
     eq(#audit.audit(g, "colony-"), 0)
   end)
 
+  it("accepts a colony pack recipe whose output a lab consumes", function()
+    local g = fixture()
+    g.recipes["colony-pack-maker"] = {enabled = true, ingredients = {{type = "item", name = "wood"}},
+                                      results = {{type = "item", name = "colony-pack"}}}
+    eq(#audit.audit(g, "colony-"), 0)
+  end)
+
+  it("flags a colony pack recipe whose output nothing consumes", function()
+    local g = fixture()
+    g.recipes["colony-orphan-pack-maker"] = {enabled = true, ingredients = {{type = "item", name = "wood"}},
+                                             results = {{type = "item", name = "colony-unloved-pack"}}}
+    truthy(kinds(audit.audit(g, "colony-"))["unconsumed-pack"])
+  end)
+
+  it("accepts a colony pack recipe whose output another recipe uses as an ingredient", function()
+    local g = fixture()
+    g.recipes["colony-orphan-pack-maker"] = {enabled = true, ingredients = {{type = "item", name = "wood"}},
+                                             results = {{type = "item", name = "colony-unloved-pack"}}}
+    g.recipes["colony-pack-consumer"] = {enabled = true,
+                                         ingredients = {{type = "item", name = "colony-unloved-pack"}},
+                                         results = {{type = "item", name = "colony-y"}}}
+    eq(#audit.audit(g, "colony-"), 0)
+  end)
+
   it("skips excluded spike-only technologies", function()
     local g = fixture()
     g.techs["colony-spike"] = {

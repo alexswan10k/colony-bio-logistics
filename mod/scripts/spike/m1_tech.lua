@@ -80,7 +80,7 @@ core.register("m1_tech", {
     local by_kind = audit.by_kind(problems)
     for _, kind in ipairs({
       "missing-prerequisite", "unreachable", "missing-recipe", "duplicate-unlock", "orphan-recipe",
-      "no-lab", "missing-fluid", "missing-item", "unmakeable-ingredient",
+      "no-lab", "missing-fluid", "missing-item", "unmakeable-ingredient", "unconsumed-pack",
     }) do
       local list = by_kind[kind]
       ctx.check("tech audit: " .. kind, not list,

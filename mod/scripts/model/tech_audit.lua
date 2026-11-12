@@ -223,6 +223,36 @@ function M.audit(graph, scope, exclude)
     end
   end
 
+  -- 7. A colony science-pack recipe must have a consumer. An output that no lab accepts and no recipe uses is
+  -- a dead end (#98): the player crafts it, it spoils, and the mod gets the blame. A pack is any colony item
+  -- whose name ends in `-pack`; it is considered consumed when a lab lists it as an input, or any recipe (ours
+  -- or vanilla's) names it as an ingredient.
+  local lab_inputs = {}
+  for _, lab in ipairs(labs) do
+    for _, i in ipairs(lab.inputs or {}) do lab_inputs[i] = true end
+  end
+  local recipe_consumers = {}
+  for name, r in pairs(recipes) do
+    for _, ing in ipairs(r.ingredients or {}) do
+      if ing.type == "item" and ing.name then
+        recipe_consumers[ing.name] = recipe_consumers[ing.name] or {}
+        table.insert(recipe_consumers[ing.name], name)
+      end
+    end
+  end
+  for name, r in pairs(recipes) do
+    if ours(name) and not is_recycling(r) then
+      for _, res in ipairs(r.results or {}) do
+        if res.type == "item" and res.name and res.name:sub(-5) == "-pack" then
+          if not lab_inputs[res.name] and not recipe_consumers[res.name] then
+            add("unconsumed-pack", name .. " produces " .. res.name ..
+              ", which no lab accepts and no recipe uses", nil, name)
+          end
+        end
+      end
+    end
+  end
+
   table.sort(problems, function(a, b)
     if a.kind ~= b.kind then return a.kind < b.kind end
     return (a.tech or "") < (b.tech or "")

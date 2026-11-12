@@ -199,6 +199,21 @@ refrigerated_wagon.name = "colony-refrigerated-wagon"
 refrigerated_wagon.localised_name = {"entity-name.colony-refrigerated-wagon"}
 refrigerated_wagon.localised_description = {"entity-description.colony-refrigerated-wagon"}
 refrigerated_wagon.minable = {mining_time = 1, result = "colony-refrigerated-wagon"}
+
+-- Water Tower (#96): a worker-free machine that turns piped fluid water into colony-water. An assembling
+-- machine with a locked recipe, so it runs exactly like a well but bottled and poured into the houses around it.
+local tower = table.deepcopy(data.raw["assembling-machine"]["assembling-machine-2"])
+tower.name = "colony-water-tower"
+tower.localised_name = {"entity-name.colony-water-tower"}
+tower.localised_description = {"entity-description.colony-water-tower"}
+tower.minable = {mining_time = 0.5, result = "colony-water-tower"}
+tower.fixed_recipe = "colony-water-bottling"
+tower.crafting_speed = 5
+tower.crafting_categories = {"crafting-with-fluid"}
+tower.ingredient_count = 1
+tower.energy_source = {type = "electric", usage = "50kW", input_flow_limit = "50kW", usage_priority = "secondary-input"}
+tower.fast_replaceable_group = nil
+tower.next_upgrade = nil
 -- Compost Bin (design §3.2, #78): where spoiled food goes to become something useful. Colonists clear
 -- `spoilage` out of houses and out of colony stock into it, and the bin turns batches of it into fertilizer,
 -- which is the input #44's farming slice spends.
@@ -316,7 +331,7 @@ ring(forester, 20, "yellow")        -- forest.RADIUS: it plants close to home, w
 data:extend({
   hall, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, warehouse, haul_station, compost_bin,
-  cannery, refrigerated_warehouse, refrigerated_wagon, ledger_entity,
+  cannery, refrigerated_warehouse, refrigerated_wagon, tower, ledger_entity,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -345,6 +360,7 @@ data:extend({
    subgroup = "raw-resource", order = "z[colony]-r[refrigerated-wagon]", place_result = "colony-refrigerated-wagon", stack_size = 10,
    localised_name = {"item-name.colony-refrigerated-wagon"},
    localised_description = {"item-description.colony-refrigerated-wagon"}},
+  item_of(tower, "water-tower", "z[colony]-k4[water-tower]"),
   item_of(tavern, "tavern", "z[colony]-l1[tavern]"),
   item_of(motorpool, "motor-pool", "z[colony]-l2[motor-pool]"),
   item_of(platform, "passenger-platform", "z[colony]-l3[passenger-platform]"),
@@ -388,6 +404,7 @@ data:extend({
   recipe("colony-housing-homestead", {wood = 60, ["stone-brick"] = 20, ["iron-plate"] = 20}, 5, 1, false),
   recipe("colony-housing-townhouse", {["stone-brick"] = 40, ["iron-plate"] = 20, ["steel-plate"] = 5}, 6, 1, false),
   recipe("colony-housing-apartment", {["stone-brick"] = 50, concrete = 20, ["iron-plate"] = 30, ["electronic-circuit"] = 10}, 8, 1, false),
+  recipe("colony-water-tower", {["iron-plate"] = 30, ["steel-plate"] = 10, ["electronic-circuit"] = 2, ["copper-cable"] = 5}, 4, 1, false),
   recipe("colony-refrigerated-warehouse", {["steel-plate"] = 60, ["iron-plate"] = 40, ["electronic-circuit"] = 5}, 5, 1, false),
   recipe("colony-cannery", {["iron-plate"] = 30, ["steel-plate"] = 10, ["electronic-circuit"] = 2}, 4, 1, false),
   recipe("colony-refrigerated-wagon", {["iron-plate"] = 40, ["steel-plate"] = 20, ["electronic-circuit"] = 5}, 6, 1, false),

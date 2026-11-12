@@ -16,6 +16,7 @@ local fishing = require("scripts.model.fishing")
 local salt = require("scripts.model.salt")
 local well = require("scripts.model.well")
 local recreation = require("scripts.model.recreation")
+local tower_model = require("scripts.model.tower")
 local yields = require("scripts.model.yields")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
@@ -45,6 +46,7 @@ M.HALL = "colony-town-hall"
 M.WATCHTOWER = "colony-watchtower"
 M.PLOT = "colony-farm-plot"
 M.WELL = "colony-well"
+M.WATER_TOWER = "colony-water-tower"
 M.LEDGER = "colony-ledger"
 M.MOTOR_POOL = "colony-motor-pool"
 M.TAVERN = "colony-tavern"
@@ -199,6 +201,18 @@ function M.pool_list(colony)
 end
 
 -- Wells (#43), in a stable order: [unit_number] = {entity, colony_id, next_at}.
+-- Water towers in stable order (#96); prunes dead ones.
+function M.tower_list(colony)
+  local ids = {}
+  for un, t in pairs(colony.water_towers or {}) do
+    if t.entity.valid then ids[#ids + 1] = un else colony.water_towers[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.water_towers[un] end
+  return out
+end
+
 function M.well_list(colony)
   local ids = {}
   for un, w in pairs(colony.wells or {}) do
@@ -1108,6 +1122,17 @@ function M.evaluate(data)
 
   local pop = M.live_colonists(colony)
   local houses = M.house_list(colony)
+  -- Water towers (#96): one pass builds the serve list; houses then drink from it nearest-first. Built once
+  -- per evaluation, before the consumption loop, with fresh water counts.
+  local towers
+  do
+    for _, t in ipairs(M.tower_list(colony)) do
+      local inv = t.entity.get_inventory(defines.inventory.crafter_output)
+      towers = towers or {}
+      towers[#towers + 1] = {position = t.entity.position, water = inv and inv.get_item_count("colony-water") or 0,
+        id = t.entity.unit_number, entity = t.entity}
+    end
+  end
   local caps = {}
   for i, h in ipairs(houses) do caps[i] = housing.TIERS[h.kind].capacity end
   local split = housing.assign(M.colonist_ids(colony), caps)   -- who lives where, sorted; the same fill as distribute()
@@ -1130,6 +1155,45 @@ function M.evaluate(data)
   for i, h in ipairs(houses) do
     local tier = housing.TIERS[h.kind]
     local stock, inv = M.house_stock(h)
+    -- A stocked water tower within RADIUS pours straight into the house, ahead of the hall stock: the
+    -- bottles never wait on a hauler (#96). Inject before `step` so the carry maths stays honest.
+    if towers then
+      local mouths_ = mouths[i] or 0
+      if mouths_ > 0 then
+        local occ_idx
+        for _, need in ipairs(tier.needs) do
+          if need.id == "water" then
+            for j, opt in ipairs(need.options) do
+              if opt.item == "colony-water" then occ_idx = j; break end
+            end
+            break
+          end
+        end
+        if occ_idx then
+          local per = 0
+          for _, need in ipairs(tier.needs) do
+            if need.id == "water" then
+              for _, opt in ipairs(need.options) do if opt.item == "colony-water" then per = opt.per end end
+              break
+            end
+          end
+          local owed = ((h.acc and h.acc.water or 0) + mouths_ * per)
+          local want = math.floor(owed + 1e-9)
+          if want > 0 then
+            local from = {}
+            local got = tower_model.take(towers, h.entity.position, want, from)
+            if got > 0 then
+              for j, n in pairs(from) do
+                local tinv = towers[j].entity.get_inventory(defines.inventory.crafter_output)
+                if tinv then tinv.remove({name = "colony-water", count = n}) end
+              end
+              inv.insert({name = "colony-water", count = got})
+              stock["colony-water"] = (stock["colony-water"] or 0) + got
+            end
+          end
+        end
+      end
+    end
     local before = {}
     for k, v in pairs(stock) do before[k] = v end
     local consumed, sat, score, crit = housing.step(tier, mouths[i], stock, M.is_powered(h), h.acc)
@@ -1449,7 +1513,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.MOTOR_POOL or name == M.TAVERN or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.LEDGER or M.HOUSES[name] or labour.HUTS[name] then
+    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.LEDGER or M.HOUSES[name] or labour.HUTS[name] then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -1594,6 +1658,16 @@ local function on_built(ev)
     colony.wells[e.unit_number] = {entity = e, colony_id = colony.id,
       next_at = game.tick + well.TICKS_PER_WATER}
     script.register_on_object_destroyed(e)
+  elseif name == M.WATER_TOWER then
+    -- Water Tower (#96): a worker-free assembler with a locked recipe (the bottling recipe). It bottles the
+    -- fluid water the player pipes in and hands it straight to the houses around it at evaluation time, so no
+    -- hauler ever makes the drinking-water run. No per-building state to persist; blueprint revival is plain.
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.water_towers = colony.water_towers or {}
+    colony.water_towers[e.unit_number] = {entity = e, colony_id = colony.id}
+    script.register_on_object_destroyed(e)
   elseif name == M.LEDGER then
     -- Colony Ledger (#92): a constant combinator the colony writes. It has no worker and no inventory, so
     -- the registry record only carries the entity and the publish mode (blueprint tags restore the mode).
@@ -1712,7 +1786,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or item_name == M.HALL or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -1813,6 +1887,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.wells and colony.wells[un] then
       colony.wells[un] = nil
+      return
+    end
+    if colony.water_towers and colony.water_towers[un] then
+      colony.water_towers[un] = nil
       return
     end
     if colony.ledgers and colony.ledgers[un] then

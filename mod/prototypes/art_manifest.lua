@@ -25,6 +25,7 @@ return {
   ["townhouse"] = {width = 292, height = 414, scale = 0.5, shift = {0, -1.04688}},
   ["cannery"] = {width = 164, height = 310, scale = 0.5, shift = {0, -1.23438}},
   ["refrigerated-warehouse"] = {width = 228, height = 404, scale = 0.5, shift = {0, -1.46875}},
+  ["water-tower"] = {width = 164, height = 315, scale = 0.5, shift = {0, -1.27344}},
   ["hunting-lodge"] = {width = 164, height = 295, scale = 0.5, shift = {0, -1.11719}},
   ["icon-herbal-medicine"] = {width = 64, height = 64, scale = 0.5, shift = {0, 0}},
   ["icon-passenger-coach"] = {width = 64, height = 64, scale = 0.5, shift = {0, 0}},

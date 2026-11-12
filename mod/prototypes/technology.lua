@@ -118,6 +118,7 @@ data:extend({
       unlock("colony-water-bottling"),
       unlock("colony-housing-homestead"),
       unlock("colony-furniture"),
+      unlock("colony-water-tower"),
     }),
   -- Townhouse (#96): the brick-and-steel housing rung between homestead and apartment. Before concrete -
   -- the town needs a steel line and a brick kiln, not a concrete mixer.

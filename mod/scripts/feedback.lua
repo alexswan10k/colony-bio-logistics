@@ -32,9 +32,19 @@ local NEED_ICON = {food = "colony-forage", water = "colony-water", heat = "wood"
 local function item(name) return {"?", {"item-name." .. name}, {"entity-name." .. name}, name} end
 local function need(id) return {"colony-gui.need-" .. id} end
 
-local function house_status(h)
+local function house_status(h, colony)
   local tier = housing.TIERS[h.kind]
   local sat = housing.available(tier, colony_mod.house_stock_cached(h), colony_mod.is_powered(h))
+  -- A house fed from a water tower shelf never holds its own water; don't nag the player about it (#96).
+  if sat.water == false and colony_mod.tower_list then
+    local r2 = 24 * 24
+    for _, t in ipairs(colony_mod.tower_list(colony)) do
+      local tp, hp = t.entity.position, h.entity.position
+      local d2 = (tp.x - hp.x) ^ 2 + (tp.y - hp.y) ^ 2
+      local tinv = t.entity.get_inventory(defines.inventory.crafter_output)
+      if d2 <= r2 and tinv and tinv.get_item_count("colony-water") > 0 then sat.water = true; break end
+    end
+  end
   local r = advice.house{occupants = h.occupants or 0, capacity = tier.capacity, sat = sat, needs = tier.needs,
     hungry = h.hungry, starve_after = colony_mod.STARVE_AFTER}
   if not r then return nil end
@@ -167,7 +177,7 @@ function M.update(colony)
     end
   end
   for _, h in ipairs(colony_mod.house_list(colony)) do
-    local r, label, icon = house_status(h)
+    local r, label, icon = house_status(h, colony)
     if r then report(h.entity, r, label, icon or h.entity.name) end
   end
   local stock = colony_mod.stock_table(colony)

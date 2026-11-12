@@ -1378,6 +1378,27 @@ def cannery():
                   b.sy(cy, .35 + r * .16) + 2, (186, 198, 208), shade=.3)
     finish(a, b, "cannery", 2, 2)
 
+@asset
+def water_tower():
+    """colonial water tower: a brick vault holding a riveted steel tank, a spout and a wave gauge"""
+    a, b = building(2, 2, top=175, persp=.16)
+    x0, y0, x1, y1 = site(b, .12, .20)
+    wh = 1.5
+    wall, roof = (188, 96, 66), (128, 158, 188)
+    b.ground(x0 - 6, y0 - 6, x1 + 6, b.base + 4, (20, 14, 8), .4)
+    plinth(b, x0, y0, x1, y1, z1=.2)
+    walls(b, x0, y0, x1, y1, wh, wall, brick(12, 6), z0=.2)
+    # steel tank sitting on the vault, water-blue with rivet bands
+    tank(a, b, (x0 + x1) / 2, (y0 + y1) / 2, .8, wh, wh + 1.55, roof)
+    b.box((x0 + x1) / 2 - .18, (y0 + y1) / 2 - .18, (x0 + x1) / 2 + .18, (y0 + y1) / 2 + .18,
+          wh + 1.55, wh + 1.75, IRON, top=mul(IRON, 1.25))
+    # spout down the front face
+    b.box((x0 + x1) / 2 - .12, y1 - .1, (x0 + x1) / 2 + .12, y1 + .16, 1.0, wh + .35, IRON,
+          top=mul(IRON, 1.25))
+    b.box((x0 + x1) / 2 - .22, y1 - .22, (x0 + x1) / 2 + .22, y1 + .2, .18, .24, STONE_L,
+          top=mul(STONE_L, 1.15))
+    finish(a, b, "water-tower", 2, 2)
+
 
 @asset
 def refrigerated_warehouse():

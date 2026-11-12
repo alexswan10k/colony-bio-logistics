@@ -96,6 +96,26 @@ local platform = chest_clone("iron-chest", "colony-passenger-platform", "passeng
 -- Canteen (#50): an outpost's food stop for commuters from other rail-linked colonies.
 local canteen = chest_clone("iron-chest", "colony-canteen", "canteen", 8, 1)
 
+-- Colony Ledger (#92): a constant combinator the colony writes itself. Every 60 ticks it republishes the
+-- colony ledger (stock, or the shortfall against quotas) as item signals, so a factory can react to what the
+-- town wants without the player reading a GUI. No worker, no chest: the entity *is* the readout.
+-- `sprites` on a constant combinator is a Sprite4Way, hence the four copies of one 1x1 sprite.
+local ledger_entity = table.deepcopy(data.raw["constant-combinator"]["constant-combinator"])
+ledger_entity.name = "colony-ledger"
+ledger_entity.localised_name = {"entity-name.colony-ledger"}
+ledger_entity.localised_description = {"entity-description.colony-ledger"}
+ledger_entity.icon = G .. "icon-ledger.png"; ledger_entity.icon_size = 64; ledger_entity.icons = nil
+ledger_entity.minable = {mining_time = 0.5, result = "colony-ledger"}
+ledger_entity.sprites = {north = sprite("ledger"), east = sprite("ledger"),
+                         south = sprite("ledger"), west = sprite("ledger")}
+ledger_entity.activity_led_sprites = nil   -- the vanilla combinator's status light, drawn for vanilla geometry
+ledger_entity.activity_led_light = nil
+ledger_entity.collision_box = {{-0.4, -0.4}, {0.4, 0.4}}
+ledger_entity.selection_box = {{-0.5, -0.5}, {0.5, 0.5}}
+ledger_entity.fast_replaceable_group = nil
+ledger_entity.next_upgrade = nil
+ledger_entity.placeable_by = nil
+
 -- Clinic (#47): doctors cure sick colonists with Herbal Medicine (labour.lua job "heal").
 local clinic = chest_clone("iron-chest", "colony-clinic", "clinic", 8, 1)
 
@@ -275,6 +295,7 @@ ring(forester, 20, "yellow")        -- forest.RADIUS: it plants close to home, w
 data:extend({
   hall, tent, cabin, homestead, apartment, well, forager, woodcutter, miner, watchtower, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, warehouse, haul_station, compost_bin,
+  ledger_entity,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
@@ -307,6 +328,7 @@ data:extend({
   item_of(haul_station, "haul-station", "z[colony]-l1[haul-station]"),
   item_of(compost_bin, "compost-bin", "z[colony]-m[compost-bin]"),
   item_of(cemetery, "cemetery", "z[colony]-l4[cemetery]"),
+  item_of(ledger_entity, "ledger", "z[colony]-k4[ledger]"),
   {type = "item", name = "colony-fertilizer", icon = G .. "icon-fertilizer.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-c[fertilizer]", stack_size = 100,
    localised_name = {"item-name.colony-fertilizer"},
@@ -338,6 +360,7 @@ data:extend({
   recipe("colony-housing-homestead", {wood = 60, ["stone-brick"] = 20, ["iron-plate"] = 20}, 5, 1, false),
   recipe("colony-housing-apartment", {["stone-brick"] = 50, concrete = 20, ["iron-plate"] = 30, ["electronic-circuit"] = 10}, 8, 1, false),
   recipe("colony-well", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
+  recipe("colony-ledger", {wood = 10, ["iron-plate"] = 5, ["copper-cable"] = 5, ["electronic-circuit"] = 2}, 2, 1, false),
   recipe("colony-furniture", {wood = 10, ["iron-plate"] = 2}, 2, 1, false),
   {type = "recipe", name = "colony-water-bottling", enabled = false, energy_required = 1,
    categories = {"crafting-with-fluid"},

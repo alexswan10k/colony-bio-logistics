@@ -1570,6 +1570,43 @@ def well():
 
 
 @asset
+def ledger():
+    """Circuit Ledger (#92): a plank notice board on two posts, pinned stock sheets and a green signal lamp
+    on top - the colony's numbers, readable by any wire"""
+    a, b = building(1, 1, top=100, persp=.12)
+    x0, y0, x1, y1 = site(b, .16, .16)
+    b.ground(x0 - 2, y0 - 2, x1 + 2, b.base + 2, (20, 14, 8), .4)
+    # two posts holding the board up (same depth band as the board, so the legs sit under it)
+    for px in (x0 + 9, x1 - 9):
+        b.box(px - 3, y0 + 8, px + 3, y0 + 16, 0, 1.08, WOOD_D, top=mul(WOOD_D, 1.12))
+    # the board itself: a thick plank standing between the posts, with a darker frame rail around it
+    b.box(x0 + 2, y0 + 8, x1 - 2, y0 + 16, 1.0, 1.06, WOOD_D)
+    b.box(x0 + 4, y0 + 10, x1 - 4, y0 + 16, 1.06, 1.86, WOOD, top=mul(WOOD, 1.14), top_tex=planks_h(6))
+    # pinned stock sheets, drawn on the front face of the board
+    def note(nx0, nx1, col):
+        b.face([(nx0, y0 + 16, 1.20), (nx1, y0 + 16, 1.20), (nx1, y0 + 16, 1.74), (nx0, y0 + 16, 1.74)],
+               col, shade=.10, edge=.25, grain=3)
+        for row in range(3):
+            z = 1.62 - row * .13
+            b.line((nx0 + 2, y0 + 16.1, z), (nx1 - 2, y0 + 16.1, z), 1, (86, 82, 74))
+    note(x0 + 6, x0 + 17, (236, 232, 216))
+    note(x0 + 20, x1 - 6, (226, 220, 198), )
+    # nailed-on signature plate at the bottom rail
+    a.rect(b.sx(x0 + 10, y0 + 16) , b.sy(y0 + 16, 1.02) - 1, b.sx(x1 - 10, y0 + 16), b.sy(y0 + 16, 1.02) + 2,
+           IRON_D, edge=.2, hi=.15)
+    # signal lamp on a short mast, with the wire running off to the right
+    cx = x1 - 22
+    b.line((cx, y0 + 12, 1.86), (cx, y0 + 12, 2.62), 2.2, IRON_D)
+    a.ell(b.sx(cx, y0 + 12) - 5, b.sy(y0 + 12, 2.62) - 5, b.sx(cx, y0 + 12) + 5,
+          b.sy(y0 + 12, 2.62) + 5, (108, 214, 122), shade=.18, edge=.35, hi=.65)
+    a.glint(b.sx(cx, y0 + 12) - 4, b.sy(y0 + 12, 2.62) - 4, b.sx(cx, y0 + 12) + 1,
+            b.sy(y0 + 12, 2.62) + 1, .5)
+    a.line([(b.sx(cx, y0 + 12) + 5, b.sy(y0 + 12, 2.62)), (a.w - 6, b.sy(y0 + 12, 2.62) + 10),
+            (a.w - 4, b.sy(y0 + 12, 2.62) + 26)], 1.4, (54, 44, 34))
+    finish(a, b, "ledger", 1, 1)
+
+
+@asset
 def tool_rack():
     """a board of tools leaning against a wall"""
     a, b = building(1, 1, top=80, persp=.12)

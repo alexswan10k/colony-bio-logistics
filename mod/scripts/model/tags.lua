@@ -59,6 +59,13 @@ function M.crate(c)
     accept_all = c.accept_all ~= false, priority = c.priority}
 end
 
+-- colony.ledgers[un] -> payload (#92). The Colony Ledger's only setting is which number it publishes, and a
+-- copy-pasted or blueprinted ledger that came back on "stock" when the player had set "want" would quietly
+-- change what their factory conditions mean.
+function M.ledger(rec)
+  return {ledger = true, mode = (rec and rec.mode == "want") and "want" or "stock"}
+end
+
 -- Whole tag dictionary for `tags.set_blueprint_entity_tags`, or nil when the colony does not serve the
 -- entity. Returned as a dictionary so a caller can merge it over whatever other mods already stored.
 function M.dictionary(payload)
@@ -85,6 +92,9 @@ function M.decode(dict)
       accept_all = t.accept_all ~= false,
       priority = p and math.max(1, math.min(5, math.floor(p))) or nil,
     }}
+  elseif t.ledger then
+    -- Untrusted input: anything but the exact word "want" is the default mode.
+    return {ledger = {mode = (t.mode == "want") and "want" or "stock"}}
   end
   return nil
 end

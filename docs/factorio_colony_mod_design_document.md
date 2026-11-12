@@ -210,6 +210,18 @@ Colonists can also directly load ingredients/fuel into—and empty products from
     ghost.
 * **Massive UPS Benefit:** Because colonists *only* iterate over the opted-in `colony_logistics_machines` table and Colony Crates (rather than scanning every entity in the territory), CPU cost scales strictly with the machines you actively want colonists to serve.
 
+### 5.3 Publishing the Colony onto the Circuit Network (#92)
+The colony is the only part of the base that is not a machine, so the factory around it has always been blind: a belt feeding the Town Hall could not know whether the town needed 200 more iron plates or was drowning in them. The **Colony Ledger** closes that loop from the colony side, without asking the player to build logic.
+
+* **The entity is a constant combinator.** A 1x1, worker-free, fuel-free building (`colony-ledger`) that any circuit wire can read. Cloning `constant-combinator` means the vanilla section editor, wire connectors and signal names all work for free - the player's existing belt condition (`iron-plate < 500`) needs no new vocabulary, and nothing in the *vanilla* prototypes is modified.
+* **The colony writes it, every second.** One publish pass per colony every 60 ticks (`ledger_signal.PUBLISH_TICKS`) rewrites the combinator's logistic sections from `colony.ledger_snapshot` - the same number the Town Hall ledger shows, already including warehouses, hut chests and goods a hauler is carrying. The pass replaces the whole filter array, so an item that leaves the colony stops being published instead of leaving a stale signal on the wire, and it re-enables the combinator, so a player edit or a disabled combinator is corrected on the next pass (the entity is a read-out, not a setting).
+* **Two questions, one toggle.** *Stock* publishes what the town holds (a belt condition: `iron-plate < 500`). *Shortfall* publishes `quota target - stock` for items under their target and nothing otherwise, so a wire reads `> 0` to mean "the town still wants this" without the player copying thresholds into a decider. Items with no quota are not published in shortfall mode - the town is not asking for them.
+* **Order is by magnitude.** Signals are sorted biggest first, with the Town Hall ledger's own category order as the tie-break, so the list is deterministic and the numbers a factory is most likely to act on survive the cap. The cap is `20 signals per section x 2 sections`; a town tracking more than 40 distinct items only publishes the largest 40 (a section holds more, but the vanilla UI stops being readable, and 40 covers a mature town).
+* **Only the interesting numbers.** Zero counts are never published - a missing signal already reads as 0 on the network, so an empty slot is worth more spent on something the factory can act on.
+* **Blueprint/copy-paste parity.** The publish mode is the ledger's only setting, so it rides in the same `BlueprintEntity.tags` channel as the opt-in flag and crate filters (`model/tags.lua`); a pasted ledger comes back on the mode the player chose, and copy-paste carries it too.
+* **Nothing when there is nothing to do.** The publish chain is one timer per *colony*, started by the first ledger and stopped by the last one going away; a town with no ledger pays no cost at all, and a pass with 40 signals measures ~0.19 ms.
+* **Engine notes** (`s14_circuit`): in 2.1 a constant combinator's signals are its logistic sections (`parameters` is gone), the value on the wire comes from a filter's `min`, replacing the array clears stale rows, sections sum onto one network, and `LuaWireConnector` methods are bound (call with `.`).
+
 ---
 
 ## 6. Commuter Trains, Town Specialization & Tourism

@@ -38,12 +38,14 @@ local mortality_model = require("scripts.model.mortality")
 local breeding = require("scripts.model.breeding")
 local stats = require("scripts.stats")
 local tech = require("scripts.tech")
+local ledger_signal = require("scripts.ledger_signal")
 local M = {}
 
 M.HALL = "colony-town-hall"
 M.WATCHTOWER = "colony-watchtower"
 M.PLOT = "colony-farm-plot"
 M.WELL = "colony-well"
+M.LEDGER = "colony-ledger"
 M.MOTOR_POOL = "colony-motor-pool"
 M.TAVERN = "colony-tavern"
 M.PLATFORM = "colony-passenger-platform"
@@ -1442,7 +1444,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.MOTOR_POOL or name == M.TAVERN or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or M.HOUSES[name] or labour.HUTS[name] then
+    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.MOTOR_POOL or name == M.TAVERN or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.LEDGER or M.HOUSES[name] or labour.HUTS[name] then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -1587,6 +1589,12 @@ local function on_built(ev)
     colony.wells[e.unit_number] = {entity = e, colony_id = colony.id,
       next_at = game.tick + well.TICKS_PER_WATER}
     script.register_on_object_destroyed(e)
+  elseif name == M.LEDGER then
+    -- Colony Ledger (#92): a constant combinator the colony writes. It has no worker and no inventory, so
+    -- the registry record only carries the entity and the publish mode (blueprint tags restore the mode).
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    ledger_signal.register(storage.colonies[owner], e, dict)
   elseif name == M.MOTOR_POOL then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -1802,6 +1810,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
       colony.wells[un] = nil
       return
     end
+    if colony.ledgers and colony.ledgers[un] then
+      colony.ledgers[un] = nil   -- the timer chain notices there is nothing left to publish and stops
+      return
+    end
     if colony.platforms and colony.platforms[un] then
       colony.platforms[un] = nil   -- colonists waiting there notice on their next assignment and go back to work
       return
@@ -1852,7 +1864,8 @@ events.on(defines.events.on_object_destroyed, function(ev)
   end
 end)
 
-work.bind(M); gui.bind(M); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M); commute.bind(M, transit); illness.bind(M)   -- avoids a require cycle (runtime require is illegal)
+work.bind(M); gui.bind(M, ledger_signal); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M); commute.bind(M, transit); illness.bind(M)   -- avoids a require cycle (runtime require is illegal)
+ledger_signal.bind(M)
 
 -- ---------- opt-in machine registry (#34) ----------
 -- The badge is alt-mode only: a small Town Hall icon over every machine the colony serves, so the player
@@ -1956,6 +1969,8 @@ function M.find_record(e)
       if m and m.enabled and m.entity.type ~= "entity-ghost" then return colony, "machine", m end
       local c = colony.crates and colony.crates[un]
       if c and c.entity.type ~= "entity-ghost" then return colony, "crate", c end
+      local l = colony.ledgers and colony.ledgers[un]
+      if l and l.entity.type ~= "entity-ghost" then return colony, "ledger", l end
     end
   end
   if e.type == "entity-ghost" and e.tags then
@@ -1965,6 +1980,8 @@ function M.find_record(e)
       return colony, "machine", payload.machine
     elseif payload and payload.crate then
       return colony, "crate", payload.crate
+    elseif payload and payload.ledger then
+      return colony, "ledger", payload.ledger
     end
   end
 end
@@ -1974,6 +1991,7 @@ function M.entity_tags(e)
   local _, kind, rec = M.find_record(e)
   if kind == "machine" then return tags.dictionary(tags.machine(rec)) end
   if kind == "crate" then return tags.dictionary(tags.crate(rec)) end
+  if kind == "ledger" then return tags.dictionary(tags.ledger(rec)) end
 end
 
 -- Copy rows out of a registry record into a fresh table: two machines must never share the same row list.
@@ -2023,6 +2041,17 @@ function M.apply_tags(colony, e, dict)
     if payload.crate.accept_all ~= nil then c.accept_all = payload.crate.accept_all end
     if payload.crate.priority then c.priority = payload.crate.priority end
     return true
+  elseif payload.ledger then
+    if e.type == "entity-ghost" then
+      if e_name ~= M.LEDGER then return false end
+      e.tags = tags.dictionary(tags.ledger(payload.ledger))
+      return true
+    end
+    local rec = colony.ledgers and colony.ledgers[e.unit_number]
+    if not rec then return false end
+    -- Publish straight away so the wire flips on the same tick the blueprint lands.
+    ledger_signal.set_mode(colony, rec, payload.ledger.mode)
+    return true
   end
   return false
 end
@@ -2036,6 +2065,15 @@ function M.copy_settings(src, dst)
   local _, kind, rec = M.find_record(src)
   local dst_type = (dst.type == "entity-ghost") and dst.ghost_type or dst.type
   local dst_name = (dst.type == "entity-ghost") and dst.ghost_name or dst.name
+  if dst_name == M.LEDGER then
+    local mode = (kind == "ledger" and rec) and rec.mode or "stock"
+    if dst.type == "entity-ghost" then
+      dst.tags = tags.dictionary(tags.ledger({mode = mode}))
+      return true
+    end
+    local drec = colony.ledgers and colony.ledgers[dst.unit_number]
+    return drec and ledger_signal.set_mode(colony, drec, mode) or false
+  end
   if gui.MACHINE_GUIS[dst_type] then
     if dst.type == "entity-ghost" then
       if kind == "machine" and rec then

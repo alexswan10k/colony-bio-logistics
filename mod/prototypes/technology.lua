@@ -81,6 +81,12 @@ data:extend({
     unlock("colony-watchtower"), unlock("colony-demand-crate"), unlock("colony-logistics-marker"),
     unlock("colony-rifle"), unlock("colony-haul-station"), unlock("colony-wooden-trailer"),
   }),
+  -- Colony Ledger (#92): the colony's own inventory, published on the circuit network. It needs the vanilla
+  -- circuit network, so it is gated on that too - same interlock rule as the rest of the tree.
+  tech("colony-ledger", "icon-ledger.png", 20, {"colony-frontier-pack"}, 15,
+    {"colony-logistics", "circuit-network"}, {
+    unlock("colony-ledger"),
+  }),
   tech("colony-warehousing", "icon-warehouse.png", 15, {"colony-frontier-pack"}, 15,
     {"colony-logistics"}, {
     unlock("colony-warehouse"),

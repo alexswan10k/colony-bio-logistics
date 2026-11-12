@@ -86,6 +86,24 @@ Three headless gates cover the things the unit tests and the playable spike cann
   and the wood comes back out, and an emptied chest makes the hut report `colony-advice.hut-no-inputs` rather
   than claiming it is working. Also profiles `work.site_count` on a forest hut (one scan ~0.27 ms, called once
   per feedback pass, never per tick).
+- `TICKS=2400 scripts/headless-spike.sh m2_ledger` - the #92 Colony Ledger spike (46 checks): a 1x1 constant
+  combinator placed inside territory registers with the colony and publishes the hall ledger on its build tick,
+  wired to a medium pole from Lua so the spike reads the wire itself (`get_circuit_network`). Stock mode puts
+  the hall's iron ore, copper ore, stone and a Frontier Charter on the wire as plain item signals, one per
+  published item and none for empty ones; a delivery lands on the next 60-tick pass; an item that leaves the
+  colony (and an item removed entirely) stops being published, with its stale slot cleared rather than left at
+  the old number. Want mode flips on the spot and publishes exactly `quota - stock` for a short item, nothing
+  for an item at or above its quota, and nothing for an item with no quota. A warehouse stocked with 47 distinct
+  items makes the ledger fill two sections, cap at 40 signals and keep the biggest stocks. A hand-written filter
+  and a disabled combinator are both overwritten by the next pass, the publish mode round-trips through
+  blueprint tags (ghost) and copy-paste, a ledger outside territory is refused and spilled back as an item, and
+  destroying the last ledger stops the timer chain. Profiles one capped 40-signal publish at ~0.19 ms.
+- `scripts/headless-spike.sh s14_circuit` - the #92 engine probe (31 checks) behind the ledger, run against a
+  vanilla constant combinator so it answers only API questions: `parameters` is gone in 2.1 (sections replace
+  it), a fresh combinator already carries section 1, `LuaLogisticSection.filters` is writable and `min` is the
+  field that reaches the wire (`max` is ignored), replacing the whole array clears stale signals, two sections
+  sum onto one network, 30 filters fit in a section, values above int32 are rejected, and `LuaWireConnector`
+  methods are bound (`.`, not `:`). Also measures the write: 20 filters ~0.027 ms.
 - `scripts/headless-spike.sh m1_stats` - the #89 production statistics spike: `LuaFlowStatistics:on_flow` takes a
   plain prototype name as id, positive count feeds the input (production) counter, negative the output
   (consumption) counter, and the merged counts appear a tick later. The spike nets everything back to baseline.
@@ -195,6 +213,22 @@ Each of these cost a debugging round in a spike; check them before assuming the 
 - **A headless server has no player and cannot make one** (`game.create_player` fails), so events that only
   fire "as a player" - `on_entity_settings_pasted` without `by_player`, `on_player_setup_blueprint` - cannot
   be exercised headlessly. Test the handler directly and say so in the report.
+- **A 2.1 constant combinator's signals are its logistic sections.** `LuaConstantCombinatorControlBehavior`
+  has no `parameters` any more (`sections`, `sections_count`, `get_section`, `add_section`, `remove_section`,
+  `enabled`). `LuaLogisticSection.filters` is read/write `array[LogisticFilter]`, and the value that reaches the
+  wire is the filter's **`min`** (`max` is ignored - it is for requester-style filters). Assigning a whole new
+  array clears the rows it no longer mentions, so a shrunken list cannot leave a stale signal behind, and
+  sections sum onto one network. A fresh combinator already has one section, so adopt section 1 instead of
+  adding your own. Values outside int32 are rejected, so clamp before writing.
+- **`LuaWireConnector` methods are bound: call them with `.`, not `:`.** `conn:connect_to(other)` passes the
+  connector as the first argument and fails with "bool expected, got userdata"; `conn.connect_to(other)`
+  works. This is the opposite of `LuaEntity`/`LuaInventory`, where `:` is required. Wiring from Lua is
+  `entity.get_wire_connector(defines.wire_connector_id.circuit_green, true)` on both ends, then
+  `a.connect_to(b)`; read the result back with `entity.get_circuit_network(id)` (its `signals` are *last
+  tick*, so give a write a tick before expecting it).
+- **`LuaTechnology.prerequisites` is a name-keyed dictionary**, not an array: `ipairs` over it yields nothing.
+  `LuaPrototype` also exposes only a fraction of the data-stage fields (no `place_result`, no `enabled`), so a
+  spike checks the *force's* technology (`game.forces.player.technologies[name]`) instead.
 - **`create_blueprint` / `build_blueprint` are script paths**: they do not raise the player events, so a
   spike has to call the same helper the event handler calls (that is why `colony.tag_blueprint` takes a plain
   index -> entity table as well as a `LuaLazyLoadedValue`).

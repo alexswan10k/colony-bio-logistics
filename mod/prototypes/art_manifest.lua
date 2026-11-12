@@ -26,6 +26,7 @@ return {
   ["icon-herbal-medicine"] = {width = 64, height = 64, scale = 0.5, shift = {0, 0}},
   ["icon-passenger-coach"] = {width = 64, height = 64, scale = 0.5, shift = {0, 0}},
   ["kitchen"] = {width = 164, height = 268, scale = 0.5, shift = {0, -0.90625}},
+  ["ledger"] = {width = 100, height = 176, scale = 0.5, shift = {0, -0.6875}},
   ["miner-hut"] = {width = 164, height = 268, scale = 0.5, shift = {0, -0.90625}},
   ["motor-pool"] = {width = 228, height = 389, scale = 0.5, shift = {0, -1.35156}},
   ["passenger-platform"] = {width = 164, height = 260, scale = 0.5, shift = {0, -0.84375}},

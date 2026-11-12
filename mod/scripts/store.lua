@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 35
+local SCHEMA = 36
 
 local migrations = {
   [1] = function()
@@ -266,6 +266,15 @@ local migrations = {
           if cr.accept_all == nil then cr.accept_all = true end
         end
       end
+    end
+  end,
+  [36] = function()
+    -- Colony Ledger (#92): a 1x1 constant combinator the colony writes its stock onto. Its registry is new
+    -- (colony.ledgers[unit_number] = {entity, colony_id, mode, published}), so old saves start empty and the
+    -- first ledger placed arms the publish timer. The publish mode itself is per-entity state, not storage
+    -- layout, and rides blueprint tags.
+    for _, c in pairs(storage.colonies or {}) do
+      c.ledgers = c.ledgers or {}
     end
   end,
 }

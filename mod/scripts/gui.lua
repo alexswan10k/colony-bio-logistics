@@ -22,13 +22,14 @@ local tags = require("scripts.model.tags")
 local quota = require("scripts.model.quota")
 local work = require("scripts.work")
 local M = {}
-local colony_mod   -- injected via M.bind (runtime require is illegal)
-function M.bind(c) colony_mod = c end
+local colony_mod, ledger_sig   -- injected via M.bind (runtime require is illegal)
+function M.bind(c, l) colony_mod, ledger_sig = c, l end
 
 M.REQUEST_ROWS = 3
 M.DEFAULT_COUNT = 20
-local HOUSE_FRAME, MACHINE_FRAME, HUT_FRAME, INFO_FRAME, CRATE_FRAME =
-  "colony_house_frame", "colony_machine_frame", "colony_hut_frame", "colony_info_frame", "colony_crate_frame"
+local HOUSE_FRAME, MACHINE_FRAME, HUT_FRAME, INFO_FRAME, CRATE_FRAME, LEDGER_FRAME =
+  "colony_house_frame", "colony_machine_frame", "colony_hut_frame", "colony_info_frame", "colony_crate_frame",
+  "colony_ledger_frame"
 local MACHINE_GUIS = {
   ["assembling-machine"] = "assembling_machine_gui", ["furnace"] = "furnace_gui", ["boiler"] = "boiler_gui", ["lab"] = "lab_gui",
 }
@@ -1357,6 +1358,76 @@ function crate_ctx(ev)
   return player, c, colony, frame and frame.body, e
 end
 
+-- ---------- colony ledger panel (#92) ----------
+-- The panel is a read-out of what the ledger is publishing right now plus the one setting it has (stock vs
+-- shortfall). The preview comes from ledger_signal.collect, the same function the publish pass uses, so the
+-- panel can never show a number the wire does not carry.
+local function fill_ledger(body, colony, rec)
+  body.clear()
+  local mode = ledger_sig.mode_of(rec)
+  local mode_btn = body.add{type = "button", name = "colony_ledger_mode",
+    caption = {"colony-gui-ledger.mode-" .. mode}, tooltip = {"colony-gui-ledger.mode-tt"}}
+  mode_btn.style.height = 22
+  local list = ledger_sig.collect(colony, rec)
+  body.add{type = "label", caption = {"colony-gui-ledger.signals", #list, ledger_sig.MAX_SIGNALS * ledger_sig.MAX_SECTIONS},
+    style = "bold_label"}
+  local rows = body.add{type = "flow", name = "ledger_rows", direction = "vertical"}
+  if #list == 0 then rows.add{type = "label", caption = {"colony-gui-ledger.empty"}} end
+  for _, row in ipairs(list) do
+    local r = rows.add{type = "flow", direction = "horizontal"}
+    r.style.vertical_align = "center"
+    local name_lbl = r.add{type = "label", caption = {"", "[item=" .. row.item .. "] ", {"item-name." .. row.item}}}
+    name_lbl.style.width = 110
+    local value_lbl = r.add{type = "label", caption = tostring(row.count), style = "bold_label"}
+    value_lbl.style.width = 56
+    value_lbl.style.horizontal_align = "right"
+  end
+  body.add{type = "label", caption = {"colony-gui-ledger.hint"}}
+end
+
+local function ledger_record(colony, e)
+  if e.type == "entity-ghost" then
+    local payload = e.tags and tags.decode(e.tags)
+    return {mode = (payload and payload.ledger and payload.ledger.mode) or "stock", ghost = true}
+  end
+  return colony.ledgers and colony.ledgers[e.unit_number]
+end
+
+local function open_ledger(player, e)
+  local old = player.gui.relative[LEDGER_FRAME]; if old then old.destroy() end
+  local names = {colony_mod.LEDGER}
+  if e.type == "entity-ghost" then names = {"entity-ghost", colony_mod.LEDGER} end
+  local frame = player.gui.relative.add{type = "frame", name = LEDGER_FRAME, direction = "vertical",
+    caption = e.localised_name, anchor = {gui = defines.relative_gui_type.constant_combinator_gui,
+      position = defines.relative_gui_position.right, names = names}}
+  local body = frame.add{type = "flow", name = "body", direction = "vertical"}
+  local colony = colony_at(e)
+  if not colony then body.add{type = "label", caption = {"colony-gui-ledger.outside"}}; return end
+  local rec = ledger_record(colony, e)
+  if not rec then body.add{type = "label", caption = {"colony-gui-ledger.outside"}}; return end
+  fill_ledger(body, colony, rec)
+end
+
+events.on(defines.events.on_gui_click, function(ev)
+  if ev.element.name ~= "colony_ledger_mode" then return end
+  local player = game.get_player(ev.player_index)
+  local e = player and player.opened
+  if not (e and e.valid) then return end
+  local colony = colony_at(e)
+  local rec = colony and ledger_record(colony, e)
+  if not rec then return end
+  local mode = (ledger_sig.mode_of(rec) == "want") and "stock" or "want"
+  if e.type == "entity-ghost" then
+    -- A ghost carries no registry record: its setting rides in the blueprint tags, so write them back.
+    e.tags = tags.dictionary(tags.ledger({mode = mode}))
+    rec.mode = mode
+  elseif not ledger_sig.set_mode(colony, rec, mode) then
+    return
+  end
+  local frame = player.gui.relative[LEDGER_FRAME]
+  if frame and frame.body then fill_ledger(frame.body, colony, rec) end
+end)
+
 -- ---------- machine supply panel ----------
 local function req_status(e, m, req)
   local colony = colony_at(e)
@@ -1511,6 +1582,7 @@ events.on(defines.events.on_gui_opened, function(ev)
   elseif labour.HUTS[name] then open_hut(player, e)
   elseif name == colony_mod.HALL then open_info(player, e)
   elseif colony_mod.CRATES[name] then open_crate(player, e)
+  elseif name == colony_mod.LEDGER then open_ledger(player, e)
   elseif MACHINE_GUIS[type] then open_machine(player, e) end
 end)
 

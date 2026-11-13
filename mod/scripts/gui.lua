@@ -36,6 +36,9 @@ local MACHINE_GUIS = {
 M.MACHINE_GUIS = MACHINE_GUIS   -- selection tool (#35) opts in exactly the machines that have a panel
 
 local function colony_at(e) return colony_mod.colony_of(e) end
+local function crate_default_prio(c)
+  return (c.kind == crates.WAREHOUSE or c.kind == crates.REFRIGERATOR) and 2 or 3
+end
 local fill_crate, crate_ctx, machine_ctx, fill_machine   -- defined with crate/machine panels below; click handler needs them
 
 
@@ -67,7 +70,8 @@ end
 -- Per-colonist job locks live on the house, not the Town Hall: a house lists only its own handful of
 -- occupants, so the panel stays usable when a town grows to hundreds of colonists.
 local LOCK_OPTS = {{"auto", "A"}, {"haul", "H"}, {"forage", "F"}, {"chop", "C"}, {"mine", "M"}, {"farm", "G"},
-  {"hunt", "T"}, {"fish", "I"}, {"preserve", "P"}, {"construct", "B"}, {"research", "R"}, {"heal", "D"}, {"guard", "V"}}
+  {"forest", "O"}, {"hunt", "T"}, {"fish", "I"}, {"preserve", "P"}, {"construct", "B"}, {"research", "R"},
+  {"heal", "D"}, {"guard", "V"}}
 
 local function fill_roster(pane, colony, ids)
   colony.locks = colony.locks or {}
@@ -225,23 +229,16 @@ function M.hut_reason(h, def, tools, workers)
   end
   -- Supply-gated huts (#81, #97): no tool at all, or a tool *and* an input (the Forester's Hut plants with wood
   -- from its own chest), so `requires` names what the hut is actually waiting for.
-  local inputs_missing = false
-  local gated = def.requires or (not def.tool and def.keep)
-  if gated and workers == 0 then
-    local inv = h.entity.type == "lab" and h.entity.get_inventory(defines.inventory.lab_input)
-      or h.entity.get_inventory(defines.inventory.chest)
-    inputs_missing = true
-    for _, item in ipairs(def.requires or def.keep or {}) do
-      if inv and inv.get_item_count(item) > 0 then inputs_missing = false end
-    end
-  end
+  local inputs_missing = (colony ~= nil and workers == 0) and work.hut_inputs_missing(colony, h) or false
   local met, quota_item
   if colony then met, quota_item = work.hut_quota_met(colony, h) end
   local nothing = colony ~= nil and h.entity.name == "colony-toolsmith" and #work.toolsmith_wanted(colony) == 0
+  local stock = colony and colony_mod.stock_table(colony) or {}
+  local inflight, hall_stock, tool_need = work.hut_tool_availability(h, stock)
   local reason, arg = advice.hut{quota_item = met and quota_item or nil, nothing_to_do = nothing,
-    needs_tool = def.tool ~= nil, tool = def.tool, tools = tools, capacity = def.capacity,
-    limit = h.limit, workers = workers, inflight = def.tool and (h.inflight[def.tool] or 0) or 0,
-    hall_stock = def.tool and colony and colony_mod.stock_count(colony, def.tool) or 0, sites = sites,
+    needs_tool = def.tool ~= nil, tool = tool_need or def.tool, tools = tools, capacity = def.capacity,
+    limit = h.limit, workers = workers, inflight = inflight,
+    hall_stock = hall_stock, sites = sites,
     inputs_missing = inputs_missing, haul_rank = colony and jobs.effective(colony.priority).haul or 1}
   if h.job == "guard" and reason == "paused" then return nil end   -- unmanned tower: a standing choice, not a fault
   if not reason then return nil end
@@ -316,13 +313,18 @@ local function fill_hut(frame, h)
       end
       local want = def.capacity - tools - inflight
       if want > 0 then
-        local deliver_item = def.tool
-        if def.tools and (def.job == "chop" or def.job == "mine" or def.job == "farm") then
+        local deliver_item
+        if def.tools then
           for _, t in ipairs(def.tools) do
-            if labour.STEEL[t] and (h.inflight[t] or 0) > 0 then deliver_item = t; break end
+            if (h.inflight[t] or 0) > 0 then deliver_item = t; break end
           end
         end
-        frame.add{type = "label", caption = {"colony-gui-hut.delivering", deliver_item, want}}
+        if not deliver_item then
+          local colony = colony_at(h.entity)
+          local _, _, best_hall = work.hut_tool_availability(h, colony and colony_mod.stock_table(colony) or {})
+          deliver_item = best_hall
+        end
+        frame.add{type = "label", caption = {"colony-gui-hut.delivering", deliver_item or def.tool, want}}
       end
     end
     if def.keep and #def.keep > 0 then
@@ -492,8 +494,15 @@ scheduler.register("gui.refresh_hut", function(d)
   if not h then return end
   local _, tools, allowed, workers = work.hut_info(h)
   local reason = M.hut_reason(h, labour.HUTS[h.entity.name], tools, workers)
+  local kept = {}
+  local def_keep = (labour.HUTS[h.entity.name] and labour.HUTS[h.entity.name].keep) or {}
+  if #def_keep > 0 then
+    local inv = h.entity.type == "lab" and h.entity.get_inventory(defines.inventory.lab_input)
+      or h.entity.get_inventory(defines.inventory.chest)
+    for _, k in ipairs(def_keep) do kept[#kept + 1] = inv and inv.get_item_count(k) or 0 end
+  end
   if not unchanged(frame, {tools, allowed, workers, h.limit, h.wear, h.inflight, h.ores, reason, work.site_count(h),
-      h.entity.get_item_count("colony-fertilizer"), h.logistics_enabled, h.priority, colony and colony.quotas}) then
+      kept, h.logistics_enabled, h.priority, colony and colony.quotas}) then
     fill_hut(frame.body, h)
   end
   draw_hut_range(h)
@@ -758,7 +767,8 @@ local function update_info(body, colony)
     body.status_jobs.caption = {"colony-gui-info.jobs",
       counts.haul or 0, counts.forage or 0, counts.chop or 0, counts.mine or 0, counts.farm or 0,
       counts.hunt or 0, counts.fish or 0, counts.preserve or 0, counts.construct or 0,
-      counts.research or 0, counts.heal or 0, counts.guard or 0, math.max(st.pop - busy, 0)}
+      counts.research or 0, counts.heal or 0, counts.guard or 0, math.max(st.pop - busy, 0),
+      counts.forest or 0}
   end
   if body.status_territory then
     body.status_territory.caption = {"colony-gui-info.territory", st.chunks, st.huts, st.machines, st.towers, st.crates}
@@ -772,6 +782,20 @@ local function update_info(body, colony)
   local res_scroll = body.res_scroll
   local res_table = res_scroll and res_scroll.res_table
   if res_table and ledger_data and ledger_data.items then
+    local present = {}
+    for _, it in ipairs(ledger_data.items) do present[it.item] = true end
+    for _, child in ipairs(res_table.children) do
+      if child.valid then
+        local stale = child.name:match("^res_stock_(.+)$")
+        if stale and not present[stale] then
+          for _, pfx in ipairs({"res_name_", "res_stock_", "res_huts_", "res_trans_", "res_tot_",
+              "res_qflow_", "res_qdash_", "colony_overflow_", "res_idledash_"}) do
+            local el = res_table[pfx .. stale]
+            if el and el.valid then el.destroy() end
+          end
+        end
+      end
+    end
     for _, it in ipairs(ledger_data.items) do
       local item_key = it.item
       if not res_table["res_stock_" .. item_key] then
@@ -1010,7 +1034,7 @@ events.on(defines.events.on_gui_click, function(ev)
     elseif prio_type == "crate" then
       local _, c, _, body, e = crate_ctx(ev)
       if c then
-        local cur = c.priority or 3
+        local cur = c.priority or crate_default_prio(c)
         c.priority = math.max(1, math.min(5, cur + delta))
         if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.crate(c)) end
         if body then fill_crate(body, c) end
@@ -1192,6 +1216,7 @@ events.on(defines.events.on_gui_selection_state_changed, function(ev)
   if opt[1] ~= "auto" and not jobs.DEFAULT[opt[1]] then return end   -- only roles the matrix knows
   colony.locks = colony.locks or {}
   colony.locks[un] = opt[1] ~= "auto" and opt[1] or nil
+  colony_mod.reassign_workforce(colony)
 end)
 
 -- ---------- colony crates (#33) ----------
@@ -1223,7 +1248,7 @@ function fill_crate(frame, c)
   p_row.add{type = "label", caption = p_lbl, tooltip = p_tt, style = "bold_label"}
   local p_less = p_row.add{type = "button", name = "colony_crate_prio_less", caption = "-", tooltip = {"colony-gui.priority-less-tt"}}
   p_less.style.width = 24
-  local p_val = p_row.add{type = "label", caption = tostring(c.priority or (is_wh and 2 or 3)), tooltip = p_tt}
+  local p_val = p_row.add{type = "label", caption = tostring(c.priority or crate_default_prio(c)), tooltip = p_tt}
   p_val.style.width = 24
   p_val.style.horizontal_align = "center"
   local p_more = p_row.add{type = "button", name = "colony_crate_prio_more", caption = "+", tooltip = {"colony-gui.priority-more-tt"}}

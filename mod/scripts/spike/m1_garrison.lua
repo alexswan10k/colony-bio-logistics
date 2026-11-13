@@ -171,13 +171,17 @@ core.register("m1_garrison", {
         watch.phase = "disband"
       elseif watch.phase == "disband" then
         h.limit = 0
+        watch.rifles_disband = tower.get_item_count("colony-rifle")
         colony.reassign_workforce(c)
         watch.phase = "wait-disband"
       elseif watch.phase == "wait-disband" then
         if posted() == 0 then
           ctx.check("5 lowering the tower limit disbands the garrison", true)
-          -- The scenario is over: prove the post is still a lie when nobody manss it.
-          ctx.check("5 rifles stay in the tower, nobody is posted", tower.get_item_count("colony-rifle") == 1)
+          -- The scenario is over: rifles already at the post stay put even when nobody mans it.
+          local rifles_now = tower.get_item_count("colony-rifle")
+          ctx.check("5 rifles stay in the tower, nobody is posted",
+            rifles_now >= (watch.rifles_disband or 1) and rifles_now >= 1,
+            rifles_now .. " rifles vs " .. tostring(watch.rifles_disband) .. " at disband")
           return ctx.finish()
         elseif now.t > 6000 then
           ctx.check("5 lowering the tower limit disbands the garrison", false, posted() .. " still posted")

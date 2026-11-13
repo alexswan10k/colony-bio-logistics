@@ -647,6 +647,41 @@ local function preserve_ready(colony, hut)
   return preserve.recipe(chest_contents(hut.entity) or {})
 end
 
+-- Shared readiness check for GUI and status feedback (#81, #97, #42): matches what job_slots / find_site
+-- actually enforce, so partial inputs (e.g. salt without meat in a Smokehouse) still report missing inputs.
+function M.hut_inputs_missing(colony, h)
+  if not (colony and h and h.entity and h.entity.valid) then return false end
+  if h.job == "forest" then return not forest_ready(h) end
+  if h.job == "preserve" then return not preserve_ready(colony, h) end
+  if h.job == "research" then
+    local inv = h.entity.type == "lab" and h.entity.get_inventory(defines.inventory.lab_input)
+      or h.entity.get_inventory(defines.inventory.chest)
+    if not inv then return true end
+    for _, p in ipairs(science.packs_for(h.entity.name) or {}) do
+      if inv.get_item_count(p) > 0 then return false end
+    end
+    return true
+  end
+  return false
+end
+
+-- Shared inflight / hall stock summary across all weapon or steel-tier options on a hut (#95, #56).
+function M.hut_tool_availability(h, stock)
+  local def = h and h.entity and h.entity.valid and labour.HUTS[h.entity.name]
+  if not (def and (def.tool or def.tools)) then return 0, 0, nil end
+  local tools = def.tools or {def.tool}
+  local inflight, hall_stock, best_hall = 0, 0, nil
+  for _, t in ipairs(tools) do
+    inflight = inflight + ((h.inflight and h.inflight[t]) or 0)
+    local cnt = (stock and stock[t]) or 0
+    if cnt > 0 then
+      hall_stock = hall_stock + cnt
+      if not best_hall then best_hall = t end
+    end
+  end
+  return inflight, hall_stock, best_hall or def.tool
+end
+
 local function job_slots(colony)
   local list = {}
   local active = {}
@@ -717,7 +752,6 @@ local function colony_missing_jobs(colony)
     if not colony_mod.quota_met(colony, item) then
       local cnt = colony_mod.stock_count(colony, item)
       local tgt = colony_mod.quota_target(colony, item)
-      if cnt == 0 then empty[job] = true end
       if tgt > 0 and cnt < tgt then below_target[job] = true end
     end
   end
@@ -1263,12 +1297,30 @@ local function hut_offer(h)
       end
     end
     local want = math.min(def.capacity, h.limit or def.capacity) - tools - inflight
-    if want >= 1 then
+    local has_spare_tool = true
+    if want >= 1 and def.inputs and colony then
+      -- Don't let an unavailable spare tool hide `def.inputs` (e.g. Forester wood or Farm fertilizer).
+      local check_tools = def.tools or {primary_tool}
+      has_spare_tool = false
+      for _, t in ipairs(check_tools) do
+        if colony_mod.stock_count(colony, t) > 0 then has_spare_tool = true; break end
+      end
+      if not has_spare_tool then
+        local ts = M.toolsmith_of(colony)
+        local ts_contents = ts and ts.entity and ts.entity.valid and chest_contents(ts.entity)
+        if ts_contents then
+          for _, t in ipairs(check_tools) do
+            if (ts_contents[t] or 0) > 0 then has_spare_tool = true; break end
+          end
+        end
+      end
+    end
+    if want >= 1 and has_spare_tool then
       demands[#demands + 1] = {item = primary_tool, count = want}
     end
     if #demands > 0 then
       return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
-        priority = want >= 1 and haul_plan.PRIORITY.tools or haul_plan.PRIORITY.request,
+        priority = (want >= 1 and has_spare_tool) and haul_plan.PRIORITY.tools or haul_plan.PRIORITY.request,
         building_priority = h.priority or 3, key = h.entity.unit_number,
         demands = demands}
     end
@@ -1766,11 +1818,13 @@ local function take_load(colony, offer)
         or (offer.bin and offer.bin.entity)
       if src and src.valid then
         n = src.remove_item{name = s.item, count = s.count}
+        if n > 0 and offer.hut then offer.hut.tool_cache, offer.hut.tool_tick = nil, nil end
       end
     else
       local src = offer.source and offer.source.entity
       if src and src.valid then
         n = src.remove_item{name = s.item, count = s.count}
+        if n > 0 then colony.stock_cache, colony.storage_cache = nil, nil end
       end
       if n < s.count then
         local extra = colony_mod.take_stock(colony, s.item, s.count - n)
@@ -2411,9 +2465,10 @@ function M.assign(colony, un)
 
   -- Colonists actively delivering or constructing must NOT have their state wiped by an asynchronous assignment!
   if st and (st.state == "to_construct" or st.state == "building" or st.state == "repairing"
-      or st.state == "to_house" or st.state == "to_hut" or st.state == "to_machine"
+      or st.state == "to_pickup" or st.state == "to_house" or st.state == "to_hut" or st.state == "to_machine"
       or st.state == "to_crate" or st.state == "to_pool" or st.state == "to_tavern"
-      or st.state == "to_bin" or st.state == "to_site" or st.state == "working") then
+      or st.state == "to_bin" or st.state == "to_hall" or st.state == "to_site" or st.state == "working"
+      or st.state == "hunting" or st.state == "guarding-fight") then
     return
   end
   if st and st.carry then M.release(st) end
@@ -2421,6 +2476,7 @@ function M.assign(colony, un)
 
   -- Night time: colonists return to their house to sleep. Children (#88) sleep with the household too.
   if M.is_sleep_time(e.surface) then
+    if st and (st.state == "sleeping" or st.state == "to_bed") and st.house and st.house.valid then return end
     if st then
       if st.hut and st.hut.workers then st.hut.workers[un] = nil end
       st.hut = nil
@@ -2503,7 +2559,10 @@ function M.assign(colony, un)
     if not capped and not should_switch and prev_hut.entity and prev_hut.entity.valid and prev_hut.workers and prev_hut.workers[un]
         and (not lock or lock == prev_hut.job) then
       local _, _, allowed, workers = M.hut_info(prev_hut)
-      if workers <= allowed and M.start_trip(colony, un, prev_hut, st.overflow) then return end
+      if workers <= allowed then
+        if prev_hut.job == "guard" and st and (st.state == "guarding" or st.state == "to_tower") then return end
+        if M.start_trip(colony, un, prev_hut, st.overflow) then return end
+      end
     end
     if prev_hut.workers then prev_hut.workers[un] = nil end
   end
@@ -3098,15 +3157,25 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     return
   end
   if st.job == "guard" and st.state == "guarding-fight" then
-    -- One engagement just finished (kill or done trying): weapon wear or ammo pays.
-    use_weapon(st.hut)
     local e2 = unit_entity(colony, ev.unit_number)
     if ev.result ~= defines.behavior_result.success and st.site and st.site.valid
+        and st.hut and st.hut.entity and st.hut.entity.valid
+        and dist2(st.site.position, st.hut.entity.position) <= (garrison.RANGE + 4) ^ 2
         and (st.attempts or 1) < garrison.MAX_ATTEMPTS then
       st.attempts = (st.attempts or 0) + 1
       if e2 and e2.valid then M.command_attack(e2, st.site); return end
     end
-    st.site, st.state, st.engaged, st.attempts = nil, "guarding", nil, nil
+    -- One engagement just finished (kill or done trying): weapon wear or ammo pays once per engagement.
+    use_weapon(st.hut)
+    st.site, st.engaged, st.attempts = nil, nil, nil
+    local dp = e2 and e2.valid and st.hut and st.hut.entity and st.hut.entity.valid
+      and (door_point(e2.surface, st.hut.entity) or st.hut.entity.position)
+    if e2 and e2.valid and dp and dist2(e2.position, dp) > 3 * 3 then
+      st.state = "to_tower"
+      go(e2, dp, 0.5)
+      return
+    end
+    st.state = "guarding"
     if e2 and e2.valid then
       e2.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
     end
@@ -3177,7 +3246,9 @@ events.on(defines.events.on_ai_command_completed, function(ev)
       -- The house's cached stock (colony.house_stock_cached) predates this drop. Expire it so the next haul
       -- plan sees the delivery instead of sending another hauler to top up a house that is already full.
       target.stock_tick = nil
+      target.tool_cache, target.tool_tick = nil, nil
       if st.inflight_target and st.inflight_target.inflight then
+        st.inflight_target.tool_cache, st.inflight_target.tool_tick = nil, nil
         for _, s in ipairs(st.carry) do
           st.inflight_target.inflight[s.item] = math.max((st.inflight_target.inflight[s.item] or 0) - s.count, 0)
         end

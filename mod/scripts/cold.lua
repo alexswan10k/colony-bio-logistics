@@ -62,13 +62,22 @@ scheduler.register("cold.tick", function()
   scheduler.after(M.PAUSE_TICKS, "cold.tick")
 end)
 
+local function is_scheduled()
+  for _, bucket in pairs(storage.scheduled or {}) do
+    for _, job in ipairs(bucket) do
+      if job.handler == "cold.tick" then return true end
+    end
+  end
+  return false
+end
+
 -- Arm the chain exactly once per world. Fresh worlds get it from on_init; existing saves pick it up via the
 -- [37] migration (which sets the same marker). The chain then self-perpetuates from storage like every
--- other colony timer, and a config change re-arm is a no-op thanks to the marker.
+-- other colony timer, and a config change re-arm is a no-op once cold.tick is actually scheduled.
 local function arm_once()
   if not storage then return end
   storage.scheduled = storage.scheduled or {}
-  if storage.cold_armed then return end
+  if storage.cold_armed and is_scheduled() then return end
   storage.cold_armed = true
   scheduler.after(M.PAUSE_TICKS, "cold.tick")
 end

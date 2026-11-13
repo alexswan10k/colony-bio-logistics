@@ -14,6 +14,7 @@ local well = require("scripts.model.well")
 local recreation = require("scripts.model.recreation")
 local mortality = require("scripts.model.mortality")
 local illness = require("scripts.model.illness")
+local tower_model = require("scripts.model.tower")
 local transit = require("scripts.transit")
 local work = require("scripts.work")
 local M = {}
@@ -37,7 +38,7 @@ local function house_status(h, colony)
   local sat = housing.available(tier, colony_mod.house_stock_cached(h), colony_mod.is_powered(h))
   -- A house fed from a water tower shelf never holds its own water; don't nag the player about it (#96).
   if sat.water == false and colony_mod.tower_list then
-    local r2 = 24 * 24
+    local r2 = tower_model.RADIUS * tower_model.RADIUS
     for _, t in ipairs(colony_mod.tower_list(colony)) do
       local tp, hp = t.entity.position, h.entity.position
       local d2 = (tp.x - hp.x) ^ 2 + (tp.y - hp.y) ^ 2
@@ -68,15 +69,7 @@ local function hut_status(colony, h, stock, haul_rank)
   -- A supply-gated hut is not staffable without its inputs. Most have no tool at all (a Smokehouse or Kitchen),
   -- but a Forester's Hut (#97) is tooled *and* supply-gated: it plants with wood out of its own chest, so
   -- `requires` names what it is actually waiting for and its line reads "no inputs", not "working".
-  local inputs_missing = false
-  local gated = def.requires or (not def.tool and def.keep)
-  if gated and workers == 0 then
-    local inv = h.entity.get_inventory(defines.inventory.chest)
-    inputs_missing = true
-    for _, it in ipairs(def.requires or def.keep or {}) do
-      if inv and inv.get_item_count(it) > 0 then inputs_missing = false end
-    end
-  end
+  local inputs_missing = (workers == 0) and work.hut_inputs_missing(colony, h) or false
   local sites
   if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" and h.job ~= "guard" then
     sites = work.site_count(h)
@@ -84,10 +77,11 @@ local function hut_status(colony, h, stock, haul_rank)
   local stuck = (colony.no_site[h.entity.unit_number] or 0) > game.tick
   local met, quota_item = work.hut_quota_met(colony, h)
   local nothing = h.entity.name == "colony-toolsmith" and #work.toolsmith_wanted(colony) == 0
+  local inflight, hall_stock, tool_need = work.hut_tool_availability(h, stock)
   local reason, arg = advice.hut{quota_item = met and quota_item or nil, nothing_to_do = nothing,
-    needs_tool = def.tool ~= nil, tool = def.tool, tools = tools, capacity = def.capacity,
-    limit = h.limit, workers = workers, inflight = def.tool and (h.inflight[def.tool] or 0) or 0,
-    hall_stock = def.tool and (stock[def.tool] or 0) or 0, sites = (stuck or (sites and sites == 0)) and 0 or sites,
+    needs_tool = def.tool ~= nil, tool = tool_need or def.tool, tools = tools, capacity = def.capacity,
+    limit = h.limit, workers = workers, inflight = inflight,
+    hall_stock = hall_stock, sites = (stuck or (sites and sites == 0)) and 0 or sites,
     inputs_missing = inputs_missing, haul_rank = haul_rank}
   if h.job == "guard" and reason == "paused" then
     return nil   -- an unmanned tower is a standing decision, not a problem to keep reporting

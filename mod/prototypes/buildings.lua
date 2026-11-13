@@ -428,7 +428,7 @@ data:extend({
    icon = G .. "icon-frontier-pack.png", icon_size = 64,
    subgroup = "science-pack", order = "z[colony]-s1[frontier-pack-forage]",
    localised_name = {"recipe-name.colony-frontier-pack-forage"}},
-  {type = "recipe", name = "colony-frontier-pack-forage", enabled = false, energy_required = 5,
+  {type = "recipe", name = "colony-frontier-pack-forage", enabled = false, hidden = true, energy_required = 5,
    ingredients = {{type = "item", name = "wood", amount = 1},
                   {type = "item", name = "iron-plate", amount = 1},
                   {type = "item", name = "colony-forage", amount = 2}},

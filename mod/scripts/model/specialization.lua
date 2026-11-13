@@ -21,11 +21,15 @@ local JOB_TO_SPEC = {
   mine = "industrial",
 }
 
--- huts: array of {name=, job=} (adapter walks colony.huts). Returns per-type hut counts, not tile sampling.
+local NAME_TO_SPEC = {
+  ["colony-salt-pan"] = "coast",
+}
+
+-- huts: array of {name=, job=} (adapter walks colony.huts and salt pans). Returns per-type hut counts, not tile sampling.
 function M.census(huts)
   local c = {coast = 0, fertile = 0, forest = 0, industrial = 0}
   for _, h in ipairs(huts or {}) do
-    local spec = JOB_TO_SPEC[h.job]
+    local spec = JOB_TO_SPEC[h.job] or NAME_TO_SPEC[h.name]
     if spec then c[spec] = c[spec] + 1 end
   end
   return c

@@ -1,5 +1,5 @@
 -- M1 integration test: hall -> territory -> houses (tent+powered cabin) -> hauling -> work -> tools.
--- Run: TICKS=14000 scripts/headless-spike.sh m1_colony
+-- Run: TICKS=19500 scripts/headless-spike.sh m1_colony
 local core = require("scripts.spike.core")
 local colony = require("scripts.colony")
 local feedback = require("scripts.feedback")

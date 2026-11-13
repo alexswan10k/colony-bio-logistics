@@ -151,8 +151,10 @@ local function wanted_elsewhere(colony)
   local want, queued = 0, 0
   for _, other in pairs(storage.colonies) do
     if other.hall.valid and other.hall.surface == colony.hall.surface then
-      queued = queued + waiting(other)
-      if other ~= colony and platform(other) then want = want + (other.deficit or 0) end
+      if other ~= colony then
+        queued = queued + waiting(other)
+        if platform(other) then want = want + (other.deficit or 0) end
+      end
     end
   end
   return math.max(want - outbound() - queued, 0)

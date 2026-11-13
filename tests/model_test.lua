@@ -2423,3 +2423,53 @@ describe("haul station + wooden trailer (#94)", function()
     eq(trailer.uses_left(nil), 30)
   end)
 end)
+
+describe("audit regressions", function()
+  local haul_plan = require("scripts.model.haul_plan")
+  local labour = require("scripts.model.labour")
+  local specialization = require("scripts.model.specialization")
+
+  it("haul_plan picks shortest Euclidean 2-leg route, not smallest d1^2 + d2^2", function()
+    local req = {{kind = "house", key = "h1", priority = haul_plan.PRIORITY.request, pos = {x = 10, y = 0},
+      demands = {{need = "food", item = "colony-forage", count = 5}}}}
+    local stors = {
+      {kind = "warehouse", key = 1, pos = {x = 0, y = 0}, available = {["colony-forage"] = 10}, storage_priority = 2},
+      {kind = "warehouse", key = 2, pos = {x = 5, y = 3}, available = {["colony-forage"] = 10}, storage_priority = 2},
+    }
+    local task = haul_plan.match(req, {}, stors, {}, 10, {x = 0, y = 0})
+    truthy(task)
+    eq(task.source.key, 1)
+  end)
+
+  it("haul_plan.order breaks equal-priority ties by best rank inside item-group demands", function()
+    local rctx = {ratings = {["colony-fish"] = {rank = 1, enabled = true}}, demand = {}}
+    local ordered = haul_plan.order({
+      {priority = haul_plan.PRIORITY.request, deficit = 5, dist = 10, item = "wood", key = "b"},
+      {priority = haul_plan.PRIORITY.request, deficit = 5, dist = 10,
+        items = {"colony-forage", "colony-fish"}, need = "food", key = "a"},
+    }, rctx)
+    eq(ordered[1].key, "a")
+  end)
+
+  it("haul_plan compost trip carries engine item 'spoilage'", function()
+    local task = haul_plan.match({}, {}, {}, {{key = "bin1", priority = haul_plan.PRIORITY.compost,
+      pos = {x = 2, y = 0}, bin = {pos = {x = 5, y = 0}}, spoil = 10}}, 10, {x = 0, y = 0})
+    truthy(task)
+    eq(task.load[1].item, "spoilage")
+  end)
+
+  it("labour.best_tool prefers colony-rifle on hunting lodge and watchtower", function()
+    for _, name in ipairs({"colony-hunting-lodge", "colony-watchtower"}) do
+      local tools = labour.HUTS[name].tools
+      eq(labour.best_tool({["colony-bow"] = 2, ["colony-rifle"] = 1}, tools), "colony-rifle", name)
+    end
+  end)
+
+  it("specialization.census counts salt pans toward coast", function()
+    local c = specialization.census({
+      {name = "colony-fishing-dock", job = "fish"},
+      {name = "colony-salt-pan"},
+    })
+    eq(c.coast, 2)
+  end)
+end)

@@ -27,7 +27,7 @@ M.HUTS = {
   ["colony-forester-hut"] = {job = "forest", tool = "colony-spade", capacity = 2,
     keep = {"wood"}, inputs = {{item = "wood", count = 10}}, requires = {"wood"}},
   ["colony-hunting-lodge"] = {job = "hunt", tool = "colony-bow",
-    tools = {"pistol", "submachine-gun", "colony-bow", "colony-rifle"},
+    tools = {"colony-rifle", "submachine-gun", "pistol", "colony-bow"},
     keep = {"colony-arrow", "firearm-magazine", "piercing-rounds-magazine"},
     capacity = 3},
   ["colony-fishing-dock"] = {job = "fish", tool = "colony-rod", capacity = 3},
@@ -53,7 +53,7 @@ M.HUTS = {
   -- open posts. Weapons wear out (or consume ammo) per engagement.
   -- Registered as a hut with limit = 0 by default, so an unmanned tower never nags; the player mans it.
   ["colony-watchtower"] = {job = "guard", tool = "colony-bow",
-    tools = {"pistol", "submachine-gun", "colony-bow", "colony-rifle"},
+    tools = {"colony-rifle", "submachine-gun", "pistol", "colony-bow"},
     keep = {"colony-arrow", "firearm-magazine", "piercing-rounds-magazine"},
     capacity = 4},
 }

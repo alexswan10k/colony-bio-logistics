@@ -17,6 +17,7 @@ local fishing = require("scripts.model.fishing")
 local salt = require("scripts.model.salt")
 local well = require("scripts.model.well")
 local recreation = require("scripts.model.recreation")
+local forest = require("scripts.model.forest")
 local tower_model = require("scripts.model.tower")
 local yields = require("scripts.model.yields")
 local housing = require("scripts.model.housing")
@@ -97,7 +98,8 @@ M.HOUSE_STOCK_TTL = 20          -- ticks a house's stock snapshot may be reused 
 M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
 M.FOOD_PER_COLONIST = yields.FOOD_PER_INTERVAL   -- food items per interval
 M.FOOD_ITEMS = {"colony-forage", "colony-fish", "colony-meat", "colony-produce", "raw-fish",
-  "colony-preserved-meat", "colony-preserved-fish", "colony-bread", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
+  "colony-preserved-meat", "colony-preserved-fish", "colony-canned-meat", "colony-canned-fish",
+  "colony-bread", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
 M.INTERVAL = 600                -- default ticks between evaluations
 M.TARGET_STOCK_INTERVALS = 5
 
@@ -1078,6 +1080,9 @@ local function refresh_specialization(colony)
   for _, h in pairs(colony.huts or {}) do
     if h.entity and h.entity.valid then huts[#huts + 1] = {name = h.entity.name, job = h.job} end
   end
+  for _, sp in pairs(colony.salt_pans or {}) do
+    if sp.entity and sp.entity.valid then huts[#huts + 1] = {name = sp.entity.name} end
+  end
   local census = specialization.census(huts)
   colony.spec_parts, colony.spec = specialization.score(census)
 end
@@ -1286,17 +1291,23 @@ function M.evaluate(data)
     end
   end
   -- Children grow up (#88): at CHILD_TICKS they become ordinary colonists and join the workforce.
-  if storage.age then
-    for un, rec in pairs(storage.age) do
-      if rec.stage == "child" and game.tick >= (rec.born or 0) + breeding.CHILD_TICKS then
-        rec.stage = "adult"
-        local g = colony.colonists and colony.colonists[un]
-        if g and g.valid then
-          rendering.draw_text{text = {"colony-message.grew-up"}, surface = g.surface,
-            target = {entity = g, offset = {0, -2}}, color = {1, 1, 0.8}, scale = 0.9,
-            alignment = "center", time_to_live = 150}
-          work.assign(colony, un)
-        end
+  if storage.age and colony.colonists then
+    local grown = {}
+    for un in pairs(colony.colonists) do
+      local rec = storage.age[un]
+      if rec and rec.stage == "child" and game.tick >= (rec.born or 0) + breeding.CHILD_TICKS then
+        grown[#grown + 1] = un
+      end
+    end
+    table.sort(grown)
+    for _, un in ipairs(grown) do
+      storage.age[un].stage = "adult"
+      local g = colony.colonists[un]
+      if g and g.valid then
+        rendering.draw_text{text = {"colony-message.grew-up"}, surface = g.surface,
+          target = {entity = g, offset = {0, -2}}, color = {1, 1, 0.8}, scale = 0.9,
+          alignment = "center", time_to_live = 150}
+        work.assign(colony, un)
       end
     end
   end
@@ -1755,7 +1766,10 @@ local function on_built(ev)
         }
       end
       colony.huts[e.unit_number] = hut
-      local r = (hut.job == "forage" and M.FORAGE_RADIUS or M.HUT_RADIUS)
+      script.register_on_object_destroyed(e)
+      local r = (hut.job == "forage" and M.FORAGE_RADIUS)
+        or (hut.job == "forest" and forest.RADIUS)
+        or M.HUT_RADIUS
       rendering.draw_circle{color = {0.45, 0.45, 0.15, 0.5}, width = 2, filled = false, radius = r,
         target = e, surface = e.surface, only_in_alt_mode = true}
       return
@@ -1956,6 +1970,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.salt_pans and colony.salt_pans[un] then
       colony.salt_pans[un] = nil
+      return
+    end
+    if colony.huts and colony.huts[un] then
+      colony.huts[un] = nil
       return
     end
     if colony.machines and colony.machines[un] then

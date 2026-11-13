@@ -1538,3 +1538,27 @@ describe("machine output helper (#54)", function()
     truthy(capstr(cap2):find("No finished products yet", 1, true), "empty output hint")
   end)
 end)
+
+describe("audit glue regressions", function()
+  local function scheduled_cold_count()
+    local n = 0
+    for _, bucket in pairs(storage.scheduled or {}) do
+      for _, job in ipairs(bucket) do
+        if job.handler == "cold.tick" then n = n + 1 end
+      end
+    end
+    return n
+  end
+
+  it("cold re-arms cold.tick on config change when cold_armed was set without a timer", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store")
+    require("scripts.cold")
+    storage.cold_armed = true
+    storage.scheduled = {}
+    env.on_cfg({})
+    eq(scheduled_cold_count(), 1)
+    env.on_cfg({})
+    eq(scheduled_cold_count(), 1)
+  end)
+end)

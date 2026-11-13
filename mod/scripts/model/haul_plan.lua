@@ -96,6 +96,20 @@ function M.deficit(offer)
   return n
 end
 
+local function item_names(list)
+  local out = {}
+  for _, entry in ipairs(list or {}) do
+    if entry.item then
+      out[#out + 1] = entry.item
+    elseif entry.items then
+      for _, name in ipairs(entry.items) do out[#out + 1] = name end
+    elseif type(entry) == "string" then
+      out[#out + 1] = entry
+    end
+  end
+  return out
+end
+
 -- Stable order: priority, then building priority, then the material-rank tie-break (#91: iron before
 -- copper when everything else is equal), then largest deficit, then `key` (caller supplies a stable id).
 -- `rank_ctx` is nil for legacy callers, or {ratings=, demand=} from the colony. Rank 1 = most wanted
@@ -107,9 +121,7 @@ function M.order(offers, rank_ctx)
   local function mat_rank(offer)
     if offer.mat_rank ~= nil then return offer.mat_rank end
     if not rank_ctx then return material_priority.DEFAULT end
-    local items = offer.load or offer.demands or {}
-    local r = material_priority.best(items, rank_ctx.ratings, rank_ctx.demand)
-    return r
+    return material_priority.best(item_names(offer.load or offer.demands), rank_ctx.ratings, rank_ctx.demand)
   end
   table.sort(offers, function(a, b)
     if a.priority ~= b.priority then return a.priority < b.priority end
@@ -140,6 +152,12 @@ local function dist2(a, b)
   return dx * dx + dy * dy
 end
 M.dist2 = dist2
+
+---@param a table|nil
+---@param b table|nil
+---@return number
+local function dist(a, b) return math.sqrt(dist2(a, b)) end
+M.dist = dist
 
 local function has_any_demanded(available, demands)
   for _, d in ipairs(demands) do
@@ -201,8 +219,8 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
       table.sort(direct_providers, function(a, b)
         local pa = a.pos or (a.entity and a.entity.position) or {x = 0, y = 0}
         local pb = b.pos or (b.entity and b.entity.position) or {x = 0, y = 0}
-        local da = dist2(hauler_pos or pa, pa) + dist2(pa, r_pos)
-        local db = dist2(hauler_pos or pb, pb) + dist2(pb, r_pos)
+        local da = dist(hauler_pos or pa, pa) + dist(pa, r_pos)
+        local db = dist(hauler_pos or pb, pb) + dist(pb, r_pos)
         if da ~= db then return da < db end
         return (a.key or 0) < (b.key or 0)
       end)
@@ -210,7 +228,7 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
         local load = M.load(r.demands, p.available or {}, cap)
         if #load > 0 then
           local p_pos = p.pos or (p.entity and p.entity.position) or {x = 0, y = 0}
-          local d = dist2(hauler_pos or p_pos, p_pos) + dist2(p_pos, r_pos)
+          local d = dist(hauler_pos or p_pos, p_pos) + dist(p_pos, r_pos)
           candidates[#candidates + 1] = {
             kind = "direct",
             priority = math.min(r.priority, p.priority),
@@ -257,8 +275,8 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
         local sa = a.pos or (a.entity and a.entity.position) or {x = 0, y = 0}
         local sb = b.pos or (b.entity and b.entity.position) or {x = 0, y = 0}
         -- Route distance from where the hauler actually stands (#93), not distance to the destination alone.
-        local da = dist2(hauler_pos or sa, sa) + dist2(sa, r_pos)
-        local db = dist2(hauler_pos or sb, sb) + dist2(sb, r_pos)
+        local da = dist(hauler_pos or sa, sa) + dist(sa, r_pos)
+        local db = dist(hauler_pos or sb, sb) + dist(sb, r_pos)
         if da ~= db then return da < db end
         return (a.key or 0) < (b.key or 0)
       end)
@@ -266,7 +284,7 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
         local load = M.load(r.demands, s.available or {}, cap)
         if #load > 0 then
           local s_pos = s.pos or (s.entity and s.entity.position) or {x = 0, y = 0}
-          local d = dist2(hauler_pos or s_pos, s_pos) + dist2(s_pos, r_pos)
+          local d = dist(hauler_pos or s_pos, s_pos) + dist(s_pos, r_pos)
           candidates[#candidates + 1] = {
             kind = "supply",
             priority = r.priority,
@@ -337,7 +355,7 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
         if #demands > 0 then
           local load = M.load(demands, p.available or {}, cap)
           if #load > 0 then
-            local d = dist2(hauler_pos or p_pos, p_pos) + dist2(p_pos, s_pos)
+            local d = dist(hauler_pos or p_pos, p_pos) + dist(p_pos, s_pos)
             candidates[#candidates + 1] = {
               kind = "collect",
               priority = p.priority,
@@ -367,7 +385,7 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
   for _, c in ipairs(compost_offers) do
     local src_pos = c.pos or (c.source and (c.source.pos or (c.source.entity and c.source.entity.position))) or {x = 0, y = 0}
     local bin_pos = (c.bin and (c.bin.pos or (c.bin.entity and c.bin.entity.position))) or {x = 0, y = 0}
-    local d = dist2(hauler_pos or src_pos, src_pos) + dist2(src_pos, bin_pos)
+    local d = dist(hauler_pos or src_pos, src_pos) + dist(src_pos, bin_pos)
     local n = math.min(c.spoil or cap, cap)
     if n > 0 then
       candidates[#candidates + 1] = {
@@ -378,8 +396,8 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
         source = c.source or c.storage,
         target = c.bin,
         bin = c.bin,
-        load = {{item = c.item or "colony-spoilage", count = n}},
-        demands = {{item = c.item or "colony-spoilage", count = n}},
+        load = {{item = c.item or "spoilage", count = n}},
+        demands = {{item = c.item or "spoilage", count = n}},
         deficit = c.spoil or cap,
         key = c.key,
         dist = d,
@@ -403,7 +421,7 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
   local function mat_rank(cand)
     if cand.mat_rank ~= nil then return cand.mat_rank end
     if not rank_ctx then return material_priority.DEFAULT end
-    local r = material_priority.best(cand.load or cand.demands or {}, rank_ctx.ratings, rank_ctx.demand)
+    local r = material_priority.best(item_names(cand.load or cand.demands), rank_ctx.ratings, rank_ctx.demand)
     cand.mat_rank = r
     return r
   end

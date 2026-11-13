@@ -22,7 +22,7 @@ core.register("s15_spoil", {
     ctx.probe("yumako spoil_ticks at runtime", function()
       local item = prototypes.item["yumako"]
       if not item then return "no yumako prototype" end
-      return tostring(item.spoil_ticks)
+      return tostring(item.get_spoil_ticks())
     end)
     ctx.probe("yumako spoil_result at runtime", function()
       local item = prototypes.item["yumako"]

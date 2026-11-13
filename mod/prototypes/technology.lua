@@ -79,7 +79,7 @@ data:extend({
   -- while goods are inside them. Interlock: the player has steel, circuits and canning machinery before the
   -- late-food tier appears (like Townhouse needing Steel Processing).
   tech("colony-cold-chain", "icon-refrigerated-warehouse.png", 30, {"colony-frontier-pack"}, 15,
-    {"colony-food-preservation", "steel-processing", "electronics"}, {
+    {"colony-food-preservation", "colony-water-infrastructure", "steel-processing", "electronics"}, {
     unlock("colony-cannery"),
     unlock("colony-canned-meat"), unlock("colony-canned-fish"),
     unlock("colony-refrigerated-warehouse"),

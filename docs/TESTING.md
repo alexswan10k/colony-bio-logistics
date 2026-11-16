@@ -21,7 +21,7 @@
 ## Regression gates (#39)
 Three headless gates cover the things the unit tests and the playable spike cannot:
 
-- `TICKS=19500 scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (114 checks, final checks at
+- `TICKS=19500 scripts/headless-spike.sh m1_colony` - the playable end-to-end scenario (116 checks, final checks at
   tick 18000: haulers walk to every pickup now, so the multi-hop chains - meat to smokehouse, spoilage to compost to
   fertilized plots - need the longer window). It includes the onboarding
   path: building a Town Hall completes the Settlement milestone, every house and hut gets a status line, a well and a
@@ -105,7 +105,7 @@ Three headless gates cover the things the unit tests and the playable spike cann
   sum onto one network, 30 filters fit in a section, values above int32 are rejected, and `LuaWireConnector`
   methods are bound (`.`, not `:`). Also measures the write: 20 filters ~0.027 ms.
 - `TICKS=19500 scripts/headless-spike.sh m2_tower` - the #96 water tower spike (14 checks): the Water Tower is an assembling machine with a locked recipe (`colony-water-bottling`) but no worker; it bottles piped fluid water into colony-water on its own clock (proved end to end by `s15_spoil`-adjacent probes: `LuaEntity.add_fluid(1, {name="water", amount=1000})` fills the fluid box from Lua). A powered tower inside territory is registered as a `colony.water_towers` record; a homestead whose ONLY water source in the world is the tower drinks straight out of its output inventory every evaluation (`sat.water == true`, `crit_unmet == false`) with the Town Hall holding zero water the entire run (houses do not make hauler trips for their tap).
-- `TICKS=19500 scripts/headless-spike.sh m2_cold` - the #45 cold chain spike (24 checks): prototypes for the cannery, refrigerator crate registration, the cold pass reviving a near-spoiled warehouse stack from Lua (control chest untouched), the refrigerated wagon reviving its cargo from the rail, and the whole town economy producing canned goods through real colonist work (six seeded colonists, inputs consumed in cannery order, verified via the work loop's own counter `work.cans_made` and the production statistics hook). Also checks the Cold Chain technology's prereqs (Food Preservation only), costs Frontier Charters and unlocks everything on research.
+- `TICKS=19500 scripts/headless-spike.sh m2_cold` - the #45 cold chain spike (24 checks): prototypes for the cannery, refrigerator crate registration, the cold pass reviving a near-spoiled warehouse stack from Lua (control chest untouched), the refrigerated wagon reviving its cargo from the rail, and the whole town economy producing canned goods through real colonist work (six seeded colonists, inputs consumed in cannery order, verified via the work loop's own counter `work.cans_made` and the production statistics hook). Also checks the Cold Chain technology's prereqs (Food Preservation, Water Infrastructure, Steel Processing and Electronics), costs Frontier Charters and unlocks everything on research.
 - `TICKS=19500 scripts/headless-spike.sh m2_specialization` - the #46 specialisation spike (13 checks): four
   isolated towns, one per specialization. After enough ticks the town claims its spec from its live hut
   composition: woodcutter+forester -> `forest`, three miner huts -> `industrial`, fishing dock -> `coast`,

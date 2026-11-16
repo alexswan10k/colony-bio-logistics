@@ -885,6 +885,27 @@ describe("needs (missing harvest roles)", function()
     eq(#rows, 1); eq(rows[1].job, "mine")
     eq(#needs.ranked({}, work_plan.HARVEST, {}, {}), 0)
   end)
+  it("wake_batch: no limit takes the whole roster, a limit rotates with a cursor", function()
+    -- structural wake: everybody, and the cursor is left at the start
+    local first, count, cursor = needs.wake_batch(500, 120, nil)
+    eq(first, 1); eq(count, 500); eq(cursor, 0)
+    -- routine wake: a window that walks the roster instead of re-testing the first few every time
+    first, count, cursor = needs.wake_batch(500, 0, 8)
+    eq(first, 1); eq(count, 8); eq(cursor, 8)
+    first, count, cursor = needs.wake_batch(500, cursor, 8)
+    eq(first, 9); eq(count, 8); eq(cursor, 16)
+    -- wrapping past the end comes back to the head, so every colonist gets a turn
+    first, count, cursor = needs.wake_batch(500, 496, 8)
+    eq(first, 497); eq(count, 8); eq(cursor, 4)
+    first = needs.wake_batch(500, cursor, 8)
+    eq(first, 5, "cursor 4 is a 0-based offset into the roster")
+    -- a roster smaller than the window is just the whole roster
+    first, count = needs.wake_batch(3, 2, 8)
+    eq(first, 1); eq(count, 3)
+    -- empty roster: nothing to visit, and no crash on the modulo
+    first, count, cursor = needs.wake_batch(0, 7, 8)
+    eq(first, 0); eq(count, 0); eq(cursor, 0)
+  end)
 end)
 
 describe("housing", function()

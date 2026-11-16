@@ -54,6 +54,8 @@ M.SMALL_TOWN = 8           -- below this many colonists a harvester also checks 
 M.HAUL_SWITCH_MIN = 4      -- items: a harvester only leaves a productive post for a haul worth the walk
 M.RETRY_BACKOFF_MAX = 4     -- an idle colonist that keeps finding nothing waits up to this many retry periods (#22)
 M.RETRY_BACKOFF_POP = 100   -- ...but only in big towns: one extra retry period per this many colonists
+M.WAKE_LIMIT = 8            -- idle colonists a routine wake looks at; the rest keep their retry timer (#22)
+M.WAKE_LIMIT_EVAL = 16      -- ...and how many the periodic evaluation nudges; the retry timer is the guarantee
 M.YIELD = {forage = yields.FORAGE, chop = yields.CHOP}
 M.MINE_PER_TRIP = yields.MINE_PER_TRIP   -- each unit becomes exactly one item (design §4.2)
 M.MINE_POLLUTION = 2        -- pollution per mining trip: colony industry still feeds the biters
@@ -470,13 +472,21 @@ local function construct_scan(colony)
   return ghosts, repairs
 end
 
-local function wake_idle_colonists(colony, skip_un)
+-- `limit` caps how many colonists this call assigns (see `needs.wake_batch`, #22): a routine wake - a trip
+-- finishing - passes M.WAKE_LIMIT and rotates, a structural one (a hut, a quota, a priority) passes nothing and
+-- still wakes the whole town at once.
+local function wake_idle_colonists(colony, skip_un, limit)
   if not colony then return end
   -- Sorted, not pairs(): which colonist wins a scarce slot must not depend on hash order, or two peers running
   -- the same inputs can staff different huts (#54 MP).
   -- `skip_un` is the colonist that just finished a trip and is about to be assigned by its caller: assigning it
   -- twice ran the whole job matrix twice and scheduled two `work.retry` timers for one idle colonist.
-  for _, un in ipairs(sorted_keys(colony.colonists or {})) do
+  local keys = sorted_keys(colony.colonists or {})
+  local first, count, next_cursor = needs.wake_batch(#keys, colony.wake_cursor, limit)
+  if count == 0 then return end
+  colony.wake_cursor = next_cursor
+  for i = 0, count - 1 do
+    local un = keys[(first - 1 + i) % #keys + 1]
     local c = colony.colonists[un]
     local st = storage.unit_state and storage.unit_state[un]
     if un ~= skip_un and c.valid and st and st.state == "idle" then
@@ -1954,12 +1964,16 @@ local function idle(colony, un, e)
   local pop = colony_mod.live_colonists(colony)
   local cap = math.min(1 + math.floor(pop / M.RETRY_BACKOFF_POP), M.RETRY_BACKOFF_MAX)
   local misses = math.min((prev and prev.state == "idle" and prev.misses or 0) + 1, cap)
-  storage.unit_state[un] = {colony_id = colony.id, state = "idle", misses = misses}
+  -- Every fruitless assign re-schedules a retry, and the old pending entries cannot be cancelled, so the same
+  -- colonist used to accumulate them: the bench town settled at ~12 retries a tick for 500 colonists instead of
+  -- ~0.7 (#22). Stamp each schedule and let only the newest one through.
+  local seq = ((prev and prev.retry_seq) or 0) + 1
+  storage.unit_state[un] = {colony_id = colony.id, state = "idle", misses = misses, retry_seq = seq}
   set_label(e, "idle")
   show_carry(e)
   local retry_period = (pop <= 5) and 60 or M.RETRY_TICKS
   local jitter = (pop <= 5) and ((un * 11) % 60) or ((un * 37) % 240)
-  scheduler.after(retry_period * misses + jitter, "work.retry", {un = un})
+  scheduler.after(retry_period * misses + jitter, "work.retry", {un = un, seq = seq})
 end
 M.idle = idle
 
@@ -2637,6 +2651,10 @@ scheduler.register("work.retry", function(d)
   -- Retries are only ever scheduled for an idle colonist. A second retry landing in the same tick as a first
   -- must not reassign a colonist that just set off on a trip: that drops the load it already picked up (#56).
   if not (st and st.state == "idle") then return end
+  -- Only the newest retry a colonist scheduled counts: `idle` adds one per fruitless assign and the older
+  -- entries cannot be cancelled, which multiplied the retry rate in big towns (#22). A nil seq is an entry
+  -- written before the counter existed, so it is let through.
+  if d.seq ~= nil and st.retry_seq ~= nil and st.retry_seq ~= d.seq then return end
   local colony = storage.colonies[st.colony_id]
   if colony then M.assign(colony, d.un) end
 end)
@@ -2933,7 +2951,9 @@ scheduler.register("construct.finish", function(d)
   st.state = "idle"
   st.site = nil
   st.kind = nil
-  wake_idle_colonists(colony, d.un)
+  -- A trip finishing is routine, not a structural change: wake a rotating batch (M.WAKE_LIMIT), not the town,
+  -- or every harvest completion re-runs the job matrix for every idle colonist (#22).
+  wake_idle_colonists(colony, d.un, M.WAKE_LIMIT)
   M.assign(colony, d.un)
 end)
 
@@ -3177,7 +3197,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     else M.release(st) end
     if st.trailer then return_trailer(colony, st, unit_entity(colony, ev.unit_number)) end
     st.state = "idle"
-    wake_idle_colonists(colony, ev.unit_number)
+    wake_idle_colonists(colony, ev.unit_number, M.WAKE_LIMIT)
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_bin" then
     local e = unit_entity(colony, ev.unit_number)
@@ -3197,7 +3217,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     if dropped > 0 and e and e.valid then popup(e.surface, e.position, {"", "Composted ", tostring(dropped)}) end
     if st.trailer then return_trailer(colony, st, e) end
     st.state = "idle"
-    wake_idle_colonists(colony, ev.unit_number)
+    wake_idle_colonists(colony, ev.unit_number, M.WAKE_LIMIT)
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_site" then
     st.state = "working"
@@ -3260,7 +3280,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
       end
     end
     st.state = "idle"
-    wake_idle_colonists(colony, ev.unit_number)
+    wake_idle_colonists(colony, ev.unit_number, M.WAKE_LIMIT)
     M.assign(colony, ev.unit_number)
   elseif st.state == "to_hall" then
     if st.carry then
@@ -3283,7 +3303,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     colony.ledger_cache, colony.stock_cache, colony.storage_cache = nil, nil, nil
     if st.trailer then return_trailer(colony, st, unit_entity(colony, ev.unit_number)) end
     st.state = "idle"
-    wake_idle_colonists(colony, ev.unit_number)
+    wake_idle_colonists(colony, ev.unit_number, M.WAKE_LIMIT)
     M.assign(colony, ev.unit_number)
   end
 end)

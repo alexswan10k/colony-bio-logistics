@@ -30,7 +30,9 @@ function M.flow(colony, item, count, surface)
   if not force then return end
   local s = stats(force, surface or (hall and hall.surface))
   if not (s and s.valid) then return end
-  pcall(function() s.on_flow(s, item, count) end)
+  -- 2.1 flow-statistics methods are bound (like LuaWireConnector): `s.on_flow(s, item, count)` passes three
+  -- arguments to a two-argument function, the pcall swallowed the error and every flow was silently lost.
+  pcall(function() s.on_flow(item, count) end)
 end
 
 -- Items that came into existence in the colony (harvest, curing, baking, composting, wells and pans...).

@@ -141,31 +141,39 @@ Three headless gates cover the things the unit tests and the playable spike cann
   random map, so a failing spike can be re-run on the same terrain and the determinism gate compares a
   world it did not just invent. `MAP_SEED=42 scripts/headless-spike.sh m1_colony` widens coverage on demand.
 - `scripts/bench-colony.sh` - the #22 UPS gate. Builds a synthetic town with `m1_bench` (colonists, cabins,
-  huts, opted-in machines), saves it, then benchmarks four saves with `--benchmark --benchmark-verbose all`:
-  vanilla (mod off), mod on with no colony, an "inert" control (same entities, nothing registered with the
-  colony) and the town itself - both with machines that only have output and with machines that also
-  request ore. Column 3 of the verbose CSV is the whole update, **column 44 is the Lua script time**, so
-  the budget is read directly instead of being inferred from a delta.
+  huts, opted-in machines, planted work sites), warms it up for 3600 ticks, saves it, then benchmarks four
+  saves with `--benchmark --benchmark-verbose all`: vanilla (mod off), mod on with no colony, an "inert"
+  control (same entities, nothing registered with the colony) and the town itself - both with machines that
+  only have output and with machines that also request ore. Column 3 of the verbose CSV is the whole update,
+  **column 44 is the Lua script time**, so the budget is read directly instead of being inferred from a delta.
+  `BENCH_IDLE=1` also builds and reports the no-sites town the gate used to measure, for comparison.
 
-  Measured on the reference Mac (500 colonists, 83 cabins, 20 huts, 2000 opted-in furnaces, 3600 ticks), run
-  2026-11-06 at commit a50af55 (`scripts/bench-colony.sh`, quiet re-baseline #54):
+  A town that fails its own "did it actually work" checks is a broken benchmark, so `build_town` now fails
+  the gate on any `[FAIL]`/`[ERR]` in the spike report instead of quietly measuring an idle town.
+
+  Measured on the reference Mac (500 colonists, 83 cabins, 20 huts, 2000 opted-in furnaces, 525 work sites,
+  3600 warm-up ticks, 3600 measured ticks), run 2026-11-16 after the working-town and wake fixes:
 
   | save | total ms/tick | script ms/tick |
   |---|---|---|
-  | vanilla, no mod | 0.113 | - |
-  | mod on, no colony built | 0.097 | 0.001 |
-  | inert control (same entities, nothing registered) | 0.223 | 0.024 |
-  | colony, machines collect only | 1.258 | **0.686** |
-  | colony, machines also demand ore | 1.323 | **0.722** |
+  | vanilla, mod disabled | 0.100 | - |
+  | mod on, no colony built | 0.085 | 0.002 |
+  | inert control (same entities, nothing registered) | 0.255 | 0.053 |
+  | colony, working town | 7.350 | **0.566** |
+  | colony, working town, ore demand | 5.216 | **0.596** |
+  | colony, idle town (no sites, `BENCH_IDLE=1`) | 3.883 | 0.458 |
 
-  Budget is <1 ms of Lua per tick, so the gate **passes** with ~28% headroom, and "mod enabled, no colony"
-  costs 2 microseconds of script time. An earlier run (before the milestone and feedback work) saw a median tick of
-  0.2 ms and a p99 tail of ~8 ms from assignment bursts; the percentiles have not been re-measured since.
+  Budget is <1 ms of Lua per tick, so the gate **passes** with ~40% headroom. The working town's *whole
+  update* is 7.35 ms: walking colonists, trees and engine pathfinding dominate the total, so the Lua budget
+  is only one part of the UPS story. Note also that the "idle" control is not perfectly dead - the mod
+  autoplaces forage patches in new chunks - it is a reference point, not a zero.
 
   To attribute a budget miss, short-circuit a function (e.g. make `M.assign` return immediately), re-copy
   the mod into `build/bench/mods` and re-run the two `--benchmark` passes; the drop is that function's cost.
   `LuaProfiler` cannot be read as a number from Lua (only displayed as a localised string), so the
-  short-circuit delta is the practical profiler here.
+  short-circuit delta is the practical profiler here. `python3 build/diag.py <save> <ticks>` (throwaway,
+  gitignored) counts the hot calls per 300 ticks by patching a copy of the mod; it is what found the wake
+  storm below.
 - `scripts/bench-once.sh [save] [ticks]` - the fast #22 loop. Copies the current `mod/` over the bench mod
   dir and re-benchmarks an existing bench save (the demand town by default) without rebuilding it: ~2 s per
   run, ±0.005 ms/tick between runs on the reference Mac, so a change and a re-run is a usable A/B. Always
@@ -185,12 +193,28 @@ Three headless gates cover the things the unit tests and the playable spike cann
   the colony's Lua (0.026 ms/tick with it stubbed), and inside it the haul-offer build was ~200 µs per call,
   `job_slots`/`hut_info` ~140 µs and `colony_missing_*` ~90 µs (`find_haul_task` total ~1 ms).
 
-  **The bench town is degenerate, know this before optimising from it.** `m1_bench` flattens its square with
-  `ctx.flat_area` and plants no trees, ore, forage or fish, so no hut ever finds a site: colonists take a post,
-  fail to find work, go idle and retry with backoff. Measured 2026-11-16, `wake_idle_colonists` is never called
-  once in 1800 ticks and every assignment ends in `work.idle`. So the gate measures *assignment churn in a town
-  with nothing to do* - the worst case for planning cost, and not the cost of a working town. Read it as a
-  ceiling on planning, and measure a real colony in-game with `/profile` or a `--benchmark` save of one.
+  **The old bench town was degenerate, and what fixing it found.** Until 2026-11-16 `m1_bench` flattened its
+  square and planted nothing: no tree, ore or forage was ever in range, no hut completed a trip, and
+  `wake_idle_colonists` was never called in 1800 ticks. The gate measured assignment churn in a town with
+  nothing to do. The town now plants a forest, four ore beds and forage patches inside the huts' radii, sets
+  unlimited quotas (a met quota is the fastest way to stop a hut working), stocks tools in a hall that is no
+  longer over-filled, and has warehouses for the harvest. It warms up for 3600 ticks so trips complete before
+  the save, and the spike fails the gate unless wood, ore *and* forage were actually produced - read the
+  production counters off the colony's own `stats.produced` flows.
+
+  Once trips completed, the previously invisible cost appeared: every finished trip called
+  `wake_idle_colonists` with no limit, which re-ran the whole job matrix for all ~450 idle colonists at once.
+  Instrumented, that was ~460 assigns in a single tick and a 325 ms worst tick. Routine wakes are now capped
+  and rotate through the roster (`model/needs.wake_batch`, `M.WAKE_LIMIT`, `M.WAKE_LIMIT_EVAL`); structural
+  changes still wake everybody through `reassign_workforce`. Stale retry timers are stamped so only the newest
+  one fires. On the old save with the fixes: worst tick 325 -> 30 ms, script 14.1 -> 7.5 ms/tick, and
+  `n_woke` 11,505 -> 176 over 1200 ticks. The rebuilt, working town passes the gate at 0.566/0.596 ms/tick.
+
+  A gotcha worth keeping: in Factorio 2.1 the `LuaFlowStatistics` methods are **bound** - `on_flow(id, count)`
+  and `get_input_count(id)` take no explicit self. `scripts/stats.lua` called `s.on_flow(s, item, count)`;
+  the pcall swallowed the argument-count error, so every production flow was silently lost and the colony's
+  production GUI was empty. This is also why the first working-town checks read zero. The spike now calls
+  `st.get_input_count(item)` (and `m1_stats` is the engine proof of the sign convention).
 
   How it got there (#75, measured with the same harness): the haul planner used to read every opted-in
   machine's inventory on every assignment (`4.97 ms` at 2000 machines, and `17.3 ms` once those machines

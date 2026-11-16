@@ -1417,6 +1417,8 @@ function M.evaluate(data)
   -- Sleepers whose individual check was lost (save/load mid-walk) are woken here. Idle colonists already
   -- re-assign themselves on their `work.retry` timer, so walking the whole town here would double the
   -- assignment rate - and this loop runs for every colonist every evaluation (#22 caught the cost).
+  -- The idle nudge is therefore a rotating batch (`WAKE_LIMIT_EVAL`), not a sweep: the retry timer is the
+  -- guarantee, this only stops a returning colonist waiting out the full backoff.
   if not work.is_sleep_time(colony.hall.surface) then
     for un, c in pairs(colony.colonists or {}) do
       local st = storage.unit_state and storage.unit_state[un]
@@ -1424,7 +1426,7 @@ function M.evaluate(data)
         work.wake_up(colony, un, c)
       end
     end
-    work.wake_idle_colonists(colony)
+    work.wake_idle_colonists(colony, nil, work.WAKE_LIMIT_EVAL)
   end
 end
 scheduler.register("colony.evaluate", M.evaluate)

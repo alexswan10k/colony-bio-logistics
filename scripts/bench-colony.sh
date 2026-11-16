@@ -6,9 +6,11 @@
 # and compare the per-tick average against the #22 budget.
 #   scripts/bench-colony.sh                          # 500 colonists, 2000 machines, 3600 ticks
 #   POP=200 MACHINES=500 TICKS=1800 scripts/bench-colony.sh
+#   BENCH_IDLE=1 scripts/bench-colony.sh             # also build and report the no-sites town (one more pass)
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"; need_bin
 POP="${POP:-500}"; MACHINES="${MACHINES:-2000}"; TICKS="${TICKS:-3600}"; BUDGET_MS="${BUDGET_MS:-1.0}"
+BENCH_IDLE="${BENCH_IDLE:-0}"
 MAP_SEED="${MAP_SEED:-1234567}"
 WORK="$REPO_ROOT/build/bench"; rm -rf "$WORK"; mkdir -p "$WORK/mods"
 WRITE="$WORK/write-data"; mkdir -p "$WRITE" "$WRITE/saves"
@@ -59,7 +61,15 @@ build_town() {
   done
   kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
   if [ ! -f "$save" ]; then echo "FAILED: $name town was not saved (see $WORK/build-$name.log)"; tail -30 "$WORK/build-$name.log"; exit 1; fi
-  grep -hoE "(built|at save): pop=[0-9]+[^\"]*" "$WRITE"/script-output/colony-spikes/m1_bench.txt | tr '\n' ' ' || true
+  # A town that failed its own "did it actually work" checks is a broken benchmark, not a benchmark result:
+  # fail the gate rather than quietly measuring a town where no hut ever found a site.
+  local report="$WRITE/script-output/colony-spikes/m1_bench.txt"
+  if grep -qE '^\[(FAIL|ERR)\]' "$report" 2>/dev/null; then
+    echo "FAILED: $name town failed its spike checks (see $report)"
+    grep -E '^\[(FAIL|ERR)\]' "$report"
+    exit 1
+  fi
+  grep -hoE "(built|at save): pop=[0-9]+[^\"]*" "$report" | tr '\n' ' ' || true
   echo
 }
 
@@ -69,6 +79,10 @@ echo "== building the inert control (same entities, nothing registered)"
 build_town inert inert
 echo "== building the demand town (every machine asks for ore)"
 build_town demand demand
+if [ "$BENCH_IDLE" = "1" ]; then
+  echo "== building the idle town (no trees, ore or forage: the old degenerate measurement)"
+  build_town idle idle
+fi
 
 # The baseline must not re-run the bench spike, or it would build the town again.
 rm -f "$DEST/autorun.lua"
@@ -101,20 +115,28 @@ echo "== benchmarking the colony (machines collect only)"
 read -r LOADED_T LOADED_S < <(bench "$WRITE/saves/colony-bench.zip" colony)
 echo "== benchmarking the demand town (every machine also requests ore)"
 read -r DEMAND_T DEMAND_S < <(bench "$WRITE/saves/colony-bench-demand.zip" demand)
+IDLE_T=0; IDLE_S=0
+if [ "$BENCH_IDLE" = "1" ]; then
+  echo "== benchmarking the idle town (no work sites: the old degenerate measurement)"
+  read -r IDLE_T IDLE_S < <(bench "$WRITE/saves/colony-bench-idle.zip" idle)
+fi
 
 python3 - "$VANILLA_T" "$BASE_T" "$BASE_S" "$INERT_T" "$INERT_S" "$LOADED_T" "$LOADED_S" \
-  "$DEMAND_T" "$DEMAND_S" "$POP" "$BUDGET_MS" <<'PYEOF'
+  "$DEMAND_T" "$DEMAND_S" "$POP" "$BUDGET_MS" "$IDLE_T" "$IDLE_S" <<'PYEOF'
 import sys
 (v_t, base_t, base_s, inert_t, inert_s, loaded_t, loaded_s,
  demand_t, demand_s) = (float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]),
                         float(sys.argv[5]), float(sys.argv[6]), float(sys.argv[7]), float(sys.argv[8]),
                         float(sys.argv[9]))
 pop, budget = int(sys.argv[10]), float(sys.argv[11])
+idle_t, idle_s = float(sys.argv[12]), float(sys.argv[13])
 print(f"vanilla, mod disabled:            {v_t:6.3f} total")
 print(f"mod on, no colony:                {base_t:6.3f} total  {base_s:6.3f} script   ({base_s - v_t:+.3f} with no colony)")
 print(f"inert control (same entities):    {inert_t:6.3f} total  {inert_s:6.3f} script")
-print(f"colony, machines collect only:    {loaded_t:6.3f} total  {loaded_s:6.3f} script")
-print(f"colony, machines also demand ore: {demand_t:6.3f} total  {demand_s:6.3f} script")
+print(f"colony, working town:             {loaded_t:6.3f} total  {loaded_s:6.3f} script")
+print(f"colony, working town, ore demand: {demand_t:6.3f} total  {demand_s:6.3f} script")
+if idle_s > 0:
+    print(f"colony, idle town (no sites):     {idle_t:6.3f} total  {idle_s:6.3f} script   (the old, degenerate town)")
 print()
 worst = max(loaded_s, demand_s)
 print(f"worst colony Lua: {worst:.3f} ms/tick for {pop} colonists "

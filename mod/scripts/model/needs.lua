@@ -98,4 +98,23 @@ function M.ranked(set, order, ratings, demand)
   return rows
 end
 
+-- Which slice of the roster a wake should look at (#22). A routine wake - a trip finishing - used to re-run the
+-- job matrix for *every* idle colonist: 452 of the bench's 500 colonists, ~300 ms in one tick, to find the one or
+-- two who could use a slot that just freed. A structural change (a hut, a quota, a priority) still wakes
+-- everybody by passing no limit; a routine wake takes `limit` colonists and moves a cursor on, so every idle
+-- colonist still gets its turn across successive events instead of the same head of the list every time.
+-- Returns the 1-based first index, how many to visit, and the cursor for the next call.
+---@param n integer number of colonists on the roster
+---@param cursor integer|nil where the previous routine wake stopped
+---@param limit integer|nil nil (or 0) = everybody
+---@return integer first
+---@return integer count
+---@return integer next_cursor
+function M.wake_batch(n, cursor, limit)
+  if n <= 0 then return 0, 0, 0 end
+  if not limit or limit <= 0 or limit >= n then return 1, n, 0 end
+  local start = (cursor or 0) % n
+  return start + 1, limit, (start + limit) % n
+end
+
 return M

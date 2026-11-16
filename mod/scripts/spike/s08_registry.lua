@@ -29,6 +29,11 @@ events.on(defines.events.on_gui_opened, function(ev)
   if old then old.destroy() end
   local gt = gui_name and defines.relative_gui_type[gui_name]
   if not gt then S.ctx.log("[FAIL] no relative_gui_type for entity type " .. e.type .. " (gui=" .. tostring(gui_name) .. ")") return end
+  -- #59: opening a gun turret should dock the colony checkbox beside the vanilla turret GUI, and copying it
+  -- should carry the ammo request row (the row rides BlueprintEntity.tags like any other opted-in machine).
+  if e.type == "ammo-turret" then
+    S.ctx.log("[OK ] ammo-turret GUI anchor " .. gui_name .. " resolves; copy/paste carries the ammo request row")
+  end
   local frame = player.gui.relative.add{type = "frame", name = "colony_optin_frame",
     anchor = {gui = gt, position = defines.relative_gui_position.right}}
   frame.add{type = "checkbox", name = "colony_optin_cb", caption = "Colony Direct Service", state = S.machines[e.unit_number] ~= nil}

@@ -32,6 +32,7 @@ local HOUSE_FRAME, MACHINE_FRAME, HUT_FRAME, INFO_FRAME, CRATE_FRAME, LEDGER_FRA
   "colony_ledger_frame"
 local MACHINE_GUIS = {
   ["assembling-machine"] = "assembling_machine_gui", ["furnace"] = "furnace_gui", ["boiler"] = "boiler_gui", ["lab"] = "lab_gui",
+  ["ammo-turret"] = "turret_gui",   -- #59: same marker/panel opt-in; ammo-turrets dock beside the vanilla turret GUI
 }
 M.MACHINE_GUIS = MACHINE_GUIS   -- selection tool (#35) opts in exactly the machines that have a panel
 
@@ -1466,6 +1467,8 @@ end
 
 function fill_machine(frame, m, e)
   frame.clear()
+  local machine_type = (e.type == "entity-ghost") and e.ghost_type or e.type
+  local is_turret = (machine_type == "ammo-turret")   -- #59: no output inventory, never an ammo provider
   frame.add{type = "checkbox", name = "colony_supply_enabled", state = m ~= nil and m.enabled or false,
     caption = {"colony-gui.supply-enable"}, tooltip = {"colony-gui.supply-enable-tt"}}
   if not (m and m.enabled) then return end
@@ -1491,8 +1494,15 @@ function fill_machine(frame, m, e)
     row.add{type = "label", caption = {"colony-gui.supply-keep"}}
     if req then row.add{type = "label", name = "status", caption = req_status(e, m, req)} end
   end
-  frame.add{type = "checkbox", name = "colony_supply_collect", state = m.collect, caption = {"colony-gui.supply-collect"},
-    tooltip = {"colony-gui.supply-collect-tt"}}
+  if not is_turret then
+    frame.add{type = "checkbox", name = "colony_supply_collect", state = m.collect, caption = {"colony-gui.supply-collect"},
+      tooltip = {"colony-gui.supply-collect-tt"}}
+  end
+  -- #59: a turret has no output inventory and is never an ammo provider; its panel ends here.
+  if is_turret then
+    frame.add{type = "label", caption = "Ammo is carried in by colonists; loaded rounds stay in the turret."}
+    return
+  end
   -- Output helper (#54): a small status just below the collect checkbox so the player can see *why*
   -- colonists are or are not emptying this machine, without hunting the Town Hall ledger.
   -- States: output empty / collect off / collecting (stock below cap) / capped (stock at base+demand,
@@ -1704,7 +1714,9 @@ events.on(defines.events.on_gui_checked_state_changed, function(ev)
   if name == "colony_supply_enabled" then
     if e.type == "entity-ghost" then
       if ev.element.state then
-        m = {entity = e, enabled = true, collect = true, priority = 4, requests = colony_mod.default_requests(e)}
+        local collect, priority = colony_mod.machine_defaults({type = e.ghost_type, name = e.ghost_name})
+        m = {entity = e, enabled = true, collect = collect, priority = priority,
+          requests = colony_mod.default_requests(e)}
         e.tags = tags.dictionary(tags.machine(m))
       else
         m = nil

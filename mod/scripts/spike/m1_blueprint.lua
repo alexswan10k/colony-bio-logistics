@@ -24,13 +24,17 @@ core.register("m1_blueprint", {
     -- Two entities the colony serves, each with settings that exist only in our registry.
     local furnace = build("stone-furnace", {p.x + 6, p.y})
     local crate = build("colony-demand-crate", {p.x + 10, p.y})
+    local turret = build("gun-turret", {p.x + 14, p.y})   -- #59: same tag channel as any opted-in machine
     local plain = build("stone-furnace", {p.x + 6, p.y + 6})
-    ctx.check("furnace + crate + plain furnace built", furnace and crate and plain)
-    if not (furnace and crate and plain) then return ctx.finish() end
+    ctx.check("furnace + crate + turret + plain furnace built", furnace and crate and turret and plain)
+    if not (furnace and crate and turret and plain) then return ctx.finish() end
 
     local m = colony_mod.set_machine(colony, furnace, true)
     m.collect = false
     m.requests = {{item = "iron-ore", count = 20}, nil, {item = "coal", count = 5}}
+    local tm = colony_mod.set_machine(colony, turret, true)
+    ctx.check("the turret's default row + collect=false are set (#59)",
+      tm and tm.requests[1].item == "firearm-magazine" and tm.collect == false and tm.priority == 3)
     local c = colony.crates[crate.unit_number]
     crates.set_filter(c.filters, 1, "stone")
     crates.set_count(c.filters, 1, 120)
@@ -46,8 +50,8 @@ core.register("m1_blueprint", {
     local inv = game.create_inventory(2)
     local stack = inv[1]
     stack.set_stack{name = "blueprint"}
-    local area = {{p.x + 4, p.y - 2}, {p.x + 12, p.y + 2}}
-    ctx.probe("create_blueprint over the furnace + crate", function()
+    local area = {{p.x + 4, p.y - 2}, {p.x + 16, p.y + 2}}
+    ctx.probe("create_blueprint over the furnace + crate + turret", function()
       return stack.create_blueprint{surface = s, force = "player", area = area}
     end)
     local ents = stack.get_blueprint_entities() or {}
@@ -55,16 +59,20 @@ core.register("m1_blueprint", {
     for _, e in ipairs(ents) do index_of[e.name] = e.entity_number; seen[e.name] = true end
     ctx.check("blueprint contains both entities", seen["stone-furnace"] and seen["colony-demand-crate"],
       #ents .. " entities")
+    ctx.check("blueprint contains the turret (#59)", seen["gun-turret"] ~= nil)
 
     -- A foreign tag must survive our write: another mod may be using the same blueprint entity.
     stack.set_blueprint_entity_tag(index_of["stone-furnace"], "someone-else", "keep me")
     local tagged = colony_mod.tag_blueprint(stack, {[index_of["stone-furnace"]] = furnace,
-      [index_of["colony-demand-crate"]] = crate})
-    ctx.check("tag_blueprint tagged both entities", tagged == 2, tagged)
+      [index_of["colony-demand-crate"]] = crate, [index_of["gun-turret"]] = turret})
+    ctx.check("tag_blueprint tagged all three entities", tagged == 3, tagged)
     local ftags = stack.get_blueprint_entity_tags(index_of["stone-furnace"]) or {}
     local ctags = stack.get_blueprint_entity_tags(index_of["colony-demand-crate"]) or {}
+    local ttags = stack.get_blueprint_entity_tags(index_of["gun-turret"]) or {}
     ctx.check("machine tags are in the blueprint", ftags[tags.TAG] ~= nil and ftags[tags.TAG].machine == true)
     ctx.check("crate tags are in the blueprint", ctags[tags.TAG] ~= nil and ctags[tags.TAG].crate == true)
+    ctx.check("the turret's machine tags are in the blueprint (#59)",
+      ttags[tags.TAG] ~= nil and ttags[tags.TAG].machine == true)
     ctx.check("a foreign tag was not clobbered", ftags["someone-else"] == "keep me", ftags["someone-else"])
 
     -- ---------- build the blueprint somewhere else ----------
@@ -73,16 +81,17 @@ core.register("m1_blueprint", {
       return stack.build_blueprint{surface = s, force = "player", position = at, build_mode = defines.build_mode.forced,
         raise_built = true}
     end)
-    local ghosts = s.find_entities_filtered{area = {{at.x - 2, at.y - 2}, {at.x + 12, at.y + 6}},
+    local ghosts = s.find_entities_filtered{area = {{at.x - 8, at.y - 2}, {at.x + 16, at.y + 6}},
       type = "entity-ghost"}
     local ghost_of = {}
     for _, g in ipairs(ghosts) do ghost_of[g.ghost_name] = g end
     ctx.check("blueprint became ghosts", ghost_of["stone-furnace"] ~= nil and ghost_of["colony-demand-crate"] ~= nil,
       #ghosts .. " ghosts")
-    local mg, cg = ghost_of["stone-furnace"], ghost_of["colony-demand-crate"]
-    if not (mg and cg) then return ctx.finish() end
+    local mg, cg, tg = ghost_of["stone-furnace"], ghost_of["colony-demand-crate"], ghost_of["gun-turret"]
+    if not (mg and cg and tg) then return ctx.finish() end
     ctx.check("the machine ghost carries the tags", mg.tags and mg.tags[tags.TAG] and mg.tags[tags.TAG].machine == true)
     ctx.check("the crate ghost carries the tags", cg.tags and cg.tags[tags.TAG] and cg.tags[tags.TAG].crate == true)
+    ctx.check("the turret ghost carries the tags (#59)", tg.tags and tg.tags[tags.TAG] and tg.tags[tags.TAG].machine == true)
 
     -- ---------- revive (what the colony builder does) ----------
     -- `revive` returns (collided items, entity, proxy): the entity is the second value, not the first.
@@ -102,6 +111,18 @@ core.register("m1_blueprint", {
     local nc = colony.crates[new_crate.unit_number]
     ctx.check("crate filters survived", nc and nc.filters[1] and nc.filters[1].item == "stone"
       and nc.filters[1].count == 120, nc and nc.filters[1] and nc.filters[1].item or "missing")
+
+    -- #59: the revived turret is opted in with its ammo row and collect=false (no new tag code needed).
+    local ok_t, new_turret = ctx.probe("revive the turret ghost (#59)",
+      function() return select(2, tg.revive{raise_revive = true}) end)
+    ctx.check("the turret ghost revived (#59)", ok_t and new_turret and new_turret.valid)
+    if ok_t and new_turret and new_turret.valid then
+      local nt = colony.machines[new_turret.unit_number]
+      ctx.check("the rebuilt turret is opted in with its ammo row and collect=false (#59)",
+        nt ~= nil and nt.enabled == true and nt.collect == false and nt.requests[1]
+          and nt.requests[1].item == "firearm-magazine" and nt.priority == 3,
+        nt and nt.requests[1] and nt.requests[1].item or "missing")
+    end
 
     -- ---------- copy-paste ----------
     -- The engine only raises on_entity_settings_pasted when the copy is done "as" a player, and a headless

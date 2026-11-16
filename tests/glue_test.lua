@@ -141,6 +141,113 @@ describe("store migrations", function()
   end)
   end)
 
+describe("turret ammo adapter (#59)", function()
+  local function install()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    return require("scripts.colony")
+  end
+  it("keeps the schema at 37 (turrets ride the existing machine registry)", function()
+    install()
+    eq(storage.schema, 37)
+  end)
+  it("default_requests gives a gun turret its magazine row and an unknown turret nothing", function()
+    local colony_mod = install()
+    local rows = colony_mod.default_requests{type = "ammo-turret", name = "gun-turret"}
+    eq(#rows, 1); eq(rows[1].item, "firearm-magazine"); eq(rows[1].count, 10)
+    eq(#colony_mod.default_requests{type = "ammo-turret", name = "unknown-turret"}, 0)
+    local ghost = colony_mod.default_requests{type = "entity-ghost", ghost_type = "ammo-turret",
+      ghost_name = "flamethrower-turret"}
+    eq(ghost[1].item, "flamethrower-ammo")
+  end)
+  it("the ordinary furnace recipe path is untouched", function()
+    local colony_mod = install()
+    local furnace = {type = "furnace", name = "stone-furnace",
+      get_recipe = function() return {ingredients = {{type = "item", name = "iron-ore", amount = 2}}} end}
+    local rows = colony_mod.default_requests(furnace)
+    eq(rows[1].item, "iron-ore"); eq(rows[1].count, 10)
+  end)
+  it("machine_defaults gives turrets collect=false/priority 3 and others the old true/4", function()
+    local colony_mod = install()
+    local c, p = colony_mod.machine_defaults{type = "ammo-turret", name = "gun-turret"}
+    eq(c, false); eq(p, 3)
+    c, p = colony_mod.machine_defaults{type = "assembling-machine", name = "assembling-machine-1"}
+    eq(c, true); eq(p, 4)
+  end)
+  it("set_machine records a turret's ammo row with collect=false and priority 3", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local badge = {valid = true, destroy = function() end}
+    local old_sprite = rendering.draw_sprite
+    rendering.draw_sprite = function() return badge end
+    local turret = {valid = true, type = "ammo-turret", name = "gun-turret", unit_number = 901,
+      position = {x = 0, y = 0}, surface = {index = 1}}
+    local c = {id = 1, machines = {}, machine_dirty = false}
+    local m = colony_mod.set_machine(c, turret, true)
+    rendering.draw_sprite = old_sprite
+    truthy(m)
+    eq(m.requests[1].item, "firearm-magazine"); eq(m.requests[1].count, 10)
+    eq(m.collect, false); eq(m.priority, 3); eq(m.enabled, true)
+    eq(c.machines[901], m); eq(c.machine_dirty, true)
+    colony_mod.set_machine(c, turret, false)
+    eq(m.enabled, false)
+  end)
+  it("copy-settings from a normal machine cannot turn a turret into an ammo provider", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local old_sprite = rendering.draw_sprite
+    rendering.draw_sprite = function() return {valid = true, destroy = function() end} end
+    local src = {valid = true, name = "assembling-machine-1", type = "assembling-machine", unit_number = 10,
+      position = {x = 2, y = 0}, surface = {index = 1}}
+    local dst = {valid = true, name = "gun-turret", type = "ammo-turret", unit_number = 11,
+      position = {x = 4, y = 0}, surface = {index = 1}}
+    local c = {id = 1, surface_index = 1, hall = {valid = true, position = {x = 0, y = 0}}, machines = {
+      [10] = {entity = src, enabled = true, collect = true, priority = 4,
+        requests = {{item = "iron-plate", count = 20}}},
+    }}
+    storage.colonies = {[1] = c}; storage.next_colony_id = 2
+    colony_mod.copy_settings(src, dst)
+    rendering.draw_sprite = old_sprite
+    local m = c.machines[11]
+    truthy(m)
+    eq(m.collect, false, "a turret never copies collect=true from a furnace")
+    eq(m.priority, 3, "a turret keeps its own building priority")
+  end)
+  it("the supply panel hides the collect checkbox on a turret but shows its ammo row", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local gui = require("scripts.gui"); gui.bind(colony_mod)
+    local function frame_stub()
+      local names = {}
+      local function elt()
+        local e = {style = {}, clear = function() end}
+        e.add = function(spec)
+          local child = elt(); child.name = spec.name
+          if spec.name then names[#names + 1] = spec.name end
+          return child
+        end
+        return e
+      end
+      local f = elt()
+      f.names = names
+      return f
+    end
+    local turret = {valid = true, type = "ammo-turret", name = "gun-turret", unit_number = 902,
+      position = {x = 0, y = 0}, surface = {index = 1}, get_item_count = function() return 0 end}
+    local m = {entity = turret, enabled = true, collect = false, priority = 3, inflight = {},
+      requests = {{item = "firearm-magazine", count = 10}}}
+    local frame = frame_stub()
+    gui.fill_machine(frame, m, turret)
+    local seen = {}
+    for _, n in ipairs(frame.names) do seen[n] = true end
+    eq(seen["colony_req_item_1"], true, "the ammo row is visible")
+    eq(seen["colony_supply_collect"], nil, "turrets cannot be turned into providers")
+  end)
+end)
+
 describe("scheduler", function()
   it("runs handler at the scheduled tick only, once", function()
     local env = mock.install(); env = env.reset()

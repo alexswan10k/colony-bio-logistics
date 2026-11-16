@@ -19,6 +19,7 @@ local well = require("scripts.model.well")
 local recreation = require("scripts.model.recreation")
 local forest = require("scripts.model.forest")
 local tower_model = require("scripts.model.tower")
+local turret_model = require("scripts.model.turret")
 local yields = require("scripts.model.yields")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
@@ -2001,6 +2002,12 @@ M.REQUEST_ROWS = 3
 function M.default_requests(e)
   local out = {}
   local type = (e.type == "entity-ghost") and e.ghost_type or e.type
+  -- An opted-in ammo-turret (#59) gets one row for the magazine it shoots. Unknown/modded names get no
+  -- auto-row (the player sets one by hand), so a turret never changes town evolution unless opted in.
+  if type == "ammo-turret" then
+    local name = (e.type == "entity-ghost") and e.ghost_name or e.name
+    return turret_model.default_request(name)
+  end
   local recipe = (type == "assembling-machine" or type == "furnace")
     and (e.get_recipe() or (type == "furnace" and e.previous_recipe and e.previous_recipe.name
       and prototypes.recipe[e.previous_recipe.name]))
@@ -2012,11 +2019,26 @@ function M.default_requests(e)
   return out
 end
 
+-- Defaults for a newly-created machine record (#59). Ordinary machines collect output at building priority
+-- 4; ammo-turrets have no output inventory (never steal loaded magazines) and use priority 3 inside the
+-- `request` band. Rules live in model/turret.lua; this just hands the adapter the two numbers it needs.
+function M.machine_defaults(e)
+  if e.type == "ammo-turret" then
+    local d = turret_model.defaults(e.name)
+    return d.collect, d.priority
+  end
+  return true, 4
+end
+
 function M.set_machine(colony, e, enabled)
   if not (colony and e and e.valid and e.type ~= "entity-ghost") then return nil end
   local m = colony.machines[e.unit_number]
   if enabled then
-    m = m or {entity = e, requests = {}, collect = true, inflight = {}, need = nil, has_output = nil, priority = 4}
+    if not m then
+      local collect, priority = M.machine_defaults(e)
+      m = {entity = e, requests = {}, collect = collect, inflight = {}, need = nil, has_output = nil,
+        priority = priority}
+    end
     m.entity = e
     m.enabled = true
     m.need, m.has_output = nil, nil      -- the sweep rediscovers both within a pass
@@ -2197,9 +2219,13 @@ function M.copy_settings(src, dst)
     return drec and ledger_signal.set_mode(colony, drec, mode) or false
   end
   if gui.MACHINE_GUIS[dst_type] then
+    -- #59: a turret's "output inventory" IS its ammo inventory, so collect=true would let haulers strip the
+    -- rounds back out. Copying rows from another machine is fine; copying its collect/priority is not.
+    local is_turret = (dst_type == "ammo-turret")
     if dst.type == "entity-ghost" then
       if kind == "machine" and rec then
-        local m = {collect = rec.collect, requests = copy_rows(rec.requests), priority = rec.priority or 4}
+        local m = {collect = is_turret and false or rec.collect, requests = copy_rows(rec.requests),
+          priority = is_turret and turret_model.DEFAULT_BUILDING_PRIORITY or (rec.priority or 4)}
         dst.tags = tags.dictionary(tags.machine(m))
       else
         dst.tags = nil
@@ -2215,6 +2241,10 @@ function M.copy_settings(src, dst)
     else
       m.collect, m.requests = true, {}
       m.priority = 4
+    end
+    if is_turret then
+      m.collect = false                                    -- never a provider, whatever was copied
+      m.priority = turret_model.DEFAULT_BUILDING_PRIORITY
     end
     m.need, m.has_output = nil, nil
     return true

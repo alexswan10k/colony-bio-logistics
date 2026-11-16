@@ -27,7 +27,8 @@ M.EMPTY_JOBS = {"chop", "mine"}
 -- The colony's missing harvest roles as a set {job -> true}: `empty` when a resource is at zero (or the town
 -- has no food at all), otherwise the below-target top-ups.
 -- `api` is the colony adapter: quota_met(colony, item), stock_count(colony, item), quota_target(colony, item),
--- food_in(colony).
+-- food_available(colony) (food anywhere: hall + houses + crates + huts) with food_in(colony) (hall-only) as the
+-- fallback for older callers. The larder is only empty when there is no food in the WHOLE colony (#D3).
 function M.missing(colony, api)
   local empty, below_target = {}, {}
   -- Wood and ore: an empty store is an empty resource, a store under its target is only a top-up.
@@ -50,7 +51,12 @@ function M.missing(colony, api)
       if target > 0 and count < target then below_target[food.job] = true end
     end
   end
-  if api.food_in(colony) == 0 then
+  -- A settled colony keeps food in house shelves, crates and huts, not just the hall. Reading only the hall
+  -- used to promote every food role to the "empty" band while the colonists were fed (#D3). `food_available`
+  -- is the whole-colony total; callers without it fall back to the old hall-only metric (0 is truthy in Lua,
+  -- so `or` does not swallow a legitimate zero).
+  local food_anywhere = api.food_available and api.food_available(colony) or api.food_in(colony)
+  if food_anywhere == 0 then
     for _, food in ipairs(M.FOOD_ITEMS) do
       if not api.quota_met(colony, food.item) then empty[food.job] = true end
     end

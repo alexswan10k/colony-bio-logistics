@@ -1561,4 +1561,52 @@ describe("audit glue regressions", function()
     env.on_cfg({})
     eq(scheduled_cold_count(), 1)
   end)
+
+  it("D2 FLAG: FOOD_ITEMS counts Gleba produce that no house can eat (design decision pending)", function()
+    local env = mock.install(); env = env.reset()
+    local colony_mod = require("scripts.colony")
+    local housing = require("scripts.model.housing")
+    local edible = {}
+    for _, opt in ipairs(housing.FOOD) do edible[opt.item] = true end
+    local inedible = {}
+    for _, item in ipairs(colony_mod.FOOD_ITEMS) do
+      if not edible[item] then inedible[#inedible + 1] = item end
+    end
+    -- This is a FLAG, not an endorsement: the aggregate that drives the empty-larder test, food-ratio
+    -- desirability and the migration gate counts six Gleba items that `housing.step` can never consume.
+    -- The audit could not establish whether colonists are meant to eat Gleba produce, so no behaviour is
+    -- changed here - the owner must choose between removing them from FOOD_ITEMS or adding them to
+    -- housing.FOOD. Whichever is chosen, update this assertion to keep the decision explicit.
+    table.sort(inedible)
+    eq(table.concat(inedible, ","), "bioflux,jelly,jellynut,yumako,yumako-mash")
+    -- The functional consequence, pinned so the flag has teeth: a hall holding only inedible Gleba produce
+    -- still reads as a fed colony to every consumer of FOOD_ITEMS.
+    for _, item in ipairs(inedible) do prototypes.item[item] = {} end
+    local hall = {valid = true, get_item_count = function(name) return name == "yumako" and 100 or 0 end}
+    eq(colony_mod.food_in({hall = hall}), 100, "100 inedible yumako are reported as 100 colony food")
+  end)
+
+  it("D3 glue: food_available sees food on house shelves that the hall-only food_in misses", function()
+    local env = mock.install(); env = env.reset()
+    local colony_mod = require("scripts.colony")
+    for _, item in ipairs(colony_mod.FOOD_ITEMS) do prototypes.item[item] = {} end
+    local hall = {valid = true, get_item_count = function() return 0 end}
+    local shelf = {["colony-forage"] = 40}
+    local inv = {get_item_count = function(item) return shelf[item] or 0 end}
+    local house = {kind = "homestead", entity = {valid = true, get_inventory = function() return inv end}}
+    local c = {id = 1, hall = hall, houses = {[7] = house}, towers = {}, huts = {}, crates = {}}
+    eq(colony_mod.food_in(c), 0, "the hall is empty")
+    eq(colony_mod.food_available(c), 40, "the whole-colony metric counts the house shelf")
+    -- The needs model consumes exactly this accessor. With an unlimited (0) forage quota the empty-larder rule
+    -- is the only thing that could promote it, so this proves the new metric reaches the live decision.
+    local needs = require("scripts.model.needs")
+    local api = {food_available = colony_mod.food_available, food_in = colony_mod.food_in,
+      quota_met = function(_, item) return item ~= "colony-forage" end,
+      quota_target = function(_, item) return item == "colony-forage" and 0 or 20 end,
+      stock_count = function() return 0 end}
+    eq(needs.missing(c, api).forage, nil, "a fed town does not promote forage to the empty band")
+    eq(needs.missing(c, {food_in = api.food_in, quota_met = api.quota_met,
+      quota_target = api.quota_target, stock_count = api.stock_count}).forage, true,
+      "the old hall-only metric still would (pins the defect)")
+  end)
 end)

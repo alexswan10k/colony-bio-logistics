@@ -976,6 +976,13 @@ function M.total_food(colony)
   return n
 end
 
+-- Food ANYWHERE in the colony (hall + house shelves + crates + towers + huts), for the "empty larder" rule in
+-- model/needs.lua (#D3). `food_in` is deliberately hall-only for UI text: a settled town keeps its food out in
+-- the house shelves, so reading the hall alone would promote every food role while the colonists are fed.
+function M.food_available(colony)
+  return M.total_food(colony)
+end
+
 local function gps(e_or_pos, surface)
   local p = e_or_pos.position or e_or_pos
   return string.format("[gps=%d,%d,%s]", math.floor(p.x), math.floor(p.y), (surface or e_or_pos.surface).name)
@@ -1176,6 +1183,9 @@ function M.evaluate(data)
   local score_sum, rated = 0, 0
   local rotten = {}     -- houses that just ate nearly spoiled food (#47)
   for i, h in ipairs(houses) do
+    -- Reset before the injection block: a house whose tower ran dry must not inherit last evaluation's service
+    -- flag and keep its water haul request suppressed (#D1).
+    h.tower_served = false
     local tier = housing.TIERS[h.kind]
     local stock, inv = M.house_stock(h)
     -- A stocked water tower within RADIUS pours straight into the house, ahead of the hall stock: the
@@ -1206,6 +1216,9 @@ function M.evaluate(data)
             local from = {}
             local got = tower_model.take(towers, h.entity.position, want, from)
             if got > 0 then
+              -- Only a house that actually drank from the tower is marked served: `step` consumes exactly what
+              -- was poured, leaving its own shelf empty, so the haul planner must skip the water need (#D1).
+              h.tower_served = true
               for j, n in pairs(from) do
                 local tinv = towers[j].entity.get_inventory(defines.inventory.crafter_output)
                 if tinv then tinv.remove({name = "colony-water", count = n}) end
@@ -1217,8 +1230,6 @@ function M.evaluate(data)
         end
       end
     end
-    local before = {}
-    for k, v in pairs(stock) do before[k] = v end
     local consumed, sat, score, crit = housing.step(tier, mouths[i], stock, M.is_powered(h), h.acc)
     h.stock_tick = nil   -- the shelves just changed: status lines must not read the old snapshot
     h.crit_unmet = crit

@@ -150,31 +150,35 @@ end
 -- Uses high/low watermark hysteresis: requests are only made when stock drops to or below the reorder
 -- threshold (default: 3 intervals / 50% buffer), but fills back up to the full buffer (6 intervals).
 -- If `force_reorder` is true (e.g. need is unmet or critical), hysteresis is bypassed.
-function M.demand(tier, stock, inflight, powered, occupants, force_reorder)
+-- `skip` is an optional set of need ids to ignore entirely: a house served by a water tower keeps an empty
+-- water shelf by design, so it must not emit a water haul request from this rule (nil = skip nothing).
+function M.demand(tier, stock, inflight, powered, occupants, force_reorder, skip)
   local out = {}
   local n = occupants or tier.capacity
   for _, need in ipairs(tier.needs) do
-    local skip, first, have = false, nil, 0
-    for _, opt in ipairs(need.options) do
-      if opt.power then
-        if powered then skip = true end
-      else
-        first = first or opt
-        have = have + (stock[opt.item] or 0) + (inflight[opt.item] or 0)
-      end
-    end
-    if not skip and first and n > 0 then
-      local target = math.ceil(n * first.per * tier.buffer_intervals)
-      local threshold = math.max(0, math.min(target - 1, math.ceil(n * first.per * (tier.reorder_intervals or M.REORDER_INTERVALS))))
-      local want = target - have
-      if want >= 1 and (force_reorder or have <= threshold) then
-        -- The interchangeable list is only built for a need that becomes a demand: most houses need nothing,
-        -- and this runs for every house on every haul plan (#22).
-        local items = {}
-        for _, opt in ipairs(need.options) do
-          if opt.item then items[#items + 1] = opt.item end
+    if not (skip and skip[need.id]) then
+      local powered_ok, first, have = false, nil, 0
+      for _, opt in ipairs(need.options) do
+        if opt.power then
+          if powered then powered_ok = true end
+        else
+          first = first or opt
+          have = have + (stock[opt.item] or 0) + (inflight[opt.item] or 0)
         end
-        out[#out + 1] = {need = need.id, count = want, items = items}
+      end
+      if not powered_ok and first and n > 0 then
+        local target = math.ceil(n * first.per * tier.buffer_intervals)
+        local threshold = math.max(0, math.min(target - 1, math.ceil(n * first.per * (tier.reorder_intervals or M.REORDER_INTERVALS))))
+        local want = target - have
+        if want >= 1 and (force_reorder or have <= threshold) then
+          -- The interchangeable list is only built for a need that becomes a demand: most houses need nothing,
+          -- and this runs for every house on every haul plan (#22).
+          local items = {}
+          for _, opt in ipairs(need.options) do
+            if opt.item then items[#items + 1] = opt.item end
+          end
+          out[#out + 1] = {need = need.id, count = want, items = items}
+        end
       end
     end
   end
@@ -186,20 +190,24 @@ end
 -- somebody lives there. A need is in the urgent band when the last evaluation could not meet it OR its shelves
 -- are empty right now, so a delivery lifts the band the moment it lands. One pass over the needs, and no
 -- allocation for a house that needs nothing - `house_offer` used to run three passes and two tables per house
--- on every haul plan (#22, #93).
-function M.plan(tier, stock, inflight, powered, occupants, sat)
+-- on every haul plan (#22, #93). `skip` is an optional set of need ids served directly (e.g. water from a
+-- water tower): those needs are ignored both for the urgency band and for the demand list, so a house whose
+-- shelf is deliberately empty after drinking does not ask a hauler to refill it (nil = skip nothing).
+function M.plan(tier, stock, inflight, powered, occupants, sat, skip)
   occupants = occupants or 0
   local critical, unmet = false, false
   if occupants > 0 then
     for _, need in ipairs(tier.needs) do
-      local ok = sat and sat[need.id]
-      local lacking = ok == false or ok == nil or not satisfied_now(need, stock, powered)
-      if lacking then
-        if need.critical then critical = true else unmet = true end
+      if not (skip and skip[need.id]) then
+        local ok = sat and sat[need.id]
+        local lacking = ok == false or ok == nil or not satisfied_now(need, stock, powered)
+        if lacking then
+          if need.critical then critical = true else unmet = true end
+        end
       end
     end
   end
-  local demands = M.demand(tier, stock, inflight, powered, occupants, critical or unmet)
+  local demands = M.demand(tier, stock, inflight, powered, occupants, critical or unmet, skip)
   if #demands == 0 then return nil end
   return {critical = critical, unmet = unmet, demands = demands}
 end

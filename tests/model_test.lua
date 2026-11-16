@@ -868,6 +868,27 @@ describe("needs (missing harvest roles)", function()
       ["colony-fish"] = {count = 20, target = 20}}), 0))
     eq(set.forage, true); eq(set.fish, nil, "a food at target is not missing")
   end)
+  it("D3: food out on house shelves is not an empty larder", function()
+    -- An unlimited (target 0) forage quota is the one visible difference: the empty-larder rule promotes it,
+    -- but a zero target never enters the below-target top-up band. Hall food reads 0, house shelves hold 40.
+    local stock = stocked({["colony-forage"] = {count = 0, target = 0}})
+    local api = api_for(stock, 0)
+    local called_available = false
+    api.food_available = function() called_available = true; return 40 end
+    local set = needs.missing({}, api)
+    truthy(called_available, "the whole-colony food metric is the one the larder test reads")
+    eq(set.forage, nil, "food on a house shelf is not an empty-larder emergency")
+    -- The old hall-only metric still promotes it: pins the defect this fix removes.
+    eq(needs.missing({}, api_for(stock, 0)).forage, true, "hall-only metric wrongly calls a fed town empty")
+    -- With normal quotas the distributed food still makes every food role a top-up, just not an "empty" one.
+    local stock2 = stocked({["colony-forage"] = {count = 0, target = 20},
+      ["colony-produce"] = {count = 0, target = 20}, ["colony-meat"] = {count = 0, target = 20},
+      ["colony-fish"] = {count = 0, target = 20}})
+    local api2 = api_for(stock2, 0)
+    api2.food_available = function() return 40 end
+    local set2 = needs.missing({}, api2)
+    for _, job in ipairs(needs.FOOD_ORDER) do eq(set2[job], true, job .. " is still a below-target top-up") end
+  end)
   it("ranks the missing roles by material rank, then demand, then harvest order", function()
     local set = {chop = true, mine = true, farm = true}
     local ratings = {wood = {rank = 5, enabled = true}, ["iron-ore"] = {rank = 1, enabled = true}}
@@ -1021,6 +1042,18 @@ describe("housing", function()
       {food = true, water = true, heat = true})
     truthy(plan and plan.critical, "water is critical and the shelf is empty")
     eq(by_need(plan.demands).water.count, 12)
+  end)
+  it("D1: a tower-served house skips the empty water shelf in both the band and the demand list", function()
+    local stock, sat = {["colony-forage"] = 40, wood = 40}, {food = true, water = true, heat = true}
+    -- The mirror: without the skip set the known behaviour still applies, so both paths stay pinned.
+    local unserved = h.plan(h.TIERS.homestead, stock, {}, false, 4, sat)
+    truthy(unserved and unserved.critical, "unserved house still asks for water critically")
+    eq(by_need(unserved.demands).water.count, 12)
+    eq(by_need(h.demand(h.TIERS.homestead, stock, {}, false, 4, false, nil)).water.count, 12)
+    -- With water marked served (tower poured and `step` drank it), no critical band and no water demand at all:
+    -- the rest of the needs are met, so the whole house offer disappears.
+    eq(h.plan(h.TIERS.homestead, stock, {}, false, 4, sat, {water = true}), nil)
+    eq(by_need(h.demand(h.TIERS.homestead, stock, {}, false, 4, false, {water = true})).water, nil)
   end)
   it("distributes colonists", function()
     local o, homeless = h.distribute(7, {4, 4})

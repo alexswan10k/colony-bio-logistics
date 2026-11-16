@@ -40,6 +40,7 @@ local trailer = require("scripts.model.trailer")
 local recreation = require("scripts.model.recreation")
 local jobs = require("scripts.model.jobs")
 local material_priority = require("scripts.model.material_priority")
+local needs = require("scripts.model.needs")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
@@ -708,6 +709,7 @@ M.job_slots = job_slots
 
 -- Identify harvest jobs whose resources are missing in the colony (#84, priority tuning).
 -- Completely empty resources (stock == 0) take strict precedence; otherwise jobs below target quota.
+-- The rules live in `model/needs.lua`; this only hands it the colony's stock and quota accessors.
 local HARVEST_JOB = {}
 for _, j in ipairs(work_plan.HARVEST) do HARVEST_JOB[j] = true end
 local FOOD_JOB = {}
@@ -719,94 +721,21 @@ for _, j in ipairs(work_plan.FOOD) do FOOD_JOB[j] = true end
 local CLAIM_JOB = {chop = true, forage = true, farm = true, forest = true, construct = true, hunt = true}
 
 local function colony_missing_jobs(colony)
-  local empty = {}
-  local below_target = {}
-
-  -- 1. Chop: wood
-  if not colony_mod.quota_met(colony, "wood") then
-    local cnt = colony_mod.stock_count(colony, "wood")
-    local tgt = colony_mod.quota_target(colony, "wood")
-    if cnt == 0 then empty.chop = true end
-    if tgt > 0 and cnt < tgt then below_target.chop = true end
-  end
-
-  -- 2. Mine: ores
-  local mine_ores = {"iron-ore", "copper-ore", "coal", "stone"}
-  for _, ore in ipairs(mine_ores) do
-    if not colony_mod.quota_met(colony, ore) then
-      local cnt = colony_mod.stock_count(colony, ore)
-      local tgt = colony_mod.quota_target(colony, ore)
-      if cnt == 0 then empty.mine = true end
-      if tgt > 0 and cnt < tgt then below_target.mine = true end
-    end
-  end
-
-  -- 3. Food: forage, farm, hunt, fish
-  local food_jobs = {
-    ["colony-forage"] = "forage",
-    ["colony-produce"] = "farm",
-    ["colony-meat"] = "hunt",
-    ["colony-fish"] = "fish",
-  }
-  for item, job in pairs(food_jobs) do
-    if not colony_mod.quota_met(colony, item) then
-      local cnt = colony_mod.stock_count(colony, item)
-      local tgt = colony_mod.quota_target(colony, item)
-      if tgt > 0 and cnt < tgt then below_target[job] = true end
-    end
-  end
-  if colony_mod.food_in(colony) == 0 then
-    for item, job in pairs(food_jobs) do
-      if not colony_mod.quota_met(colony, item) then
-        empty[job] = true
-      end
-    end
-  end
-
-  local has_empty = false
-  for _, v in pairs(empty) do if v then has_empty = true; break end end
-  if has_empty then
-    -- Empty stock comes first, but hungry towns still feed themselves.
-    for _, job in ipairs{"forage", "farm", "hunt", "fish"} do
-      if below_target[job] then empty[job] = true end
-    end
-    return empty
-  end
-  return below_target
+  return needs.missing(colony, colony_mod)
 end
 M.colony_missing_jobs = colony_missing_jobs
 
 -- Each harvest job's products, so a colony-wide material rank can be resolved to the role that makes it.
-local JOB_ITEMS = {
-  forage = {"colony-forage"}, farm = {"colony-produce"}, chop = {"wood"},
-  mine = {"iron-ore", "copper-ore", "coal", "stone"}, hunt = {"colony-meat"}, fish = {"colony-fish"},
-}
+local JOB_ITEMS = needs.JOB_ITEMS
 M.JOB_ITEMS = JOB_ITEMS
-
-local HARVEST_INDEX = {}
-for i, job in ipairs(work_plan.HARVEST) do HARVEST_INDEX[job] = i end
 
 -- The ranked missing-jobs list (#91): the same missing set as `colony_missing_jobs`, decorated with each
 -- job's best material rank and the demand standing behind that material, best first (rank 1 = most
 -- wanted, then bigger demand, then HARVEST order). work_plan.choose consumes this list, so iron goes
 -- before copper before everything else, while the unstaffed-first-worker guarantees stay intact.
 local function colony_missing_list(colony)
-  local set = colony_missing_jobs(colony)
-  local ratings = colony and colony.ratings
-  local demand = colony_mod.demand_table(colony)
-  local rows = {}
-  for _, job in ipairs(work_plan.HARVEST) do
-    if set[job] then
-      local best_r, best_d = material_priority.best(JOB_ITEMS[job], ratings, demand)
-      rows[#rows + 1] = {job = job, rank = best_r, demand = best_d}
-    end
-  end
-  table.sort(rows, function(a, b)
-    if a.rank ~= b.rank then return a.rank < b.rank end
-    if a.demand ~= b.demand then return a.demand > b.demand end
-    return (HARVEST_INDEX[a.job] or 0) < (HARVEST_INDEX[b.job] or 0)
-  end)
-  return rows
+  return needs.ranked(colony_missing_jobs(colony), work_plan.HARVEST,
+    colony and colony.ratings, colony_mod.demand_table(colony))
 end
 M.colony_missing_list = colony_missing_list
 
@@ -1211,40 +1140,14 @@ end
 -- House demand: critical (already unmet / empty) beats buffering a well-stocked house.
 local function house_offer(colony, h)
   if h.logistics_enabled == false then return nil end
-  local tier = housing.TIERS[h.kind]
-  local occupants = h.mouths or h.occupants or 0   -- children eat half (#88)
-  local stock = colony_mod.house_stock_cached(h)
-  local critical = false
-  local unmet = false
-  for _, need in ipairs(tier.needs) do
-    local ok = h.sat and h.sat[need.id]
-    if ok == false or (ok == nil and occupants > 0) then
-      if need.critical then
-        critical = true
-      else
-        unmet = true
-      end
-    end
-  end
-  local avail = housing.available(tier, stock, colony_mod.is_powered(h))
-  for _, need in ipairs(tier.needs) do
-    if occupants > 0 and avail[need.id] == false then
-      if need.critical then
-        critical = true
-      else
-        unmet = true
-      end
-    end
-  end
-
-  local demands = housing.demand(tier, stock, h.inflight, colony_mod.is_powered(h), occupants, critical or unmet)
-  if #demands == 0 then return nil end
-  local band = critical and haul_plan.PRIORITY.critical
-    or haul_plan.PRIORITY.request
+  -- The band and the demand list are `model/housing.lua`'s business (#22): this is only the adapter.
+  local plan = housing.plan(housing.TIERS[h.kind], colony_mod.house_stock_cached(h), h.inflight,
+    colony_mod.is_powered(h), h.mouths or h.occupants or 0, h.sat)
+  if not plan then return nil end
   return {kind = "supply", house = h, entity = h.entity, pos = h.entity.position,
-    priority = band,
+    priority = plan.critical and haul_plan.PRIORITY.critical or haul_plan.PRIORITY.request,
     building_priority = h.priority or 3,
-    key = h.entity.unit_number, demands = demands}
+    key = h.entity.unit_number, demands = plan.demands}
 end
 
 local function hut_offer(h)

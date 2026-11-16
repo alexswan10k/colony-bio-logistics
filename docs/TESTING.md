@@ -166,6 +166,31 @@ Three headless gates cover the things the unit tests and the playable spike cann
   the mod into `build/bench/mods` and re-run the two `--benchmark` passes; the drop is that function's cost.
   `LuaProfiler` cannot be read as a number from Lua (only displayed as a localised string), so the
   short-circuit delta is the practical profiler here.
+- `scripts/bench-once.sh [save] [ticks]` - the fast #22 loop. Copies the current `mod/` over the bench mod
+  dir and re-benchmarks an existing bench save (the demand town by default) without rebuilding it: ~2 s per
+  run, ±0.005 ms/tick between runs on the reference Mac, so a change and a re-run is a usable A/B. Always
+  measure the same save at the same tick count as the baseline you compare against - the 3600-tick gate reads
+  ~0.27 ms/tick higher than the same save at 1800 ticks because the town is still staffing up.
+
+  Measured 2026-11-16 on the same reference Mac / save (demand town, 1800 ticks), the run the two model
+  extractions below came out of:
+
+  | | script ms/tick |
+  |---|---|
+  | before (`housing.house_offer` did its own needs passes) | 0.505-0.517 |
+  | after `housing.plan` + `model/needs.lua` | **0.410-0.416** |
+
+  Behaviour-identical: `scripts/determinism.sh` gives the same final checksum (2898046163) on both trees, so
+  the map evolves exactly as it did before. Attribution by short-circuit on that save: `M.assign` is ~all of
+  the colony's Lua (0.026 ms/tick with it stubbed), and inside it the haul-offer build was ~200 µs per call,
+  `job_slots`/`hut_info` ~140 µs and `colony_missing_*` ~90 µs (`find_haul_task` total ~1 ms).
+
+  **The bench town is degenerate, know this before optimising from it.** `m1_bench` flattens its square with
+  `ctx.flat_area` and plants no trees, ore, forage or fish, so no hut ever finds a site: colonists take a post,
+  fail to find work, go idle and retry with backoff. Measured 2026-11-16, `wake_idle_colonists` is never called
+  once in 1800 ticks and every assignment ends in `work.idle`. So the gate measures *assignment churn in a town
+  with nothing to do* - the worst case for planning cost, and not the cost of a working town. Read it as a
+  ceiling on planning, and measure a real colony in-game with `/profile` or a `--benchmark` save of one.
 
   How it got there (#75, measured with the same harness): the haul planner used to read every opted-in
   machine's inventory on every assignment (`4.97 ms` at 2000 machines, and `17.3 ms` once those machines

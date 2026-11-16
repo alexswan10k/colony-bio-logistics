@@ -134,6 +134,15 @@ end
 
 M.REORDER_INTERVALS = 3
 
+-- Could this need be met from the shelves right now? Power counts while the house is powered, any item option
+-- counts while there is one on hand. `step` consumes and waits for an evaluation; this reads only.
+local function satisfied_now(need, stock, powered)
+  for _, opt in ipairs(need.options) do
+    if (opt.power and powered) or (opt.item and (stock[opt.item] or 0) > 0) then return true end
+  end
+  return false
+end
+
 -- What to haul to this house: {{need=, count=, items={...}}} - `items` are interchangeable options
 -- (food = forage OR fish), so the hauler brings whatever the hall actually has.
 -- `occupants` (default: full capacity) sizes the buffer, so an empty house does not hoard supplies
@@ -145,13 +154,12 @@ function M.demand(tier, stock, inflight, powered, occupants, force_reorder)
   local out = {}
   local n = occupants or tier.capacity
   for _, need in ipairs(tier.needs) do
-    local skip, first, items, have = false, nil, {}, 0
+    local skip, first, have = false, nil, 0
     for _, opt in ipairs(need.options) do
       if opt.power then
         if powered then skip = true end
       else
         first = first or opt
-        items[#items + 1] = opt.item
         have = have + (stock[opt.item] or 0) + (inflight[opt.item] or 0)
       end
     end
@@ -160,11 +168,40 @@ function M.demand(tier, stock, inflight, powered, occupants, force_reorder)
       local threshold = math.max(0, math.min(target - 1, math.ceil(n * first.per * (tier.reorder_intervals or M.REORDER_INTERVALS))))
       local want = target - have
       if want >= 1 and (force_reorder or have <= threshold) then
+        -- The interchangeable list is only built for a need that becomes a demand: most houses need nothing,
+        -- and this runs for every house on every haul plan (#22).
+        local items = {}
+        for _, opt in ipairs(need.options) do
+          if opt.item then items[#items + 1] = opt.item end
+        end
         out[#out + 1] = {need = need.id, count = want, items = items}
       end
     end
   end
   return out
+end
+
+-- The haul offer for one house, or nil when it needs nothing: {critical = bool, unmet = bool, demands = {...}}.
+-- `sat` is the last evaluation's {need_id -> bool}; `nil` means "never evaluated", which counts as unmet while
+-- somebody lives there. A need is in the urgent band when the last evaluation could not meet it OR its shelves
+-- are empty right now, so a delivery lifts the band the moment it lands. One pass over the needs, and no
+-- allocation for a house that needs nothing - `house_offer` used to run three passes and two tables per house
+-- on every haul plan (#22, #93).
+function M.plan(tier, stock, inflight, powered, occupants, sat)
+  occupants = occupants or 0
+  local critical, unmet = false, false
+  if occupants > 0 then
+    for _, need in ipairs(tier.needs) do
+      local ok = sat and sat[need.id]
+      local lacking = ok == false or ok == nil or not satisfied_now(need, stock, powered)
+      if lacking then
+        if need.critical then critical = true else unmet = true end
+      end
+    end
+  end
+  local demands = M.demand(tier, stock, inflight, powered, occupants, critical or unmet)
+  if #demands == 0 then return nil end
+  return {critical = critical, unmet = unmet, demands = demands}
 end
 
 -- Distribute `pop` colonists across houses (array of capacities) in order. Returns array of occupant counts.

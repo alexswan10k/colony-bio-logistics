@@ -802,6 +802,91 @@ describe("haul_plan", function()
   end)
 end)
 
+describe("needs (missing harvest roles)", function()
+  local needs = require("scripts.model.needs")
+  local work_plan = require("scripts.model.work_plan")
+
+  -- api over a literal stock table (items default to 20 wanted and none in stock, like quota.DEFAULT_QUOTA):
+  -- {item -> {count=, target=}}. A target of 0 is unlimited, which colony.quota_met reports as "not met".
+  local function api_for(stock, food)
+    local function rec(item) return stock[item] or {count = 0, target = 20} end
+    return {
+      quota_met = function(_, item)
+        local target, count = rec(item).target or 0, rec(item).count or 0
+        if target <= 0 then return false end
+        return count >= target
+      end,
+      stock_count = function(_, item) return rec(item).count or 0 end,
+      quota_target = function(_, item) return rec(item).target or 0 end,
+      food_in = function() return food or 0 end,
+    }
+  end
+
+  -- A town with everything at target except the items under test, so one role's absence is unambiguous.
+  local function stocked(overrides)
+    local stock = {wood = {count = 40, target = 20}, ["iron-ore"] = {count = 40, target = 20},
+      ["copper-ore"] = {count = 40, target = 20}, coal = {count = 40, target = 20}, stone = {count = 40, target = 20},
+      ["colony-forage"] = {count = 40, target = 20}, ["colony-produce"] = {count = 40, target = 20},
+      ["colony-meat"] = {count = 40, target = 20}, ["colony-fish"] = {count = 40, target = 20}}
+    for item, rec in pairs(overrides or {}) do stock[item] = rec end
+    return stock
+  end
+
+  it("a store under target is a top-up, an empty store is an empty role", function()
+    local top = needs.missing({}, api_for(stocked({wood = {count = 5, target = 20}}), 200))
+    eq(top.chop, true)
+    -- An empty store is ranked as "empty", and an empty mine then takes the top-up list with it: a town with
+    -- nothing to mine sends a miner before it tops up a woodpile that is merely low.
+    local both = needs.missing({}, api_for(stocked({wood = {count = 5, target = 20},
+      ["iron-ore"] = {count = 0, target = 20}}), 200))
+    eq(both.mine, true); eq(both.chop, nil)
+    local unlimited = needs.missing({}, api_for(stocked({wood = {count = 5, target = 0}}), 200))
+    eq(unlimited.chop, nil, "a quota of 0 is unlimited, so a stocked woodpile asks for nobody")
+  end)
+  it("one met ore does not close the mine: any empty ore still asks for a miner", function()
+    local set = needs.missing({}, api_for({
+      ["iron-ore"] = {count = 40, target = 20}, ["copper-ore"] = {count = 0, target = 20},
+      coal = {count = 20, target = 20}, stone = {count = 20, target = 20},
+    }))
+    eq(set.mine, true)
+  end)
+  it("a single food running out is a top-up while another food feeds the town", function()
+    local set = needs.missing({}, api_for(stocked({["colony-forage"] = {count = 0, target = 20},
+      ["colony-fish"] = {count = 12, target = 20}}), 12))
+    eq(set.forage, true); eq(set.fish, true); eq(set.hunt, nil)
+    eq(set.chop, nil); eq(set.mine, nil)
+  end)
+  it("an empty larder promotes every food role at once", function()
+    local set = needs.missing({}, api_for(stocked({["colony-forage"] = {count = 0, target = 20},
+      ["colony-produce"] = {count = 0, target = 20}, ["colony-meat"] = {count = 0, target = 20},
+      ["colony-fish"] = {count = 0, target = 20}}), 0))
+    for _, job in ipairs(needs.FOOD_ORDER) do eq(set[job], true, job .. " must be missing with an empty larder") end
+    eq(set.chop, nil, "wood is stocked"); eq(set.mine, nil, "ore is stocked")
+  end)
+  it("does not promote a stocked food role, even when the larder is empty", function()
+    local set = needs.missing({}, api_for(stocked({["colony-forage"] = {count = 0, target = 20},
+      ["colony-fish"] = {count = 20, target = 20}}), 0))
+    eq(set.forage, true); eq(set.fish, nil, "a food at target is not missing")
+  end)
+  it("ranks the missing roles by material rank, then demand, then harvest order", function()
+    local set = {chop = true, mine = true, farm = true}
+    local ratings = {wood = {rank = 5, enabled = true}, ["iron-ore"] = {rank = 1, enabled = true}}
+    local rows = needs.ranked(set, work_plan.HARVEST, ratings, {})
+    eq(rows[1].job, "mine")
+    eq(rows[2].job, "farm")
+    eq(rows[3].job, "chop")
+    -- equal ranks: the bigger demand wins, so a town short of copper hires for copper before wood
+    local demand = {wood = 100, ["colony-produce"] = 1}
+    local flat = needs.ranked(set, work_plan.HARVEST, {}, demand)
+    eq(flat[1].job, "chop", "all rank 3: demand decides")
+  end)
+  it("omits roles that are not missing and is stable across calls", function()
+    local rows = needs.ranked({mine = true}, work_plan.HARVEST, {}, {})
+    eq(#rows, 1); eq(rows[1].job, "mine")
+    eq(#needs.ranked({}, work_plan.HARVEST, {}, {}), 0)
+  end)
+end)
+
 describe("housing", function()
   local h = require("scripts.model.housing")
   it("consumes food and fuel per occupant", function()
@@ -884,6 +969,37 @@ describe("housing", function()
     -- When forced (e.g. need is unmet), reorders even if stock > threshold
     local d_forced = by_need(h.demand(h.TIERS.cabin, {["colony-forage"] = 30}, {}, true, 6, true))
     eq(d_forced.food.count, 6)
+  end)
+  it("plan: a house that needs nothing makes no offer and allocates no demand rows", function()
+    eq(h.plan(h.TIERS.cabin, {["colony-forage"] = 40, wood = 40}, {}, false, 6, {food = true, heat = true}), nil)
+    eq(h.plan(h.TIERS.cabin, {}, {}, false, 0), nil, "an empty house hoards nothing")
+  end)
+  it("plan: critical band when a critical need is unmet, request band otherwise", function()
+    local plan = h.plan(h.TIERS.cabin, {wood = 40}, {}, false, 6, {food = false, heat = true})
+    truthy(plan and plan.critical, "no food is critical")
+    local demand = by_need(plan.demands)
+    eq(demand.food.count, 36)
+    local soft = h.plan(h.TIERS.cabin, {["colony-forage"] = 40, wood = 40}, {}, false, 6, {food = true, heat = true})
+    eq(soft, nil, "shelves are full: nothing to ask for")
+    -- heat is not critical: a cabin with food but no wood asks in the request band
+    local heat = h.plan(h.TIERS.cabin, {["colony-forage"] = 40}, {}, false, 6, {food = true, heat = false})
+    truthy(heat and not heat.critical, "missing heat is not critical")
+    eq(by_need(heat.demands).heat.count, 18)
+  end)
+  it("plan: an unevaluated need counts as unmet while somebody lives there", function()
+    local plan = h.plan(h.TIERS.cabin, {}, {}, false, 6, nil)
+    truthy(plan and plan.critical, "no evaluation yet: food counts as unmet")
+    local failed = h.plan(h.TIERS.cabin, {}, {}, false, 6, {food = false})
+    truthy(failed and failed.critical)
+    eq(by_need(plan.demands).food.count, by_need(failed.demands).food.count)
+    -- A house that has never been evaluated but is stocked asks for nothing: the shelves decide the offer.
+    eq(h.plan(h.TIERS.cabin, {["colony-forage"] = 40, wood = 40}, {}, false, 6, nil), nil)
+  end)
+  it("plan: empty shelves lift the band even when the last evaluation met the need", function()
+    local plan = h.plan(h.TIERS.homestead, {["colony-forage"] = 40, wood = 40}, {}, false, 4,
+      {food = true, water = true, heat = true})
+    truthy(plan and plan.critical, "water is critical and the shelf is empty")
+    eq(by_need(plan.demands).water.count, 12)
   end)
   it("distributes colonists", function()
     local o, homeless = h.distribute(7, {4, 4})

@@ -124,6 +124,34 @@ core.register("m1_blueprint", {
         nt and nt.requests[1] and nt.requests[1].item or "missing")
     end
 
+    -- #59 review: untrusted tag payloads must not survive the real engine revive path. One ghost carries an
+    -- explicit collect=true, the other omits collect entirely (tags.decode defaults that to true).
+    local function forged_ghost(pos, payload)
+      local g = s.create_entity{name = "entity-ghost", inner_name = "gun-turret", position = pos, force = "player"}
+      if not (g and g.valid) then return nil end
+      g.tags = tags.dictionary(payload)
+      colony_mod.apply_tags(colony, g, tags.dictionary(payload))
+      return g
+    end
+    local fg1 = forged_ghost({p.x + 24, p.y + 20},
+      {machine = true, collect = true, priority = 3,
+        requests = {{row = 1, item = "firearm-magazine", count = 10}}})
+    local fg2 = forged_ghost({p.x + 28, p.y + 20},
+      {machine = true, priority = 3, requests = {{row = 1, item = "firearm-magazine", count = 10}}})
+    ctx.check("forged turret ghost tags are sanitised before revive (#59)",
+      fg1 and fg2 and tags.decode(fg1.tags).machine.collect == false
+        and tags.decode(fg2.tags).machine.collect == false)
+    if fg1 and fg2 then
+      local _, r1 = ctx.probe("revive collect=true tagged turret ghost (#59)",
+        function() return select(2, fg1.revive{raise_revive = true}) end)
+      local _, r2 = ctx.probe("revive omitted-collect tagged turret ghost (#59)",
+        function() return select(2, fg2.revive{raise_revive = true}) end)
+      ctx.check("neither forged tag makes a revived turret a provider (#59)",
+        r1 and r1.valid and r2 and r2.valid and colony.machines[r1.unit_number]
+          and colony.machines[r1.unit_number].collect == false and colony.machines[r2.unit_number]
+          and colony.machines[r2.unit_number].collect == false)
+    end
+
     -- ---------- copy-paste ----------
     -- The engine only raises on_entity_settings_pasted when the copy is done "as" a player, and a headless
     -- server starts with none, so make one - otherwise the event wiring would go untested.

@@ -18,6 +18,7 @@ local forest = require("scripts.model.forest")
 local mine_plan = require("scripts.model.mine_plan")
 local crates = require("scripts.model.crates")
 local compost = require("scripts.model.compost")
+local turret_model = require("scripts.model.turret")
 local garrison = require("scripts.model.garrison")
 local hunting = require("scripts.model.hunting")
 local wildlife = require("scripts.wildlife")
@@ -1508,7 +1509,8 @@ end
 
 -- Finished products leave the machine now; the load is filled from the machine, not the hall.
 local function collect_offer(colony, m)
-  if not m.entity.valid or not m.enabled or not m.collect then return nil end
+  -- #59 defence in depth: even a record poisoned by an older save must never offer turret ammo as output.
+  if not m.entity.valid or not m.enabled or not turret_model.safe_collect(m.entity.type, m.collect) then return nil end
   local inv = m.entity.get_output_inventory()
   if not inv or inv.is_empty() then
     if m.has_output then m.has_output, colony.machine_dirty = false, true end   -- emptied since the sweep
@@ -1531,6 +1533,7 @@ local function collect_offer(colony, m)
     priority = priority, building_priority = m.priority or 4, key = m.entity.unit_number,
     demands = demands, available = available}
 end
+M.collect_offer = collect_offer   -- test hook (#59): pin that a loaded turret never yields a collect offer
 
 -- Slice sweep (#75): the only place that touches machine inventories when nobody is asking for a haul.
 -- Each machine is visited every MACHINE_SWEEP_TICKS * MACHINE_SWEEP_SHARE ticks; the sweep records what

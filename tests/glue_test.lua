@@ -246,6 +246,101 @@ describe("turret ammo adapter (#59)", function()
     eq(seen["colony_req_item_1"], true, "the ammo row is visible")
     eq(seen["colony_supply_collect"], nil, "turrets cannot be turned into providers")
   end)
+
+  -- #59 review: apply_tags is the primary blueprint/restore path and its payload is untrusted.
+  local function tag_world()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local tags = require("scripts.model.tags")
+    rendering.draw_sprite = function() return {valid = true, destroy = function() end} end
+    local c = {id = 1, machines = {}, machine_dirty = false, quotas = {},
+      hall = {valid = true, position = {x = 0, y = 0}}}
+    storage.colonies = {[1] = c}
+    local turret = {valid = true, type = "ammo-turret", name = "gun-turret", unit_number = 777,
+      position = {x = 0, y = 0}, surface = {index = 1},
+      get_item_count = function(item) return item == "firearm-magazine" and 10 or 0 end}
+    return colony_mod, tags, c, turret
+  end
+  local COLLECT_TRUE = {machine = true, collect = true, priority = 3,
+    requests = {{row = 1, item = "firearm-magazine", count = 10}}}
+  local COLLECT_OMITTED = {machine = true, priority = 3,
+    requests = {{row = 1, item = "firearm-magazine", count = 10}}}
+
+  it("apply_tags forces collect=false on a live turret for both a forged and an omitted collect", function()
+    for _, payload in ipairs({COLLECT_TRUE, COLLECT_OMITTED}) do
+      local colony_mod, tags, c, turret = tag_world()
+      truthy(colony_mod.apply_tags(c, turret, tags.dictionary(payload)))
+      local m = c.machines[777]
+      truthy(m, "the turret was opted in")
+      eq(m.collect, false, "a tag payload cannot make a turret a provider")
+      eq(m.priority, 3)
+      eq(m.requests[1].item, "firearm-magazine")
+    end
+  end)
+  it("apply_tags sanitises the ghost tags too, so revive cannot reintroduce collect=true", function()
+    for _, payload in ipairs({COLLECT_TRUE, COLLECT_OMITTED}) do
+      local colony_mod, tags, c = tag_world()
+      local ghost = {valid = true, type = "entity-ghost", ghost_type = "ammo-turret", ghost_name = "gun-turret",
+        position = {x = 0, y = 0}, surface = {index = 1}}
+      truthy(colony_mod.apply_tags(c, ghost, tags.dictionary(payload)))
+      local decoded = tags.decode(ghost.tags)
+      truthy(decoded and decoded.machine)
+      eq(decoded.machine.collect, false, "the ghost's stored settings are safe")
+      eq(decoded.machine.priority, 3)
+    end
+  end)
+  it("a poisoned turret record cannot survive opt-out/opt-in", function()
+    local colony_mod, tags, c, turret = tag_world()
+    truthy(colony_mod.apply_tags(c, turret, tags.dictionary(COLLECT_OMITTED)))
+    local m = c.machines[777]
+    m.collect = true                         -- simulate a record carried over from an old save/tag
+    colony_mod.set_machine(c, turret, false)
+    colony_mod.set_machine(c, turret, true)
+    eq(m.collect, false)
+  end)
+  it("BEHAVIOUR: a loaded turret from forged/omitted collect tags yields NO collect offer", function()
+    for _, payload in ipairs({COLLECT_TRUE, COLLECT_OMITTED}) do
+      local colony_mod, tags, c, turret = tag_world()
+      -- The real ammo inventory is the turret's output inventory (engine fact from m3_turret).
+      local ammo = {["firearm-magazine"] = 10}
+      local out_inv = {
+        get_contents = function()
+          local list = {}
+          for name, n in pairs(ammo) do list[#list + 1] = {name = name, count = n} end
+          return list
+        end,
+        is_empty = function() return next(ammo) == nil end,
+        is_full = function() return false end,
+      }
+      turret.get_output_inventory = function() return out_inv end
+      local work = require("scripts.work"); work.bind(colony_mod)
+      truthy(colony_mod.apply_tags(c, turret, tags.dictionary(payload)))
+      local m = c.machines[777]
+
+      -- The restored record itself must never offer those rounds, even though the inventory is full.
+      eq(m.collect, false)
+      eq(work.collect_offer(c, m), nil, "a loaded opt-in turret is never a collect source")
+
+      -- Even a record poisoned by an older save is refused at the offer itself (defence in depth).
+      m.collect = true
+      eq(work.collect_offer(c, m), nil, "a poisoned turret record still yields no collect offer")
+      colony_mod.apply_tags(c, turret, tags.dictionary(payload))
+      m = c.machines[777]
+      eq(m.collect, false)
+      work.refresh_machine(c, m)
+      eq(not m.has_output, true, "the sweep does not mark loaded turret ammo as output")
+
+      -- Control: the very same non-empty inventory on an ordinary machine WOULD be collected, so the
+      -- assertions above test the turret rule rather than a broken inventory stub.
+      local furnace = {valid = true, type = "furnace", name = "stone-furnace", unit_number = 778,
+        position = {x = 1, y = 0}, get_output_inventory = function() return out_inv end}
+      local fm = {entity = furnace, enabled = true, collect = true, priority = 4, requests = {}}
+      local control = work.collect_offer(c, fm)
+      truthy(control and control.kind == "collect" and control.demands[1].item == "firearm-magazine",
+        "control: an ordinary machine's full inventory is offered for collection")
+    end
+  end)
 end)
 
 describe("scheduler", function()

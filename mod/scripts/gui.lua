@@ -17,6 +17,7 @@ local advice = require("scripts.model.advice")
 local desirability = require("scripts.model.desirability")
 local breeding = require("scripts.model.breeding")
 local garrison = require("scripts.model.garrison")
+local turret_model = require("scripts.model.turret")
 local milestones = require("scripts.model.milestones")
 local tags = require("scripts.model.tags")
 local quota = require("scripts.model.quota")
@@ -1314,6 +1315,17 @@ local function copy_rows(rows)
   return out
 end
 
+-- #59: a ghost's tag payload is untrusted and this record is re-serialised by every panel edit. Build it
+-- through the same safety rule as colony.apply_tags, so a forged (or merely missing) `collect` can never be
+-- written back onto an ammo-turret - its "output inventory" is its ammo inventory.
+local function ghost_machine_record(e, payload)
+  local type = (e.type == "entity-ghost") and e.ghost_type or e.type
+  return {entity = e, enabled = true,
+    collect = turret_model.safe_collect(type, payload.machine.collect),
+    requests = copy_rows(payload.machine.requests),
+    priority = payload.machine.priority or turret_model.priority_default(type, 4)}
+end
+
 local function open_crate(player, e)
   local old = player.gui.relative[CRATE_FRAME]; if old then old.destroy() end
   local name = (e.type == "entity-ghost") and e.ghost_name or e.name
@@ -1567,11 +1579,7 @@ local function open_machine(player, e)
   local m
   if e.type == "entity-ghost" then
     local payload = e.tags and tags.decode(e.tags)
-    if payload and payload.machine then
-      m = {entity = e, enabled = true, collect = payload.machine.collect ~= false,
-        requests = copy_rows(payload.machine.requests),
-        priority = payload.machine.priority or 4}
-    end
+    if payload and payload.machine then m = ghost_machine_record(e, payload) end
   else
     m = colony.machines and colony.machines[e.unit_number]
   end
@@ -1589,11 +1597,7 @@ scheduler.register("gui.refresh_machine", function(d)
   local m
   if e.type == "entity-ghost" then
     local payload = e.tags and tags.decode(e.tags)
-    if payload and payload.machine then
-      m = {entity = e, enabled = true, collect = payload.machine.collect ~= false,
-        requests = copy_rows(payload.machine.requests),
-        priority = payload.machine.priority or 4}
-    end
+    if payload and payload.machine then m = ghost_machine_record(e, payload) end
   else
     m = colony and colony.machines and colony.machines[e.unit_number]
   end
@@ -1630,11 +1634,7 @@ machine_ctx = function(ev)
   local m
   if e.type == "entity-ghost" then
     local payload = e.tags and tags.decode(e.tags)
-    if payload and payload.machine then
-      m = {entity = e, enabled = true, collect = payload.machine.collect ~= false,
-        requests = copy_rows(payload.machine.requests),
-        priority = payload.machine.priority or 4}
-    end
+    if payload and payload.machine then m = ghost_machine_record(e, payload) end
   else
     m = colony.machines and colony.machines[e.unit_number]
   end
@@ -1727,7 +1727,9 @@ events.on(defines.events.on_gui_checked_state_changed, function(ev)
     end
     fill_machine(body, m, e)
   elseif m then
-    m.collect = ev.element.state
+    -- The collect checkbox is hidden for turrets; a forged widget event must not resurrect it.
+    local type = (e.type == "entity-ghost") and e.ghost_type or e.type
+    m.collect = turret_model.safe_collect(type, ev.element.state)
     if e.type == "entity-ghost" then
       e.tags = tags.dictionary(tags.machine(m))
     else

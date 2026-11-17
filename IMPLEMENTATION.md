@@ -116,3 +116,90 @@ Docs checked against https://lua-api.factorio.com/latest/ (reports runtime 2.1.2
 * **`M.want` is not called by the adapter** (the existing `machine_demands` threshold rule is different). It is a pure rule implemented and tested because PLAN.md specifies it; if you prefer no dead code it can be deleted with its one test, but it documents the "inflight counts as on its way" rule the real path also follows.
 * **Priority 3 vs houses' critical band.** `request` band (4) with building priority 3 means an out-of-ammo turret never outrages feeding/starvation — per plan. The alarm-driven urgency band remains an open design question (#59 follow-up).
 * **`m1_blueprint` search box widened to `at.x - 8`** because adding a third entity shifted where the blueprint placed the furnace ghost. The old box silently found only two ghosts; the widened box is still bounded and should not pick up unrelated entities in this isolated spike.
+
+---
+
+## Review fixes (post-review commit)
+
+The adversarial review found one blocking gap: `M.apply_tags` — the primary blueprint/restore path — overwrote
+a turret's safe `collect=false` straight from untrusted tag data, and `tags.decode` defaults a *missing*
+`collect` to `true`. Because a turret's `get_output_inventory()` is its ammo inventory, that made haulers
+strip loaded rounds into storage. Fixed as follows.
+
+### MAJOR — the safety invariant is now enforced on every restore path
+
+* `model/turret.lua`: two new pure rules, `safe_collect(entity_type, collect)` (always `false` for
+  `ammo-turret`; otherwise a truthy flag becomes `true` and a nil/false flag becomes `false`, preserving the
+  old `not m.collect` guard) and `priority_default(entity_type, fallback)` (3 for turrets when a payload has
+  no explicit priority). All adapters call these instead of hand-rolling the guard.
+* `colony.lua apply_tags`: **both** branches now use `safe_collect` and `priority_default`. The live branch
+  also falls back to priority 3 when the payload has no priority; an explicitly stored player priority is
+  still honoured.
+* `colony.lua set_machine`: a turret's `collect` is forced to `false` on **every** enable, not just record
+  creation. This closes the "sticky across opt-out/opt-in" case and sanitises a poisoned record carried over
+  from an older save (the load-time `colony.rebadge` also calls through here).
+* `gui.lua`: the three duplicated ghost-tag decodes (open panel, 30-tick refresh, click context) are replaced
+  by one `ghost_machine_record` helper built on `safe_collect`. A ghost's panel edits re-serialise that record
+  into tags, so the poisoned value could otherwise have survived there. The `colony_supply_collect` click
+  handler now also passes through `safe_collect` (defence in depth; the checkbox is hidden for turrets).
+* `work.lua collect_offer`: a final guard calls `safe_collect(m.entity.type, m.collect)` before touching the
+  output inventory. Even a record poisoned by an older save can never produce a drain offer. `collect_offer`
+  is exported as a test hook (like `machine_demands`/`find_haul_task`) so this is pinned behaviourally.
+* `copy_settings` (live + ghost) was already guarded in the first commit and remains so.
+
+Adversarial re-trace of **every** `.collect` writer in `mod/scripts/`:
+
+| Path | Turret result |
+|---|---|
+| `set_machine` new record (`machine_defaults`) | `false` |
+| `set_machine` re-enable / `colony.rebadge` on load | forced `false` |
+| `apply_tags` live entity | `safe_collect` → `false` |
+| `apply_tags` ghost/blueprint | `safe_collect` → `false` (tags re-encoded safe) |
+| `copy_settings` live | forced `false` |
+| `copy_settings` ghost | forced `false` |
+| GUI ghost record (3 decodes → re-serialised on row edit) | `safe_collect` → `false` |
+| GUI ghost "enable" click (`machine_defaults`) | `false` |
+| GUI collect checkbox click | `safe_collect` → `false` |
+| `tags.decode` default for a missing flag | `true`, but **every** consumer above sanitises it |
+| `collect_offer` (point of consequence) | refuses turrets regardless of the stored flag |
+
+No live-entity code path found that can leave `collect=true` on an ammo-turret; the only way to write it is
+direct mutation of another mod's storage table, which no in-repo code does.
+
+### MINOR — behavioural coverage
+
+* `tests/glue_test.lua`: a behavioural test loops over an **explicit `collect=true` tag** and a tag that
+  **omits `collect`**, applies each through `apply_tags`, and asserts on the real `work.collect_offer`:
+  the record yields `nil` even though the turret's ammo inventory is full; a deliberately poisoned record
+  also yields `nil`; the sweep leaves `has_output` falsy. A control using the *same* non-empty inventory on
+  an ordinary furnace confirms the offer machinery still works, so the test is not a stub artefact.
+  Also added: `apply_tags` live/ghost sanitisation, and poisoned-record re-enable regression tests.
+* `tests/model_test.lua`: `safe_collect` and `priority_default` pure-rule tests.
+* `m3_turret`: new checks that a turret holding `DEFAULT_TARGET` magazines has a full ammo inventory, that
+  the sweep does not mark it as output, that it produces **no collect offer**, and that even a poisoned
+  record produces none — now 36 checks.
+* `m1_blueprint`: two real engine ghosts with forged tags (explicit `collect=true`, and omitted `collect`),
+  sanitised through `apply_tags` and revived; neither yields a provider record — now 34 checks.
+
+### MINOR — `M.want`
+
+Kept as-is at the reviewer's instruction. It remains a pure, tested statement of the "inflight counts as
+already on its way" rule; the adapter's `machine_demands` uses its own threshold logic and does not call it.
+Dead code is acceptable here — it documents the rule and is covered by `tests/model_test.lua`.
+
+### Gate outputs after review fixes
+
+```
+scripts/test.sh                          427 passed, 0 failed   (was 421)
+scripts/lint-determinism.sh              determinism lint ok
+luajit -bl (8 changed Lua files)        all OK
+scripts/typecheck.sh                     Diagnosis completed, no problems found
+scripts/determinism.sh                   final checksum: 2960604716 — UNCHANGED; DETERMINISM: PASS
+                                         m1_colony SUMMARY pass=116 fail=0
+scripts/save-load.sh                     SAVE/LOAD: PASS
+headless-spike.sh m3_turret              SUMMARY pass=36 fail=0 unknown=0 errors=0
+headless-spike.sh m1_blueprint           SUMMARY pass=34 fail=0 unknown=0 errors=0
+```
+
+Docs (AGENTS.md, design document) were deliberately **not** touched in this fix commit — the docs-hygiene
+agent owns them.

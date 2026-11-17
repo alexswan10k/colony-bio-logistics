@@ -2041,6 +2041,9 @@ function M.set_machine(colony, e, enabled)
     end
     m.entity = e
     m.enabled = true
+    -- A record poisoned by an older save/tag cannot survive a re-enable (or the load-time rebadge, which
+    -- calls back through here): a turret is never a provider, whatever its stored collect flag says.
+    if e.type == "ammo-turret" then m.collect = false end
     m.need, m.has_output = nil, nil      -- the sweep rediscovers both within a pass
     colony.machines[e.unit_number] = m
     if next(m.requests) == nil then m.requests = M.default_requests(e) end
@@ -2155,16 +2158,21 @@ function M.apply_tags(colony, e, dict)
   local e_name = (e.type == "entity-ghost") and e.ghost_name or e.name
   if payload.machine then
     if not gui.MACHINE_GUIS[e_type] then return false end
+    -- #59: the payload is untrusted. A forged tag (or a tag that merely omits `collect`, which tags.decode
+    -- defaults to true) must never make an ammo-turret a provider: its "output inventory" is its ammo
+    -- inventory, so haulers would strip the loaded rounds. The rule is pure, in model/turret.lua.
+    local safe_collect = turret_model.safe_collect(e_type, payload.machine.collect)
     if e.type == "entity-ghost" then
-      local m = {collect = payload.machine.collect ~= false, requests = copy_rows(payload.machine.requests),
-                 priority = payload.machine.priority or 4}
+      local m = {collect = safe_collect, requests = copy_rows(payload.machine.requests),
+        priority = payload.machine.priority or turret_model.priority_default(e_type, 4)}
       e.tags = tags.dictionary(tags.machine(m))
       return true
     end
     local m = M.set_machine(colony, e, true)
     if not m then return false end
-    m.collect, m.requests = payload.machine.collect, copy_rows(payload.machine.requests)
-    if payload.machine.priority then m.priority = payload.machine.priority end
+    m.collect, m.requests = safe_collect, copy_rows(payload.machine.requests)
+    if payload.machine.priority then m.priority = payload.machine.priority
+    elseif e_type == "ammo-turret" then m.priority = turret_model.DEFAULT_BUILDING_PRIORITY end
     m.need, m.has_output = nil, nil
     return true
   elseif payload.crate then

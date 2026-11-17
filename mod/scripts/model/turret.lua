@@ -50,4 +50,20 @@ function M.want(count, inflight, target)
   return math.max(0, (target or 0) - (count or 0) - (inflight or 0))
 end
 
+-- Restore-time guard for untrusted machine settings (blueprint tags, copy-paste, GUI ghost records).
+-- model/tags.lua defaults a missing `collect` to true for ordinary machines; that default is dangerous for a
+-- turret because its "output inventory" IS its ammo inventory - collect=true would let haulers drain the
+-- loaded rounds back into storage. Every settings-restore path must pass its payload through this rule.
+function M.safe_collect(entity_type, collect)
+  if entity_type == "ammo-turret" then return false end
+  -- A nil flag is not an opt-in: the old `not m.collect` guard in collect_offer treated nil as "no".
+  return collect and true or false
+end
+
+-- Building priority to use when a restored payload has no explicit priority. An explicit player choice is
+-- still honoured; only the fallback depends on the entity type.
+function M.priority_default(entity_type, fallback)
+  return entity_type == "ammo-turret" and M.DEFAULT_BUILDING_PRIORITY or fallback
+end
+
 return M

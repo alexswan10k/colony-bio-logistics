@@ -130,6 +130,24 @@ core.register("m3_turret", {
       if loaded < 10 then turret.insert{name = "firearm-magazine", count = 10 - loaded} end
       work.refresh_machine(c, m)
       ctx.check("a full turret has no cached need", m.need == nil, "need=" .. tostring(m.need))
+
+      -- #59 review: pin the safety property at the offer level, not just the record field. A turret holding a
+      -- full ammo inventory has a "non-empty output inventory" to the engine, so it must still never offer
+      -- those rounds as a collect source (control: with collect=true it would).
+      local full_ammo = turret.get_inventory(defines.inventory.turret_ammo)
+      ctx.check("the turret holds a full ammo inventory at the target",
+        full_ammo and full_ammo.get_item_count("firearm-magazine") == turret_model.DEFAULT_TARGET["firearm-magazine"],
+        full_ammo and tostring(full_ammo.get_item_count("firearm-magazine")) or "no inventory")
+      ctx.check("the sweep does not mark loaded turret ammo as output", not m.has_output,
+        "has_output=" .. tostring(m.has_output))
+      ctx.check("a loaded opt-in turret produces NO collect offer", work.collect_offer(c, m) == nil)
+      -- Even a record poisoned by an older save is refused at the offer itself (defence in depth).
+      m.collect = true
+      local drain = work.collect_offer(c, m)
+      m.collect = false
+      ctx.check("even a poisoned turret record yields no collect offer", drain == nil,
+        drain and drain.kind or "none")
+
       c.storage_cache, c.storage_tick = nil, nil
       local no_offer = work.find_haul_task(c, nil, hall.position)
       ctx.check("no further ammo offer is produced", not (no_offer and no_offer.machine == m),

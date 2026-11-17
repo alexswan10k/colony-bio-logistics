@@ -683,6 +683,63 @@ describe("keeping food (#81)", function()
   end)
 end)
 
+describe("Gleba preserves (#70)", function()
+  local gleba = require("scripts.model.gleba")
+  local preserve = require("scripts.model.preserve")
+  local h = require("scripts.model.housing")
+  it("cures only with salt, in declared raw order, with the recipe's own counts", function()
+    eq(gleba.recipe({yumako = 2}), nil)                                    -- no salt
+    eq(gleba.recipe({["colony-salt"] = 1, yumako = 1}), nil)                -- not enough fruit
+    local r = gleba.recipe({["colony-salt"] = 1, yumako = 2})
+    eq(r.raw, "yumako"); eq(r.product, "colony-gleba-jam"); eq(r.count, 2)
+    eq(gleba.recipe({["colony-salt"] = 1, jellynut = 2}).raw, "jellynut")
+    local mash = gleba.recipe({["colony-salt"] = 1, ["yumako-mash"] = 1})
+    eq(mash.raw, "yumako-mash"); eq(mash.count, 1)
+    eq(gleba.recipe({["colony-salt"] = 1, jelly = 1}).raw, "jelly")
+  end)
+  it("is deterministic when several perishables are present, and defers bioflux", function()
+    local stock = {["colony-salt"] = 1, yumako = 2, jellynut = 2, ["yumako-mash"] = 1, jelly = 1, bioflux = 1}
+    eq(gleba.recipe(stock).raw, "yumako")
+    eq(gleba.recipe({["colony-salt"] = 1, bioflux = 5}), nil)
+  end)
+  it("keeps raw fruit inedible and jam at a documented 45-minute shelf", function()
+    eq(gleba.SHELF_TICKS, 45 * 60 * 60)
+    local idx = {}
+    for i, o in ipairs(h.FOOD) do idx[o.item] = i end
+    for _, r in ipairs(gleba.RAW) do eq(idx[r.item], nil) end
+    truthy(idx["colony-gleba-jam"] ~= nil)
+  end)
+  it("shares the curing salt cost with yields, not a second literal", function()
+    local yields = require("scripts.model.yields")
+    eq(gleba.SALT_PER_BATCH, yields.CURE.salt)
+    eq(gleba.SALT, preserve.SALT)
+  end)
+  it("refuses over-ripe fruit so the Lua path cannot launder it into fresh jam (#70)", function()
+    -- Mutation check: removing the freshness argument/gate makes these two assertions fail.
+    local stock = {["colony-salt"] = 1, yumako = 2}
+    eq(gleba.recipe(stock, {yumako = 0.999}), nil)
+    eq(gleba.recipe(stock, {yumako = gleba.MAX_INPUT_SPOIL}), nil)  -- threshold is exclusive
+    eq(gleba.recipe(stock, {yumako = 0.4}).raw, "yumako")
+    local mixed = {["colony-salt"] = 1, yumako = 2, jelly = 1}
+    eq(gleba.recipe(mixed, {yumako = 0.999, jelly = 0.1}).raw, "jelly")     -- skips a spoiled raw
+  end)
+  it("the Smokehouse cures meat/fish first, then falls back to Gleba with a count", function()
+    eq(preserve.recipe({["colony-salt"] = 1, ["colony-meat"] = 1, yumako = 2}).raw, "colony-meat")
+    local r = preserve.recipe({["colony-salt"] = 1, yumako = 2})
+    eq(r.raw, "yumako"); eq(r.count, 2); eq(r.product, "colony-gleba-jam")
+    eq(preserve.recipe({yumako = 2}), nil)       -- preserve's own salt gate still applies
+  end)
+  it("Gleba curing is gated on the researched tech; meat/fish are not (#70)", function()
+    -- Mutation check: dropping the `gleba_unlocked == false` branch makes the first assertion fail.
+    local stock = {["colony-salt"] = 1, yumako = 2}
+    eq(preserve.recipe(stock, nil, false), nil)
+    eq(preserve.recipe(stock, nil, true).raw, "yumako")
+    eq(gleba.TECH, "colony-gleba-cuisine")
+    local meat = {["colony-salt"] = 1, ["colony-meat"] = 1}
+    eq(preserve.recipe(meat, nil, false).raw, "colony-meat")  -- pre-#70 behaviour unchanged
+  end)
+end)
+
 describe("hunting (#79)", function()
   local hunting = require("scripts.model.hunting")
   local function animal(un, x, y) return {unit_number = un, position = {x = x, y = y}} end
@@ -1048,7 +1105,8 @@ describe("housing", function()
     eq(d.food.items[5], "colony-produce")
     -- the preserved tier is eaten LAST (#81): a house finishes what spoils first
     eq(d.food.items[6], "colony-preserved-fish"); eq(d.food.items[7], "colony-preserved-meat")
-    eq(d.food.items[8], "colony-bread")
+    eq(d.food.items[8], "colony-gleba-jam")  -- #70: the salt-cured tier, still before bread
+    eq(d.food.items[9], "colony-bread")
     local d2 = h.demand(h.TIERS.cabin, {}, {}, true)
     eq(#d2, 1)
   end)
@@ -1154,6 +1212,27 @@ describe("housing", function()
     truthy(idx["colony-canned-meat"] > idx["colony-preserved-meat"])
     truthy(idx["colony-canned-fish"] > idx["colony-bread"])
     truthy(idx["colony-canned-meat"] > idx["colony-bread"])
+  end)
+  it("Gleba jam sits with the salted tier, before bread, at per=1 (#70)", function()
+    local idx = {}
+    for i, o in ipairs(h.FOOD) do idx[o.item] = i end
+    truthy(idx["colony-gleba-jam"] > idx["colony-preserved-meat"])
+    truthy(idx["colony-gleba-jam"] < idx["colony-bread"])
+    eq(h.FOOD[idx["colony-gleba-jam"]].per, 1)
+  end)
+  it("a house eats jam, and eats fresh forage before it (#70)", function()
+    local stock, acc = {["colony-gleba-jam"] = 4, wood = 4}, {}
+    local c, sat = h.step(h.TIERS.tent, 4, stock, false, acc)
+    eq(c["colony-gleba-jam"], 4); eq(sat.food, true)
+    local stock2, acc2 = {["colony-forage"] = 2, ["colony-gleba-jam"] = 4, wood = 4}, {}
+    local c2 = h.step(h.TIERS.tent, 4, stock2, false, acc2)
+    eq(c2["colony-forage"], 2); eq(c2["colony-gleba-jam"], 2)
+  end)
+  it("Gleba jam joins the interchangeable food haul demand (#70)", function()
+    local d = by_need(h.demand(h.TIERS.cabin, {}, {}, true))
+    local has_jam = false
+    for _, item in ipairs(d.food.items) do if item == "colony-gleba-jam" then has_jam = true end end
+    truthy(has_jam)
   end)
   it("townhouse requires food and water, heat from coal or power - no wood required (#96)", function()
     local stock = {["colony-meat"] = 12, ["colony-water"] = 6, coal = 6}

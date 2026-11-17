@@ -34,7 +34,8 @@ M.HUTS = {
   -- No `tool`: a Smokehouse or Kitchen is gated by its inputs, not by equipment (#81, #44). `keep` lists the
   -- items that are *inputs*, so haulers do not treat them as hut output and cart them straight back to the hall.
   ["colony-smokehouse"] = {job = "preserve", capacity = 2,
-    keep = {"colony-salt", "colony-meat", "colony-fish"}},
+    -- Gleba fruit (#70) is an input, so it must not be hauled back out as if the hut had produced it.
+    keep = {"colony-salt", "colony-meat", "colony-fish", "yumako", "jellynut", "yumako-mash", "jelly"}},
   ["colony-cannery"] = {job = "preserve", capacity = 2,
     keep = {"colony-preserved-meat", "colony-preserved-fish", "iron-plate", "colony-water"}},
   ["colony-kitchen"] = {job = "preserve", capacity = 2,

@@ -24,6 +24,7 @@ local hunting = require("scripts.model.hunting")
 local wildlife = require("scripts.wildlife")
 local fishing = require("scripts.model.fishing")
 local preserve = require("scripts.model.preserve")
+local gleba = require("scripts.model.gleba")
 local cans = require("scripts.model.cans")
 local kitchen = require("scripts.model.kitchen")
 local toolsmith = require("scripts.model.toolsmith")
@@ -183,6 +184,26 @@ local function chest_contents(entity)
   if not (inv and not inv.is_empty()) then return nil end
   local out = {}
   for _, item in ipairs(inv.get_contents()) do out[item.name] = item.count end
+  return out
+end
+
+-- Worst spoil_percent of each spoiling stack in a hut chest (#70). `chest_contents` only has counts, but the
+-- colony's Lua Smokehouse never runs an engine recipe, so this read is the only thing that stops a 99%-spoiled
+-- fruit being turned into fresh jam by a bare Lua `insert`. Bounded by the chest's slot count and only called
+-- when a Smokehouse is checked for work / finishes a trip (never per tick).
+local function chest_freshness(entity)
+  local inv = entity.type == "lab"
+    and entity.get_inventory(defines.inventory.lab_input)
+    or entity.get_inventory(defines.inventory.chest)
+  if not (inv and not inv.is_empty()) then return nil end
+  local out = {}
+  for i = 1, #inv do
+    local st = inv[i]
+    if st.valid_for_read and st.spoil_tick > 0 then
+      local pct = st.spoil_percent
+      if pct > (out[st.name] or 0) then out[st.name] = pct end
+    end
+  end
   return out
 end
 
@@ -649,6 +670,16 @@ function M.tool_gap(colony, tool)
     missing = workshop.missing(tool, colony_mod.stock_table(colony))}
 end
 
+-- The inputs the generic Smokehouse branch sees: counts, worst-stack freshness, and whether Gleba Cuisine
+-- is researched on the hut's own force. Both the readiness check and the work completion use this, so a hut
+-- with only over-ripe fruit (or with the tech missing) closes its slots and reports missing inputs instead of
+-- sending a colonist on a trip that cannot produce anything (#70).
+local function preserve_inputs(hut)
+  local force = hut.entity.force
+  local tech = force and force.technologies and force.technologies[gleba.TECH]
+  return chest_contents(hut.entity) or {}, chest_freshness(hut.entity), tech ~= nil and tech.researched == true
+end
+
 -- A supply-gated preserve hut (Smokehouse, Kitchen, Toolsmith) can work only while it holds what it works on. Used
 -- by the job slots (so the chooser never sends a colonist to a hut with nothing to do) and by the site check.
 -- Returns the tool to make for a Toolsmith, or a truthy value for the others.
@@ -656,7 +687,7 @@ local function preserve_ready(colony, hut)
   if hut.entity.name == toolsmith.NAME then return toolsmith_pick(colony, hut) end
   if hut.entity.name == "colony-kitchen" then return kitchen.recipe(chest_contents(hut.entity) or {}) end
   if hut.entity.name == "colony-cannery" then return cans.recipe(chest_contents(hut.entity) or {}) end
-  return preserve.recipe(chest_contents(hut.entity) or {})
+  return preserve.recipe(preserve_inputs(hut))
 end
 
 -- Shared readiness check for GUI and status feedback (#81, #97, #42): matches what job_slots / find_site
@@ -2787,12 +2818,16 @@ scheduler.register("work.finish", function(d)
         M.cans_made = M.cans_made + 1
       end
     else
-      local recipe = preserve.recipe(chest_contents(hut.entity) or {})
+      -- Re-check readiness at completion: fruit can spoil during the walk, and the tech can only go from
+      -- unresearched to researched, but a stale in-flight trip must never turn over-ripe fruit into fresh jam.
+      local recipe = preserve.recipe(preserve_inputs(hut))
       if recipe then
+        -- Meat/fish leave `count` nil (use the legacy batch of one); Gleba fruit (#70) carries 2 fruit / 1 pulp.
+        local raw_count = recipe.count or preserve.RAW_PER_BATCH
         hut.entity.remove_item{name = preserve.SALT, count = preserve.SALT_PER_BATCH}
-        hut.entity.remove_item{name = recipe.raw, count = preserve.RAW_PER_BATCH}
+        hut.entity.remove_item{name = recipe.raw, count = raw_count}
         stats.consumed(colony, preserve.SALT, preserve.SALT_PER_BATCH)
-        stats.consumed(colony, recipe.raw, preserve.RAW_PER_BATCH)
+        stats.consumed(colony, recipe.raw, raw_count)
         item, n = recipe.product, preserve.PRODUCT_PER_BATCH
       end
     end

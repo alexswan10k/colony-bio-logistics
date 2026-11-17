@@ -1802,6 +1802,22 @@ describe("audit glue regressions", function()
     eq(needs.missing(c, api).forage, true, "only-ineligible stock still promotes forage")
   end)
 
+  it("Gleba glue: jam counts as food, raw fruit does not (#70)", function()
+    local env = mock.install(); env = env.reset()
+    local colony_mod = require("scripts.colony")
+    local in_list = {}
+    for _, item in ipairs(colony_mod.FOOD_ITEMS) do in_list[item] = true end
+    truthy(in_list["colony-gleba-jam"], "the cured preserve is counted as colony food")
+    for _, item in ipairs({"yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}) do
+      eq(in_list[item], nil, item .. " is still inedible and uncounted")
+    end
+    -- A hall holding only jam feeds the migration gate; one holding only raw fruit does not.
+    for _, item in ipairs(colony_mod.FOOD_ITEMS) do prototypes.item[item] = {} end
+    local hall = {valid = true, get_item_count = function(name) return name == "colony-gleba-jam" and 7 or 0 end}
+    local c = {id = 1, hall = hall, houses = {}, towers = {}, huts = {}, crates = {}}
+    eq(colony_mod.food_in(c), 7, "jam is real food")
+  end)
+
   it("D3 glue: food_available sees food on house shelves that the hall-only food_in misses", function()
     local env = mock.install(); env = env.reset()
     local colony_mod = require("scripts.colony")

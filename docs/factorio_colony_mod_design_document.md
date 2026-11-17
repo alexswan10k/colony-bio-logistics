@@ -84,6 +84,24 @@ Targeting **Factorio: Space Age** allows us to use native `spoil_ticks` and `spo
    * **Natural forage patches:** Berries grow as world entities autoplaced on grass (they ride the vanilla vegetation/`trees` map-gen control, so density follows that slider). A Forager's Hut never spawns bushes: it harvests patches that already exist inside colony territory, and a picked patch grows back in place after $40\text{--}70$ seconds. Chunks generated before the patches existed are seeded once on load, so old saves behave like new ones ($\approx 3$ patches per $32 \times 32$ chunk).
    * **Spoilage:** Raw foods spoil quickly ($5\text{--}10\text{ minutes}$).
 
+**M4 Gleba food slice (implemented, #70):** raw Gleba perishables are deliberately *inedible* - no vanilla
+fruit, pulp or bioflux appears in `housing.FOOD` (nor in `colony.M.FOOD_ITEMS`, which derives from it). The
+**Gleba Cuisine** technology (20 Frontier Charters, after Food Preservation and the vanilla `yumako` and
+`jellynut` processing techs) unlocks four Smokehouse recipes: two yumako, two jellynut, one yumako-mash or
+one jelly plus one colony salt make one **Gleba fruit preserve** - a 45-minute, `per = 1` food that sits with
+the salted tier in the eating order (after preserved meat, before bread). There is no new building, job, tool,
+standing haul request or storage schema: fruit arrives by belt/inserter (the opt-in pillar), the generic
+Smokehouse branch performs the conversion, and the output rides the existing hut-to-hall haul, but the
+conversion itself is gated on `colony-gleba-cuisine` being researched on the hut's force (the same
+`hut_inputs_missing` / job-slot path that gates every other supply-limited hut). Two separate guards keep a
+near-spoiled fruit from becoming fresh food. `s17_gleba` pinned the **engine** fact: a craft from a 99.9%
+spoiled ingredient produces a 99.9% spoiled product, so no product sets `always_fresh`. Because the colony's
+Lua Smokehouse never runs an engine recipe, it also reads the source stack's real `spoil_percent` and refuses
+any fruit at or above `model/gleba.lua.MAX_INPUT_SPOIL` (0.5); such a hut closes its slots and reports missing
+inputs until the fruit rots into `spoilage`. Its waste is `spoilage` -> compost -> fertilizer, and a
+refrigerated warehouse/wagon restamps jam exactly as it does every other perishable. Bioflux stays an
+industrial-only intermediate; Swamp Fever and spore emissions stay open under #70.
+
 **M1 hunting slice (implemented, #79):** hunting is **real engine combat** - a hunter is given an `attack`
 command and the engine does the chasing, the shooting and the kill - but the colony stays a non-combat faction
 by putting the game on its **own force**. `colony-wildlife` is at cease-fire with `player`, `enemy` and

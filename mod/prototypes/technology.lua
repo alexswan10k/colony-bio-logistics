@@ -74,6 +74,16 @@ data:extend({
     unlock("colony-salt-pan"), unlock("colony-salt-from-stone"), unlock("colony-smokehouse"),
     unlock("colony-frontier-pack-preserved"), unlock("colony-frontier-pack-preserved-fish"),
   }),
+  -- Gleba food (#70): the Smokehouse already knows how to cure with salt; this only teaches it the four
+  -- perishable fruit recipes. The vanilla Space Age interlock is `yumako` + `jellynut` (both behind
+  -- `agriculture`): m1_tech proved `agriculture` alone leaves yumako-mash and jelly behind un-researched
+  -- vanilla recipes, which would make two of our four recipes unmakeable. So the player must have actually
+  -- processed both fruits before colony jam appears. No new pack: it stays colony-packs-only.
+  tech("colony-gleba-cuisine", "icon-gleba-jam.png", 20, {"colony-frontier-pack"}, 15,
+    {"colony-food-preservation", "yumako", "jellynut"}, {
+    unlock("colony-gleba-jam-yumako"), unlock("colony-gleba-jam-jellynut"),
+    unlock("colony-gleba-jam-mash"), unlock("colony-gleba-jam-jelly"),
+  }),
   -- Cold Chain (#45): the late-food tier. Canning preserved food in tins buys four hours of shelf life for the
   -- cost of an iron plate and a colony water; the refrigerated warehouse and wagon freeze the spoil countdown
   -- while goods are inside them. Interlock: the player has steel, circuits and canning machinery before the

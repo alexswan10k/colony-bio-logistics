@@ -46,6 +46,10 @@ Three headless gates cover the things the unit tests and the playable spike cann
 - `scripts/headless-spike.sh m3_turret` - the #59 ammo-turret spike (36 checks): turret opt-in and ammo
   requests, the `collect=false` safety invariant under forged and omitted tags, and the behavioural proof
   that a loaded turret produces no collect offer (its `get_output_inventory()` is the ammo inventory).
+- `scripts/headless-spike.sh s17_gleba` - the #70 engine probe (27 checks): actual spoil ticks and `spoilage`
+  results for the five Gleba items, freshness inheritance in engine crafts, `always_fresh` product behaviour,
+  cold-chain restamp, composting and spore/pollutant facts. `m2_gleba` (17 checks) then proves the colony
+  Smokehouse refuses over-ripe fruit and produces jam only after the `colony-gleba-cuisine` tech is researched.
 - `scripts/headless-spike.sh m1_rail` - the #49 passenger rail spike (17 checks, `TICKS=8000`): two colonies ~200 tiles
   apart on one rail line, a platform by each stop; colony A loses its only tent, its four colonists walk to the platform
   and wait, board the coach (riders drawn on it), and step off at B as B's colonists; nobody is lost. Migrants are

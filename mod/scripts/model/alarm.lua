@@ -20,6 +20,8 @@ M.HOLD_TICKS = 3600    -- enemies merely nearby (biters idling by their nest) ho
 -- exactly the thing that must NOT run indoors (#56); it engages enemies instead of sheltering from them).
 M.EXEMPT = {to_shelter = true, sheltered = true, driving = true, to_platform = true, waiting_train = true,
   to_tower = true, guarding = true, ["guarding-fight"] = true,
+  -- M3 militia (#55): militia fight, they do not hide. Same exemption as a posted guard.
+  to_militia = true, ["militia-hold"] = true, ["militia-fight"] = true,
   commanded = true}   -- #58: a whistle order is a temporary lease; the alarm must not pull it indoors
 
 local function d2(a, b) local dx, dy = a.x - b.x, a.y - b.y; return dx * dx + dy * dy end

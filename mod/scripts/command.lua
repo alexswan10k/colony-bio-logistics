@@ -7,6 +7,9 @@ local work = require("scripts.work")
 local model = require("scripts.model.command")
 local M = {}
 
+local militia_mod   -- injected by scripts.colony via M.bind_militia (cycle-safe)
+function M.bind_militia(m) militia_mod = m end
+
 M.TOOL = "colony-command-whistle"
 M.ORDER_INPUT = "colony-command-order"
 M.STOP_INPUT = "colony-command-stop"
@@ -81,7 +84,9 @@ local function release_lease(un, halt)
   work.release(st)
   work.clear_label(un)
   clear_carry_sprite(un)
-  storage.unit_state[un] = {colony_id = st.colony_id, job = st.job or "idle", state = "idle"}
+  -- M3 militia (#55): gear is pure data on unit_state, not an entity inventory. Carry it through the lease
+  -- so a returned militia is still armed (abort_intents handed it to the lease; return it to the idle state).
+  storage.unit_state[un] = {colony_id = st.colony_id, job = st.job or "idle", state = "idle", gear = st.gear}
   if halt and e and e.valid then
     e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 0,
       distraction = defines.distraction.none}
@@ -172,7 +177,7 @@ local function apply(pi, kind, target)
   for _, un in ipairs(units) do
     local st = storage.unit_state and storage.unit_state[un]
     local e = entity_of(un)
-    if st and e and e.name == "colony-colonist" then
+    if st and e and model.is_colony_unit(e.name) then
       local ctx = {
         is_child = storage.age and storage.age[un] and storage.age[un].stage == "child",
         is_truck = storage.trucks and storage.trucks[un] ~= nil,
@@ -209,6 +214,10 @@ local function apply(pi, kind, target)
       if intents.clear_carry_sprite then clear_carry_sprite(un) end
       work.release(st)           -- carry, site claim, car/trailer, research status; sets state idle
       work.clear_label(un)
+      -- M3 militia (#55): preserve pure-data gear across the lease (abort_intents carries it) and release
+      -- any in-flight gear claim so the weapon is neither lost nor double-claimed when work resumes.
+      plan.states[un].gear = intents.gear
+      if intents.release_gear_claim and militia_mod then militia_mod.release_claim(un, st) end
       storage.unit_state[un] = plan.states[un]
       e.commandable.set_command(engine)
       work.set_label(e, model.label_for(kind), true)
@@ -223,6 +232,7 @@ local function apply(pi, kind, target)
   notify(game.get_player(pi), pos, "colony-message.command-ordered", ordered, {noun})
   return ordered, #units - #candidates
 end
+M.apply = apply   -- exposed for the m3_militia whistle regression case; no functions in storage
 
 -- Order at the world position carried by a custom-input event (s18_command proved cursor_position exists).
 events.on(M.ORDER_INPUT, function(ev)
@@ -275,7 +285,7 @@ events.on(defines.events.on_player_selected_area, function(ev)
   local s = state()
   local ids = {}
   for _, e in ipairs(ev.entities or {}) do
-    if e and e.valid and e.name == "colony-colonist" then ids[#ids + 1] = e.unit_number end
+    if e and e.valid and model.is_colony_unit(e.name) then ids[#ids + 1] = e.unit_number end
   end
   local units = model.select(s.selection[ev.player_index], ids, "set")
   s.selection[ev.player_index] = units

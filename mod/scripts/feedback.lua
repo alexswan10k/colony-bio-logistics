@@ -71,7 +71,8 @@ local function hut_status(colony, h, stock, haul_rank)
   -- `requires` names what it is actually waiting for and its line reads "no inputs", not "working".
   local inputs_missing = (workers == 0) and work.hut_inputs_missing(colony, h) or false
   local sites
-  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" and h.job ~= "guard" then
+  if h.job ~= "preserve" and h.job ~= "fish" and h.job ~= "research" and h.job ~= "heal" and h.job ~= "guard"
+      and h.job ~= "militia" then
     sites = work.site_count(h)
   end
   local stuck = (colony.no_site[h.entity.unit_number] or 0) > game.tick

@@ -15,6 +15,11 @@ M.WATCHDOG_TICKS = 300        -- adapter: leased-state expiry / nightfall check,
 
 -- States another subsystem owns. Ordering one of these would strand a train, a coach, a truck driver, a
 -- sleeper inside a house or a colonist indoors during an alarm, so they are refused outright.
+-- Entity names the whistle may select/order. A militia is a colonist in uniform, not a different kind of
+-- unit (#55): both must be selectable or the ORDERABLE/gear-carry wiring for militia is unreachable dead code.
+M.UNIT_NAMES = {["colony-colonist"] = true, ["colony-militia"] = true}
+function M.is_colony_unit(name) return M.UNIT_NAMES[name] == true end
+
 M.PROTECTED = {
   child = true, to_bed = true, sleeping = true,
   to_shelter = true, sheltered = true, exposed = true,
@@ -29,6 +34,9 @@ M.ORDERABLE = {
   to_pool = true, to_tavern = true, to_bin = true, to_hall = true,
   to_site = true, working = true, hunting = true,
   to_tower = true, guarding = true, ["guarding-fight"] = true,
+  -- M3 militia (#55): a whistle order preempts a militia exactly like a guard. Its gear is pure data in
+  -- st.gear and is carried across the lease by abort_intents (see below), so the order loses nothing.
+  to_militia = true, ["militia-hold"] = true, ["militia-fight"] = true,
   -- Re-ordering an already commanded unit replaces its lease (last writer wins between players).
   commanded = true,
 }
@@ -96,6 +104,10 @@ function M.abort_intents(st)
     clear_carry_sprite = true,
     clear_label = true,
     restore_destructible = false,   -- never re-enable a sheltered colonist by ordering it
+    -- M3 militia (#55): gear is pure data on unit_state. Carry it into the lease instead of dropping it,
+    -- and flag that any in-flight gear haul claim must be released so no item is lost or double-claimed.
+    gear = st.gear,
+    release_gear_claim = st.job == "militia",
     old_job = st.job or "idle",
     old_state = st.state or "idle",
   }

@@ -1,4 +1,5 @@
 require("prototypes.colonist")
+require("prototypes.militia")
 require("prototypes.vehicles")
 -- Throwaway prototypes needed by feasibility spikes. If the game fails to load, untick
 -- "colony-spike-protos" in Settings > Mod settings > Startup and report which prototype broke.

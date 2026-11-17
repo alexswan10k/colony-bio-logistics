@@ -8,7 +8,9 @@ local commute = require("scripts.commute")
 local M = {}
 
 M.COLONIST = "colony-colonist"
+M.MILITIA = "colony-militia"   -- M3 (#55): militia die and are recorded exactly like colonists
 M.GRAVE = "colony-grave"
+local COLONIST_NAMES = {[M.COLONIST] = true, [M.MILITIA] = true}
 
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
@@ -16,7 +18,7 @@ function M.bind(c) colony_mod = c end
 -- Record one death in `colony`. `pos`/`surface` = where it fell (nil when there is no body, e.g. a wrecked
 -- coach). `cause` = what killed it ("starved" or a [colony-death] key), kept as colony.last_death; `quiet` when
 -- the caller has already said what happened.
-function M.record(colony, pos, surface, cause, quiet)
+function M.record(colony, pos, surface, cause, quiet, name)
   table.insert(colony.deaths, 0)
   colony.last_death = cause
   colony.fallen = (colony.fallen or 0) + 1
@@ -37,7 +39,7 @@ function M.record(colony, pos, surface, cause, quiet)
   if not quiet and colony.hall.valid then
     local at = where and colony_mod.gps(where.position, where.surface) or ""
     colony.hall.force.print({i and "colony-message.died-buried" or "colony-message.died",
-      {"entity-name." .. M.COLONIST}, {"colony-death." .. cause}, at})
+      {"entity-name." .. (name or M.COLONIST)}, {"colony-death." .. cause}, at})
   end
 end
 
@@ -50,8 +52,9 @@ end
 
 events.on(defines.events.on_entity_died, function(ev)
   local e = ev.entity
-  if e.name ~= M.COLONIST then return end
+  if not COLONIST_NAMES[e.name] then return end
   local un = e.unit_number
+  local colonist_name = e.name
   if settings and settings.global and settings.global["colony-debug-log"] and settings.global["colony-debug-log"].value then
     log("[colony-death-ev] " .. serpent.line({
       cause = ev.cause and ev.cause.valid and ev.cause.name, cause_type = ev.cause and ev.cause.valid and ev.cause.type,
@@ -79,7 +82,7 @@ events.on(defines.events.on_entity_died, function(ev)
     enemy = ev.force ~= nil and ev.force.name == "enemy",
     damage_type = ev.damage_type and ev.damage_type.name,
   }
-  M.record(colony, e.position, e.surface, cause)
+  M.record(colony, e.position, e.surface, cause, false, colonist_name)
 end)
 
 return M

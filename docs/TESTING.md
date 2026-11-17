@@ -55,6 +55,13 @@ Three headless gates cover the things the unit tests and the playable spike cann
   and integrated checks that a lease release returns a commanded hunter's kill and that a stale construction
   timer cannot overwrite a live order. Real mouse gestures cannot be raised from script — see the in-game
   checklist on #58.
+- `scripts/headless-spike.sh s19_defence` - the Stage 0 M3 defence engine probe (no gameplay changes): pins
+  `LuaEntity:damage` return value / `on_entity_died` cause / resistance application, `is_military_target` being
+  true but not runtime-writable, the `ai_settings.allow_destroy_when_commands_fail` readback (note the prototype
+  field is named `destroy_when_commands_fail`, the runtime struct `allow_destroy_when_commands_fail`), that units
+  have **no** `character_armor`/`character_guns` inventory (armour must be pure-data), that equipment grids carry
+  quality but only on items (not units), and that `attack_area + by_enemy` survives repeated failed paths with
+  no `attack_move`. Findings are recorded in `SPIKE_FACTS.md`.
 - `scripts/headless-spike.sh m1_rail` - the #49 passenger rail spike (17 checks, `TICKS=8000`): two colonies ~200 tiles
   apart on one rail line, a platform by each stop; colony A loses its only tent, its four colonists walk to the platform
   and wait, board the coach (riders drawn on it), and step off at B as B's colonists; nobody is lost. Migrants are

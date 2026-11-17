@@ -77,6 +77,9 @@ local watchtower = chest_clone("steel-chest", "colony-watchtower", "watchtower",
 -- Armory (#56 remainder): a worker-free gear depot. Haulers fill it with weapons/armour/ammo for the
 -- manning limit the player sets; militia equip from it, and a manned Armory projects a structural aura.
 local armory_depot = chest_clone("steel-chest", "colony-armory", "armory", 16, 1)
+-- Patrol Post (#57): a 2x2 route marker. Waypoints are plain data on the colony registry, placed with the
+-- patrol marker tool; the chest holds spares but post duty itself is driven from colony stock via the Armory.
+local patrol_post = chest_clone("iron-chest", "colony-patrol-post", "patrol-post", 8, 1)
 local farmhut = chest_clone("iron-chest", "colony-farm-hut", "farm-hut", 8, 1)
 -- Forester's Hut (#97): replants the trees a woodcutter fells, so a mature colony is not slowly stripped bare.
 -- It holds the wood it plants with (one per tree) and the spades it works with.
@@ -330,9 +333,10 @@ for _, hut in ipairs{woodcutter, miner, farmhut, huntinglodge, fishingdock, smok
   ring(hut, 48, "yellow")           -- colony.HUT_RADIUS
 end
 ring(forester, 20, "yellow")        -- forest.RADIUS: it plants close to home, where the woodcutter can reach
+ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while walking the route
 
 data:extend({
-  hall, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, farmhut, forester, huntinglodge, fishingdock, saltpan,
+  hall, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, warehouse, haul_station, compost_bin,
   cannery, refrigerated_warehouse, refrigerated_wagon, tower, ledger_entity,
   plot, bush, sink, marker, cemetery, grave,
@@ -350,6 +354,7 @@ data:extend({
   item_of(miner, "miner-hut", "z[colony]-f[miner-hut]"),
   item_of(watchtower, "watchtower", "z[colony]-g[watchtower]"),
   item_of(armory_depot, "armory", "z[colony]-g1[armory]"),
+  item_of(patrol_post, "patrol-post", "z[colony]-g2[patrol-post]"),
   item_of(farmhut, "farm-hut", "z[colony]-h[farm-hut]"),
   item_of(forester, "forester-hut", "z[colony]-h2[forester-hut]"),
   item_of(huntinglodge, "hunting-lodge", "z[colony]-i[hunting-lodge]"),
@@ -554,6 +559,7 @@ data:extend({
   recipe("colony-miner-hut", {wood = 20, stone = 10}, 2, 1, false),
   recipe("colony-watchtower", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 4, 1, false),
   recipe("colony-armory", {["steel-plate"] = 20, ["iron-plate"] = 20, ["stone-brick"] = 10}, 5, 1, false),
+  recipe("colony-patrol-post", {["stone-brick"] = 20, ["iron-plate"] = 10, wood = 10}, 4, 1, false),
   recipe("colony-farm-hut", {wood = 20, ["iron-plate"] = 5}, 2, 1, false),
   recipe("colony-forester-hut", {wood = 20, ["iron-plate"] = 5}, 2, 1, false),
   recipe("colony-hunting-lodge", {wood = 20, ["iron-plate"] = 8}, 2, 1, false),

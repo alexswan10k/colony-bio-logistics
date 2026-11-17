@@ -259,26 +259,46 @@ function M.release_claim(un, st)
   if st then st.site, st.attempts = nil, nil end
 end
 
-local function end_engagement(colony, un, st)
+-- One completed engagement's wear/ammo spend, shared by the militia state machine and a patrol's engagement.
+-- The damage rule itself is `model/militia.engage`; this is only the adapter's bookkeeping, so a patrol never
+-- invents a second combat rule (M3 Stage 3, #57).
+local function spend_one(colony, st)
   local gear = st.gear or {}
   local weapon = gear.weapon
   local def = weapon and militia_model.WEAPONS[weapon]
-  if def then
-    local _, spent, ammo_count = militia_model.spend(gear)
-    gear.ammo_count = ammo_count
-    -- Wear applies to every wear weapon (rifle/bow), independently of ammo spend.
-    if def.wear then
-      gear.uses = (gear.uses or 0) + 1
-      if gear.uses >= (def.uses or 1) then gear.weapon, gear.uses = nil, 0 end
-    end
-    -- Ammo (a magazine or an arrow) is spent out of the gear's own depot, never a colony.machines row (#59).
-    -- A rifle's `spent == weapon` is its own break, already handled by wear above.
-    if spent and spent ~= weapon then
-      local src = colony and colony.armories and gear.source_armory
-        and colony.armories[gear.source_armory] or nil
-      if not (src and armory.take(src, spent, 1) > 0) then remove_from_hall(colony, spent, 1) end
-    end
+  if not def then return end
+  local _, spent, ammo_count = militia_model.spend(gear)
+  gear.ammo_count = ammo_count
+  -- Wear applies to every wear weapon (rifle/bow), independently of ammo spend.
+  if def.wear then
+    gear.uses = (gear.uses or 0) + 1
+    if gear.uses >= (def.uses or 1) then gear.weapon, gear.uses = nil, 0 end
   end
+  -- Ammo (a magazine or an arrow) is spent out of the gear's own depot, never a colony.machines row (#59).
+  -- A rifle's `spent == weapon` is its own break, already handled by wear above.
+  if spent and spent ~= weapon then
+    local src = colony and colony.armories and gear.source_armory
+      and colony.armories[gear.source_armory] or nil
+    if not (src and armory.take(src, spent, 1) > 0) then remove_from_hall(colony, spent, 1) end
+  end
+end
+
+-- Patrol engagement (M3 Stage 3): the patrol adapter owns the route/lease, but the damage AND the wear are
+-- exactly Stage 1's model/militia rules - one scripted strike inside the hitscan range, no new combat rule.
+function M.patrol_strike(colony, un, st, target)
+  if not (colony and st and target and target.valid and target.health > 0) then return false end
+  local e = militia_entity(colony, un)
+  if not e then return false end
+  local dx, dy = target.position.x - e.position.x, target.position.y - e.position.y
+  if dx * dx + dy * dy > M.ATTACK_RANGE * M.ATTACK_RANGE then return false end
+  local damage, dtype = militia_model.engage(st.gear)
+  target.damage(damage, e.force, dtype, e, e)   -- cause = militia: mortality attribution stays honest
+  spend_one(colony, st)
+  return true
+end
+
+local function end_engagement(colony, un, st)
+  spend_one(colony, st)
   st.site, st.attempts = nil, nil
   st.state = "militia-hold"
   local e = militia_entity(colony, un)

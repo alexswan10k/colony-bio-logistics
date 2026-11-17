@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 40
+local SCHEMA = 41
 
 local migrations = {
   [1] = function()
@@ -299,6 +299,18 @@ local migrations = {
     -- logistics_enabled, priority}. All fields are plain data (unit numbers, counts, booleans); the LuaEntity
     -- reference is re-resolved by the engine on load, exactly like wells, taverns and watchtowers.
     for _, c in pairs(storage.colonies or {}) do c.armories = c.armories or {} end
+  end,
+  [41] = function()
+    -- Patrols (#57): colony.patrol_posts [unit_number] = {entity, colony_id, waypoints={{x=,y=},...}} holds the
+    -- player-placed route for each Patrol Post; colony.patrols [unit_number] = {post, route, idx, until_tick,
+    -- target_un, ...} holds an ACTIVE patrol (keyed by the patrolling militia's unit number). All plain data;
+    -- the LuaEntity reference is re-resolved by the engine on load. storage.patrol_ui holds per-player tool
+    -- selections (player index -> array of post unit numbers), also plain data.
+    for _, c in pairs(storage.colonies or {}) do
+      c.patrol_posts = c.patrol_posts or {}
+      c.patrols = c.patrols or {}
+    end
+    storage.patrol_ui = storage.patrol_ui or {selection = {}}
   end,
 }
 

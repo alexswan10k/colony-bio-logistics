@@ -106,6 +106,13 @@ def em_hunt(a, cx, cy):
         a.line([(cx + s * 5, cy), (cx + s * 10, cy - 2)], 2, (226, 216, 190))
 
 
+def em_flag(a, cx, cy):
+    """a route flag: the emblem of the Patrol Post (#57)"""
+    a.line([(cx - 5, cy + 11), (cx - 5, cy - 12)], 2.4, IRON_D)
+    a.poly([(cx - 4, cy - 12), (cx + 12, cy - 8), (cx - 4, cy - 3)], (206, 92, 62))
+    a.line([(cx - 9, cy + 11), (cx - 1, cy + 11)], 2, STONE_L)
+
+
 def em_frost(a, cx, cy):
     """a six-spoked snowflake badge for cold-chain buildings"""
     import math
@@ -1594,6 +1601,27 @@ def armory():
     b.box(x0 + 6, y1 - 12, x0 + 24, y1 - 8, 0, .5, (94, 100, 106), top=(124, 130, 136))
     sign(a, b, x1 - 10, y1, wh - .35, em_pick, 20, 18)
     finish(a, b, "armory", 2, 2)
+
+
+@asset
+def patrol_post():
+    """a low stone-and-timber route post with a flag, a map board and a bell (#57)"""
+    a, b = building(2, 2, top=112, bottom=12, persp=.18)
+    x0, y0, x1, y1 = site(b, .12, .20)
+    b.ground(x0 - 4, y0 - 4, x1 + 4, b.base + 4, (20, 14, 8), .4)
+    plinth(b, x0, y0, x1, y1)
+    wh = 2.2
+    walls(b, x0, y0, x1, y1, wh, (126, 110, 88), planks_v(7))
+    flat_roof(b, x0, y0, x1, y1, wh + .16, (104, 72, 52), par=.16, tex=shingle(7))
+    eave_shadow(a, b, x0, x1, y1, wh, .14)
+    door(a, b, x0 + 32, y1, 22, 1.25)
+    window(a, b, x0 + 6, y1, 14, .7, .9, lit=True)
+    # route flag on a pole rising from the roof ridge
+    px = (x0 + x1) // 2
+    b.line((px, y0 + 8, 0), (px, y0 + 8, wh + 1.9), 2.6, IRON_D)
+    a.line([b.p(px, y0 + 8, wh + 1.9), b.p(px + 22, y0 + 8, wh + 1.35)], 2.2, (206, 92, 62), hi=0)
+    sign(a, b, x1 - 12, y1, wh - .4, em_flag, 20, 20)
+    finish(a, b, "patrol-post", 2, 2)
 
 
 @asset

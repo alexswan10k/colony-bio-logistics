@@ -50,6 +50,11 @@ Three headless gates cover the things the unit tests and the playable spike cann
   results for the five Gleba items, freshness inheritance in engine crafts, `always_fresh` product behaviour,
   cold-chain restamp, composting and spore/pollutant facts. `m2_gleba` (17 checks) then proves the colony
   Smokehouse refuses over-ripe fruit and produces jam only after the `colony-gleba-cuisine` tech is researched.
+- `scripts/headless-spike.sh s18_command` - the #58 RTS engine probe (23 checks): no `attack_move` in 2.1
+  (`attack_area` substitutes), `set_command` semantics and completion results, per-unit command completion,
+  and integrated checks that a lease release returns a commanded hunter's kill and that a stale construction
+  timer cannot overwrite a live order. Real mouse gestures cannot be raised from script — see the in-game
+  checklist on #58.
 - `scripts/headless-spike.sh m1_rail` - the #49 passenger rail spike (17 checks, `TICKS=8000`): two colonies ~200 tiles
   apart on one rail line, a platform by each stop; colony A loses its only tent, its four colonists walk to the platform
   and wait, board the coach (riders drawn on it), and step off at B as B's colonists; nobody is lost. Migrants are

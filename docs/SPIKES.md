@@ -20,6 +20,9 @@ After a run: `scripts/collect-results.sh`, then `scripts/post-results.sh spike-r
 | s12_wildlife | #79 | `TICKS=1800 scripts/headless-spike.sh s12_wildlife` | flat | Docile game on its own force, commanded ranged hunt, `ev.cause` credit, wander |
 | s13_science | #19 | `TICKS=1200 scripts/headless-spike.sh s13_science` | anywhere (headless ok) | Lab input whitelist, spoilage into `lab_trash`, staffing power control, tech progress |
 | s01_units | #1 | `/spike run s01_units 300 60`, then `... 300 60 5` (biters); repeat with startup setting *colonist without attack_parameters* | forest | Colonist representation: go/no-go |
+| s17_gleba | #70 | `scripts/headless-spike.sh s17_gleba` | anywhere (headless ok) | Gleba spoil data (ticks, not seconds), perishable mod recipes, freshness inheritance vs `always_fresh`, cold restamp, spoil->spoilage/compost, spore ids |
+| m2_gleba | #70 | `TICKS=19500 scripts/headless-spike.sh m2_gleba` | anywhere (headless ok) | Gleba Cuisine tech gate, Smokehouse cures fruit into jam, jam is house food / raw fruit is not |
+| m1_tech | #54 | `scripts/headless-spike.sh m1_tech` | anywhere (headless ok) | Colony tech graph integrity: reachability, lab coverage, vanilla interlocks, unconsumed packs |
 
 Suggested order (fast→slow, riskiest first): s01, s02, s05, s09, s08, s07, s03, s04, s06, s10, s11.
 UPS: save a map after spawning with `/spike run s01_units 300 600`, then `scripts/benchmark.sh <save> 3600` with/without the mod.

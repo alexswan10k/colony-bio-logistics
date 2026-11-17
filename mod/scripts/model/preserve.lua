@@ -1,11 +1,13 @@
 ---@diagnostic enable: undefined-field, missing-fields
--- PURE: curing rules (#81). A Smokehouse turns raw meat or fish plus salt into a preserved variant.
+-- PURE: curing rules (#81, #70). A Smokehouse turns raw meat, fish or (since #70) Gleba fruit plus salt into
+-- a preserved variant.
 --
 -- Nutrition per item is unchanged and the payoff is *shelf life* (~3x), which is what #81 asked for: the
 -- preserved tier exists so a colony can stockpile food instead of eating what it brought home this minute.
 -- Keeping every food option at `per = 1` also keeps housing's demand sizing honest (it sizes a need from the
 -- first option's `per`, so mixing values inside one list would silently over- or under-request food).
 local yields = require("scripts.model.yields")
+local gleba = require("scripts.model.gleba")
 
 local M = {}
 
@@ -18,14 +20,16 @@ M.RAW_STOCK = 2             -- per raw item, so a smokehouse never strips the ho
 M.RAW = {"colony-meat", "colony-fish"}
 M.PRODUCT = {["colony-meat"] = "colony-preserved-meat", ["colony-fish"] = "colony-preserved-fish"}
 
--- What can be cured from this stock? {raw=, product=} or nil. Meat is tried first, so the choice is stable
--- when a hut somehow holds both.
+-- What can be cured from this stock? {raw=, product=, count?} or nil. Meat and fish are tried first, so the
+-- choice is stable when a hut holds several inputs at once; Gleba fruit is the fallback (model/gleba.lua, #70).
+-- Gleba recipes carry an explicit `count` (2 fruit / 1 pulp); meat and fish leave it nil so work.lua still
+-- uses preserve.RAW_PER_BATCH for them.
 function M.recipe(stock)
   if (stock[M.SALT] or 0) < M.SALT_PER_BATCH then return nil end
   for _, raw in ipairs(M.RAW) do
     if (stock[raw] or 0) >= M.RAW_PER_BATCH then return {raw = raw, product = M.PRODUCT[raw]} end
   end
-  return nil
+  return gleba.recipe(stock)
 end
 
 -- What a Smokehouse wants delivered: salt, plus a little of each raw item. `counts`/`inflight` are item -> n.

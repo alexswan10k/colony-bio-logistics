@@ -69,3 +69,28 @@ do
   }
   data:extend({pack, spoil_pack, lab_item, lab, tech, tech2})
 end
+
+-- Spike #70 (Gleba food): dev-only perishable jam probes. `always_fresh` is the real 2.1 product field;
+-- `result_is_always_fresh` (older design-doc wording) is deliberately NOT used - the spike reports whether
+-- the engine even knows that name. One recipe inherits ingredient freshness, one forces a fresh product so the
+-- spike can measure the "laundering" difference directly. Enabled, so an assembling machine can be set to them.
+do
+  local jam = {
+    type = "item", name = "colony-test-gleba-jam", icon = icon, icon_size = 64,
+    stack_size = 100, spoil_ticks = 45 * 60 * 60, spoil_result = "spoilage",
+  }
+  local fresh_jam = {
+    type = "item", name = "colony-test-gleba-jam-fresh", icon = icon, icon_size = 64,
+    stack_size = 100, spoil_ticks = 45 * 60 * 60, spoil_result = "spoilage",
+  }
+  local function probe_recipe(name, product, always_fresh)
+    return {
+      type = "recipe", name = name, enabled = true, energy_required = 1,
+      ingredients = {{type = "item", name = "yumako", amount = 1}, {type = "item", name = "colony-salt", amount = 1}},
+      results = {{type = "item", name = product, amount = 1, always_fresh = always_fresh}},
+    }
+  end
+  data:extend({jam, fresh_jam,
+    probe_recipe("colony-test-gleba-jam", "colony-test-gleba-jam", false),
+    probe_recipe("colony-test-gleba-jam-fresh", "colony-test-gleba-jam-fresh", true)})
+end

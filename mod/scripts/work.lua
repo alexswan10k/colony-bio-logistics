@@ -2789,10 +2789,12 @@ scheduler.register("work.finish", function(d)
     else
       local recipe = preserve.recipe(chest_contents(hut.entity) or {})
       if recipe then
+        -- Meat/fish leave `count` nil (use the legacy batch of one); Gleba fruit (#70) carries 2 fruit / 1 pulp.
+        local raw_count = recipe.count or preserve.RAW_PER_BATCH
         hut.entity.remove_item{name = preserve.SALT, count = preserve.SALT_PER_BATCH}
-        hut.entity.remove_item{name = recipe.raw, count = preserve.RAW_PER_BATCH}
+        hut.entity.remove_item{name = recipe.raw, count = raw_count}
         stats.consumed(colony, preserve.SALT, preserve.SALT_PER_BATCH)
-        stats.consumed(colony, recipe.raw, preserve.RAW_PER_BATCH)
+        stats.consumed(colony, recipe.raw, raw_count)
         item, n = recipe.product, preserve.PRODUCT_PER_BATCH
       end
     end

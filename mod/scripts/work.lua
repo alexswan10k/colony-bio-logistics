@@ -2922,7 +2922,12 @@ end)
 
 scheduler.register("construct.finish", function(d)
   local st = storage.unit_state[d.un]
-  if not (st and st.job == "construct") then return end
+  -- #58 re-review: the job alone is not enough. A whistle lease preserves `job = "construct"` but replaces
+  -- the state with "commanded", so a 30-tick timer scheduled before the order must not revive a build the
+  -- colonist never reached - otherwise it writes `state = "idle"` and reassigns, cancelling a live order.
+  -- Only the two states that actually arm this timer may finish it; any other state (commanded, idle,
+  -- sleeping, sheltered, a new trip) makes the stale timer a no-op.
+  if not (st and (st.state == "building" or st.state == "repairing")) then return end
   local colony = storage.colonies[st.colony_id]
   local e = colony and colony.colonists[d.un]
   if not (colony and e and e.valid) then return end

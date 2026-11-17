@@ -13,6 +13,8 @@
 --  8. Is a label preserved across a command, and what does 200 set_commands cost?
 local core = require("scripts.spike.core")
 local events = require("scripts.events")
+local scheduler = require("scripts.scheduler")
+local construct = require("scripts.model.construct")
 local command_adapter = require("scripts.command")
 
 local S   -- module-local spike state; not save-safe on purpose (dev-only)
@@ -263,6 +265,47 @@ core.register("s18_command", {
           ctx.check("[integrated] hall and hunter for the carry regression spawned", false)
         end
 
+        -- [integrated] Re-review: a lease that starts inside construct.WORK_TICKS (30) after a builder
+        -- entered "building". Case 1 releases the lease immediately: build materials and the site claim
+        -- must be returned to the hall/registry, and the ghost must stay an unrevived ghost. Case 2 keeps
+        -- the lease live until the stale timer fires and must still be "commanded" afterwards.
+        local bld, bld2 = spawn(15, 11), spawn(16, 12)
+        if bld and bld2 and storage.colonies[cid] then
+          local c2, b1, b2 = storage.colonies[cid], bld.unit_number, bld2.unit_number
+          c2.colonists[b1], c2.colonists[b2] = bld, bld2
+          local ghost = s.create_entity{name = "entity-ghost", inner_name = "colony-housing-tent",
+            position = {x = p.x + 17, y = p.y + 12}, force = "player"}
+          local site_key = "ghost:" .. tostring(b1)
+          c2.claimed[site_key] = true
+          local wood_before = hall.get_item_count("wood")
+          storage.unit_state[b1] = {colony_id = cid, job = "construct", state = "commanded",
+            carry = {{item = "wood", count = 2}}, site = ghost, site_key = site_key, kind = "build",
+            until_tick = game.tick + 3600, lease_owner = 1}
+          storage.command.leased[b1], storage.command.owner[b1] = true, 1
+          command_adapter.release_lease(b1, false)
+          ctx.check("[integrated] order during build window returns materials and clears the claim",
+            c2.claimed[site_key] == nil and hall.get_item_count("wood") - wood_before == 2,
+            "claim=" .. tostring(c2.claimed[site_key]) .. " wood=" .. (hall.get_item_count("wood") - wood_before))
+          c2.colonists[b1], storage.unit_state[b1] = nil, nil   -- keep the +1 reassign a no-op
+
+          storage.unit_state[b2] = {colony_id = cid, job = "construct", state = "commanded",
+            until_tick = game.tick + 3600, lease_owner = 1}
+          storage.command.leased[b2], storage.command.owner[b2] = true, 1
+          scheduler.after(construct.WORK_TICKS, "construct.finish", {un = b2})
+          ctx.after(construct.WORK_TICKS + 10, function()
+            ctx.check("[integrated] stale construct.finish timer did not end the lease",
+              storage.unit_state[b2] and storage.unit_state[b2].state == "commanded"
+              and storage.command.leased[b2] == true,
+              "state=" .. tostring(storage.unit_state[b2] and storage.unit_state[b2].state))
+            ctx.check("[integrated] ghost not half-built and no claim left",
+              ghost and ghost.valid and c2.claimed[site_key] == nil)
+            command_adapter.release_lease(b2, true)
+            c2.colonists[b2], storage.unit_state[b2] = nil, nil
+          end)
+        else
+          ctx.check("[integrated] builders for the construct-window regression spawned", false)
+        end
+
         -- Cost: 200 set_commands on one unit, averaged over 20 passes.
         ctx.profile("set_command x 200", function()
           for i = 1, 200 do
@@ -275,7 +318,8 @@ core.register("s18_command", {
         for k, v in pairs(S.results) do results[#results + 1] = k .. "=" .. v end
         table.sort(results)
         ctx.log("completion results: " .. table.concat(results, " "))
-        ctx.finish()
+        -- The stale-timer checks above are deferred; finish after them so the SUMMARY counts them too.
+        ctx.after(construct.WORK_TICKS + 20, function() ctx.finish() end)
       end)
     end)
   end,

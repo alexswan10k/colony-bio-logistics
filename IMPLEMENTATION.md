@@ -149,8 +149,8 @@ acquired during a lease survive the hand-back. `M.release_lease` is exported for
   `work.release` returns it.
 - *Haul pickups / construction materials* (`work.lua:2134`, `construct.finish`) — a trip is never started for a
   leased unit (`work.assign` early-returns); a trip started just before the order is released at order time.
-  `construct.finish` has no state guard but operates on the replacement state (no `site`/`carry`), so it cannot
-  create or lose goods.
+  **Correction (re-review):** `construct.finish` had no state guard and could cancel the lease (see §8), even
+  though it could not create or lose goods. It is now guarded on `building`/`repairing`.
 - *Spoilage to a bin* (`work.lua:3251`) — only reached from work.lua's own completion handler, which now
   early-returns for `commanded`; at order time `work.release` routes spoil to the nearest bin anyway.
 - `site_key`, `car` and `trailer` claims are also released by that same call, so no phantom claims remain.
@@ -200,3 +200,82 @@ https://github.com/alexswan10k/colony-bio-logistics/issues/58#issuecomment-69485
 Checksum **did not move** (`328728317`): the fix touches only the adapter's lease-release path, no headless
 run has a player or a lease, and no prototype changed. The integrated spike exercises the release path directly
 without altering the deterministic `m1_colony` world.
+
+## 8. Re-review fixes and the deferred-callback audit
+
+### MAJOR — a stale `construct.finish` timer cancelled a live lease
+
+`construct.finish` is scheduled 30 ticks (`construct.WORK_TICKS = 30`) after a builder enters
+`building`/`repairing` (`work.lua:3097`, `:3209`). Its only guard was `st.job == "construct"`; a whistle lease
+preserves that job while replacing the state with `commanded`, so the timer wrote `state = "idle"`
+(`work.lua:3002`) and called `M.assign`, cancelling the order. Fixed at `work.lua:2929`: the handler now requires
+`st.state == "building" or st.state == "repairing"` — the only two states that arm the timer. Any stale timer
+(commanded, idle, sleeping, sheltered, a new trip) is a no-op. This is the correct guard regardless of the
+whistle and does not change normal construction.
+
+**Orphan timer / half-built ghost.** When the order arrives inside the 30-tick window, `work.release(st)`
+returns the build materials to the hall and clears `colony.claimed[st.site_key]` (construct is in
+`CLAIM_JOB`, `work.lua:763`); the fresh leased state carries no `site`/`kind`, so nothing is half-built. The
+one-shot timer is simply consumed by the new guard at +30 and is not re-armed, so no `storage.scheduled` entry
+survives. `construct.scan` can later re-discover the untouched ghost. Both are asserted in the spike.
+
+**Regression evidence:**
+- Unit test `tests/command_test.lua`: "a stale 30-tick build timer cannot overwrite a commanded state" loads
+  the real `work.lua` under the Factorio mock with a capturing scheduler stub, fires the captured
+  `construct.finish` handler with a `commanded` construct state and asserts the lease is untouched.
+- Spike `s18_command`: a real 30-tick `scheduler.after(..., "construct.finish", ...)` on a leased builder →
+  `[integrated] stale construct.finish timer did not end the lease - state=commanded`; plus
+  `[integrated] order during build window returns materials and clears the claim - claim=nil wood=2` and
+  `[integrated] ghost not half-built and no claim left`.
+- **Mutation checks (both):** reverting the guard to `st.job == "construct"` makes the unit test fail
+  (`stale timer must not end the lease: expected commanded, got idle`) and the spike fail
+  (`[integrated] stale construct.finish timer did not end the lease - state=idle`). Restoring the guard returns
+  both to green.
+
+### Systematic audit — every deferred callback that can touch colonist state
+
+Line numbers are from this commit. "Safe" means it cannot end, replace or corrupt a `commanded` lease.
+
+| Callback | Evidence | Verdict |
+|---|---|---|
+| `construct.scan` | `work.lua:522`; only calls `wake_idle_colonists` (`:500`), which assigns solely `st.state == "idle"` (`:514`). | Safe — a lease is not idle. |
+| `work.machine_sweep` | `work.lua:1578`; writes `colony.machines`/badges only, never `unit_state`. | Safe. |
+| `garrison.scan` | `work.lua:2659`; guarded `st.job == "guard" and st.state == "guarding"` (`:2661`). | Safe. |
+| `work.retry` | `work.lua:2691`; guarded `st.state == "idle"` (`:2695`). | Safe. |
+| `farm.ripen` | `work.lua:2705`; writes plot data, then `reassign_workforce` (`colony.lua:837`), which only assigns idle or wakes sleepers (`:842-846`). | Safe. |
+| `work.finish` | `work.lua:2725`; guarded `st.state == "working"` (`:2727`) for every yield/carry write. | Safe — already proven in §7. |
+| `construct.finish` | `work.lua:2923`; **was job-only, now state-guarded** at `:2929`. | Fixed. |
+| `work.sleep_check` | `work.lua:3029`; guarded `sleeping`/`to_bed` (`:3030`). | Safe. |
+| `shelter.check` | `shelter.lua:59`; `take_cover` returns early on `alarm.EXEMPT[st.state]` (`:35`), and `commanded` is in that table (`model/alarm.lua:21-23`); all-clear only touches shelter states. | Safe. |
+| `colony.evaluate` | `colony.lua:1450`; wakes only `sleeping`/`to_bed` (`:1443`) and calls `wake_idle_colonists` (idle guard above). No direct state writes. | Safe. |
+| `gui.refresh_house/hut/info/machine` | `gui.lua:178, 492, 967, 1594`; GUI reads and repaints only; they inspect `unit_state` for labels/rosters but never write state. | Safe. |
+| `colony.regrow_patch`, `seed_all`, `rebadge`, `compost` | `colony.lua:1493, 1508, 1513, 2089`; world/registry data only. | Safe. |
+| `ledger_signal`, `cold.tick`, `feedback.tick` | `ledger_signal.lua:167`, `cold.lua:60`, `feedback.lua:241`; publish/cold/stats only; `feedback.tick` reads state (`:116`) but never writes it. | Safe. |
+| `command.reassign`, `command.watchdog` | `command.lua:93, 98`; reassign only after `release_lease` has written `idle`; watchdog only acts on `is_commanded` states and drops stale lease entries. | Safe by construction. |
+| `on_ai_command_completed` | `work.lua:3049`; early-returns for `commanded` at `:3052` before every trip-completion branch. | Safe. |
+| `on_entity_died` (hunt credit, coach riders) | `work.lua:3365` (credit at `:3373`) writes carry into the leased state; `release_lease` funnels it through `work.release` (§7). `transit.lua:237` only handles coach groups; leased units are never commuters/riders. | Handled / safe. |
+| `on_object_destroyed` | `work.lua:3381` deletes state for a dead colonist; the watchdog later drops the lease because `is_commanded(nil)` is false — no state is resurrected. | Safe. |
+| `illness` evaluation | `illness.lua:50-60` counts `heal` doctors with `state == "working"`; kills remove the colonist; no lease mutation. | Safe. |
+
+No callback outside `construct.finish` was keyed on `st.job`/`st.hut` without either a state guard or a proof that
+it never writes colonist state. The audit therefore ends the loop rather than patching one symptom.
+
+### Gates after the re-review fixes
+
+| Gate | Output |
+|---|---|
+| `scripts/test.sh` | `467 passed, 0 failed` (was 466; +1 stale-timer regression) |
+| `scripts/lint-determinism.sh` | `determinism lint ok` |
+| `luajit -bl` on changed Lua (`work.lua`, `s18_command.lua`, `command_test.lua`) | all compiled |
+| `scripts/typecheck.sh` | `Diagnosis completed, no problems found` |
+| `scripts/determinism.sh` | `final checksum: 328728317`, `DETERMINISM: PASS`, m1_colony 116/116 |
+| `scripts/save-load.sh` | `SAVE/LOAD: PASS` |
+| `scripts/headless-spike.sh s18_command` | `SUMMARY pass=23 fail=0 unknown=0 errors=0` (was 20; +3 integrated checks) |
+| `TICKS=19500 scripts/headless-spike.sh m1_colony` | `SUMMARY pass=116 fail=0 unknown=0 errors=0` |
+| `scripts/headless-spike.sh m1_tech` | `SUMMARY pass=13 fail=0 unknown=0 errors=0` |
+| `scripts/headless-spike.sh m1_blueprint` (extra) | `SUMMARY pass=34 fail=0 unknown=0 errors=0` - normal ghost revive/copy-paste unaffected by the new state guard |
+
+Checksum still **328728317**: the guard only affects `commanded` states, which never occur in headless
+`m1_colony`, and normal construction still enters `building`/`repairing` exactly as before (the spike's ghost
+case and the existing build tests confirm). Issue #58 remains OPEN with the gesture checklist; the minor doc
+drift about the old test count in that comment is cosmetic and left untouched.

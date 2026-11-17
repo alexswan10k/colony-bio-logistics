@@ -187,3 +187,30 @@ describe("command whistle release (item-loss regression, #58 review)", function(
     eq(storage.command.owner[7], nil)
   end)
 end)
+
+-- Re-review regression: construct.finish used to guard only on st.job == "construct". A lease preserves the
+-- job, so a 30-tick timer scheduled before the order fired on the commanded state and reassigned the colonist.
+describe("construct.finish vs a live lease (#58 re-review)", function()
+  it("a stale 30-tick build timer cannot overwrite a commanded state", function()
+    local mock = require("tests.mock_factorio")
+    local env = mock.install(); env = env.reset()
+    local handlers = {}
+    package.loaded["scripts.scheduler"] = {
+      register = function(name, fn) handlers[name] = fn end,
+      after = function() end, at = function() end,
+    }
+    require("scripts.work")
+    storage.colonies, storage.unit_state = {}, {}
+    -- A live-looking colony so an unguarded handler actually reaches its `state = "idle"` write.
+    storage.colonies[1] = {hall = {valid = true}, colonists = {[7] = {valid = true}}, claimed = {}}
+    storage.unit_state[7] = {colony_id = 1, job = "construct", state = "commanded", until_tick = 9999}
+    local finish = handlers["construct.finish"]
+    truthy(finish, "construct.finish registered")
+    -- pcall keeps a mock-only error from masking the state assertion: the unguarded handler writes idle
+    -- before it reaches work's colony_mod calls, so the assertion below is the real mutation guard.
+    pcall(finish, {un = 7})
+    eq(storage.unit_state[7].state, "commanded", "stale timer must not end the lease")
+    eq(storage.unit_state[7].job, "construct")
+    eq(storage.unit_state[7].until_tick, 9999, "lease must remain live")
+  end)
+end)

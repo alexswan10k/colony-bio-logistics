@@ -1,4 +1,95 @@
-# Adversarial review — Command Whistle #58 (4062172, base ce63efc)
+# Adversarial review — Command Whistle #58
+
+## Re-review 2026-11-17 — fix commit 6e733ff (branch head; base ce63efc): **CHANGES REQUESTED**
+
+I re-inspected `git diff ce63efc..HEAD` and `git show 6e733ff`, read §7 of IMPLEMENTATION.md,
+re-ran the gates, and checked issue #58 with `gh`. **Three of my four prior findings are genuinely
+resolved. One new MAJOR regression is present** in an area the fix itself touches indirectly:
+a stale `construct.finish` timer can stomp a live lease back to `idle` and reassign the colonist,
+defeating the central ORDER-vs-JOB guarantee. Details below; the original (4062172) review is
+retained underneath for the record.
+
+### Resolved findings
+
+| Prior finding | Status | Evidence |
+|---|---|---|
+| **MAJOR** — commanded hunt credit lost | **RESOLVED** | `command.lua:75-78` now calls `work.release(st)` on the leased state before writing the fresh idle table — the same path as `work.assign` at `work.lua:2433`. `work.release` returns carry to the hall (spoilage to a bin), restores car/trailer and clears site claims. No function or entity ref is added to storage; `M.release_lease` is only exported on the module. `model/command.lua` is untouched, so the pure boundary is intact (the adapter already imported `scripts.work`). |
+| Regression test / spike genuinely fail on old code | **VERIFIED BY INSPECTION** | `tests/command_test.lua` asserts `eq(#released, 1, "work.release must see the leased state")` against a mock `work.release`; without the call `released` is empty, so this assertion fails. The fresh idle table would make the later `carry==nil` check pass either way, so `#released` is the real guard. The spike asserts `hall.get_item_count("colony-meat") - before == 3`; without the call the hall stays at 0. Both are genuine. I did not mutate tracked files to run the mutation myself, per instruction. |
+| **MINOR** — Stop tooltip overpromised | **RESOLVED** | `locale.cfg:176` now reads "releases the selection and stops colonists that are under a whistle order; ordinary workers just keep their current job and are deselected". |
+| **MINOR** — selection circles global | **RESOLVED** | `command.lua:43-45` passes `players = {pi}`. Verified against the 2.1.25 LuaRendering docs: `draw_circle` takes `players` (array of `PlayerIdentification`), not `for_player`; `pi` (player index) is a valid identification. |
+| Issue #58 gesture checklist / left open | **DONE** | `gh issue view 58 --json state,comments` returns `state: OPEN` with comment `6948524354` containing the 9-point in-game checklist. |
+
+### Double-release / double-return: checked, safe
+
+`release_lease` clears `s.leased[un]`/`s.owner[un]` first, then guards on
+`if not model.is_commanded(st) then return end` (`command.lua:68-71`). `work.release(st)` sets
+`st.state = "idle"` and the state is then replaced with a fresh idle table, so a second call from
+completion + disconnect, completion + watchdog, or the `stop`-completion event sees `state ~=
+"commanded"` and returns before `work.release`. Disconnect's `drop_player` only lists units still
+in `s.owner`, which the first release already cleared. No double hall insert. Traced the other
+carry producers: `work.finish` is state-guarded (`work.lua:2727`), the completion handler early-
+returns for `commanded` (`work.lua:3047`, covering spoil-to-bin), and `work.assign` early-returns
+for `commanded` (`work.lua:2412`) so no haul/build trip starts while leased. **Except** for the
+finding below.
+
+### NEW — MAJOR: stale `construct.finish` timer breaks a live lease
+
+This is the one carry-path claim in IMPLEMENTATION.md §7 that is incomplete: it says
+`construct.finish` "cannot create or lose goods", which is true, but it can **end the lease**.
+
+**Evidence:**
+- `model/command.lua:26-33` makes `building` and `repairing` orderable, and `:131` preserves
+  `job = "construct"` in the leased state.
+- `work.lua:3204` schedules `construct.finish` with `{un = ev.unit_number}` (the colonist) 30
+  ticks (`construct.WORK_TICKS`) after it enters `building`/`repairing`.
+- `work.lua:2923-2925` — the handler's **only** guard is `st.job == "construct"`; there is no
+  `state` guard. The leased state passes it.
+- `work.lua:2983-3003` — with no `site`/`kind`/repair packs on the leased state it falls into the
+  repair branch (`packs = 0`, `st.carry = nil`), then at `:2997` does **`st.state = "idle"`** on the
+  live leased state and at `:3003` calls **`M.assign(colony, d.un)`**. `M.assign` now sees `idle`
+  (not `commanded`, and past the `:2426` protected-state check), picks a job and issues a fresh
+  engine command that replaces the whistle order. `s.leased[un]` is only cleaned up later by the
+  watchdog, which sees `is_commanded(st) == false` and silently drops the entry.
+
+**Concrete reproduction:**
+1. Have a builder with construction materials revive a ghost; it enters `state = "building"` and
+   `construct.finish` is scheduled for tick B+30.
+2. At tick B+5, hold the whistle and order that colonist elsewhere (MOVE). `apply` releases the
+   build carry to the hall, writes `state = "commanded", job = "construct"`, issues
+   `go_to_location`, and records the lease.
+3. At tick B+30, `construct.finish` fires on the commanded state, sets it to `idle`, and calls
+   `M.assign`. The colonist is reassigned; the whistle move is cancelled. The player sees the
+   order ignored and the ⚑ label replaced by a work label while the lease is still nominally live.
+
+**Impact:** the central promise — "an async reassignment never wipes a live order" — is false for
+this path. Materials are not lost (they were already returned at order time), but the order is.
+
+**Fix:** add `if model.is_commanded(st) then return end`-equivalent to `construct.finish`
+(`work.lua:2925`), e.g. `if st.state ~= "building" and st.state ~= "repairing" then return end`.
+That is the correct guard regardless of the whistle: the handler should only finish a construction
+the unit actually reached. Consider the same guard audit for any future job-only timer. Add a
+regression (a `construct.finish` job scheduled while the unit is `commanded` must leave the lease
+intact), and re-run determinism — this guard changes no headless behaviour, so the checksum should
+stay `328728317`.
+
+### Gates re-run on 6e733ff
+
+`scripts/test.sh` 466/0 · `s18_command` 20/20 (both `[integrated]` checks PASS, before=0 after=3)
+· `lint-determinism.sh` ok · `determinism.sh` m1_colony 116/116, checksum **328728317 unchanged**,
+PASS. (Prior review's typecheck, save/load and m1_tech results still stand; the fix touches none of
+their inputs except one adapter call and two locale/spike lines.)
+
+### What would make me approve
+
+1. Guard `construct.finish` on `building`/`repairing` state (or `not commanded`) so a stale timer
+   cannot end a lease; add the regression test.
+2. Re-run the gates, especially determinism (checksum must stay `328728317`).
+3. Fix the trivial doc drift in the #58 comment ("465 unit tests" vs final 466) if desired — not
+   blocking.
+
+---
+
+# Original review — 4062172 (for the record)
 
 ## Verdict: CHANGES REQUESTED
 

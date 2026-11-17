@@ -62,6 +62,12 @@ Three headless gates cover the things the unit tests and the playable spike cann
   have **no** `character_armor`/`character_guns` inventory (armour must be pure-data), that equipment grids carry
   quality but only on items (not units), and that `attack_area + by_enemy` survives repeated failed paths with
   no `attack_move`. Findings are recorded in `SPIKE_FACTS.md`.
+- `scripts/headless-spike.sh m3_armory` - the Stage 2 M3 integration spike (#56 remainder, `TICKS=9000`): an
+  unmanned Armory asks for no gear and grants no aura; two militia draw rifles from its chest (which mans the
+  post and creates restock rows); identical structures inside/outside its 24-tile radius take different damage
+  from the same scripted enemy hit, with heal-back that cannot run away, revive or heal an enemy; and a Watchtower
+  with a real posted guard grants the same aura through the same `defence.covered` path. Registry save/load is
+  asserted by `m1_persist` on schema 40.
 - `scripts/headless-spike.sh m1_rail` - the #49 passenger rail spike (17 checks, `TICKS=8000`): two colonies ~200 tiles
   apart on one rail line, a platform by each stop; colony A loses its only tent, its four colonists walk to the platform
   and wait, board the coach (riders drawn on it), and step off at B as B's colonists; nobody is lost. Migrants are

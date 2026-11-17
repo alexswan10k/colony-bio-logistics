@@ -72,4 +72,66 @@ function M.best(counts, quality_by_item)
   return best, best_q
 end
 
+-- Armory depot rules (M3 Stage 2, #56 remainder). The Armory is a worker-free chest: haulers fill it to these
+-- targets and a militia draws its weapon/armour out of it. All three routines are pure - the adapter owns the
+-- live inventory and performs the actual insert/remove. Inputs are never mutated.
+
+-- Gear an equipped militia needs, in a fixed order (deterministic haul rows and gear draws).
+---@type table[] {item=, count=} per militia post
+M.GEAR_PER_MILITIA = {
+  {item = "colony-rifle", count = 1},
+  {item = "heavy-armor", count = 1},
+  {item = "firearm-magazine", count = 10},
+  {item = "colony-arrow", count = 20},
+}
+
+--- Restock targets for `manning` equipped militia. A limit of 0 wants nothing (an unmanned Armory never nags).
+---@param manning integer|nil
+---@return table[] {item=, count=}
+function M.armory_targets(manning)
+  local n = math.max(0, math.floor(tonumber(manning) or 0))
+  local out = {}
+  if n == 0 then return out end
+  for _, row in ipairs(M.GEAR_PER_MILITIA) do
+    out[#out + 1] = {item = row.item, count = row.count * n}
+  end
+  return out
+end
+
+--- What can actually be handed out from `counts` for the ordered `wants`, without taking more than exists.
+--- No input mutation: a private copy of `counts` is decremented as grants are decided.
+---@param counts table<string, integer>|nil
+---@param wants table[]|nil ordered {item=, count=}
+---@return table[] grants ordered {item=, count=}
+function M.draw_gear(counts, wants)
+  local left = {}
+  for item, n in pairs(counts or {}) do left[item] = n end
+  local grants = {}
+  for _, w in ipairs(wants or {}) do
+    local have = left[w.item] or 0
+    local n = math.min(math.floor(tonumber(w.count) or 0), have)
+    if n > 0 then
+      grants[#grants + 1] = {item = w.item, count = n}
+      left[w.item] = have - n
+    end
+  end
+  return grants
+end
+
+--- Haul requests that bring an Armory up to `targets`, counting stock already there and already in flight.
+--- No input mutation; targets are consumed in order so two identical calls return identical rows.
+---@param counts table<string, integer>|nil
+---@param targets table[]|nil ordered {item=, count=}
+---@param inflight table<string, integer>|nil
+---@return table[] demands ordered {item=, count=}
+function M.restock_deficit(counts, targets, inflight)
+  local out = {}
+  for _, t in ipairs(targets or {}) do
+    local have = (counts and counts[t.item] or 0) + (inflight and inflight[t.item] or 0)
+    local deficit = (t.count or 0) - have
+    if deficit > 0 then out[#out + 1] = {item = t.item, count = deficit} end
+  end
+  return out
+end
+
 return M

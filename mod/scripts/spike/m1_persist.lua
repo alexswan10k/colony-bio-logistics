@@ -40,6 +40,12 @@ core.register("m1_persist", {
     local tent = build("colony-housing-tent", {p.x + 6, p.y})
     build("colony-woodcutter-hut", {p.x - 6, p.y})
     local crate = build("colony-demand-crate", {p.x + 10, p.y + 6})
+    -- Armory (#56 remainder): a plain registry record with a non-default manning limit and gear in its chest.
+    local armory_e = build("colony-armory", {p.x + 6, p.y + 6})
+    if armory_e and armory_e.valid then
+      c.armories[armory_e.unit_number].limit = 1
+      armory_e.insert{name = "colony-rifle", count = 1}
+    end
     build("colony-farm-plot", {p.x + 4, p.y - 8})
     -- A ghost the colony cannot pay for stays a ghost, so the registry has something to survive.
     local ghost = s.create_entity{name = "entity-ghost", inner_name = "steel-chest",
@@ -67,6 +73,7 @@ core.register("m1_persist", {
       local exp = {
         colony_id = c.id, colonists = colony.live_colonists(c), houses = #colony.house_list(c),
         huts = count(c.huts), plots = count(c.plots), crates = count(c.crates),
+        armories = count(c.armories), armory_un = armory_e and armory_e.valid and armory_e.unit_number or nil,
         ghosts = count(c.ghosts), repairs = count(c.repairs), chunks = chunks_of(c),
         crate_un = crate.unit_number, lock_un = lock_un, next_colony_id = storage.next_colony_id,
         hall_fish = hall.get_item_count("raw-fish"), scheduled = count(storage.scheduled), schema = storage.schema,
@@ -108,6 +115,13 @@ core.register("m1_persist_load", {
     ctx.check("huts survived", count(c.huts) == exp.huts)
     ctx.check("plots survived", count(c.plots) == exp.plots)
     ctx.check("crates survived", count(c.crates) == exp.crates)
+    ctx.check("armory registry survived", count(c.armories) == exp.armories, count(c.armories))
+    local armory_rec = exp.armory_un and c.armories[exp.armory_un]
+    ctx.check("armory entity + manning limit survived", armory_rec ~= nil and armory_rec.entity.valid
+      and armory_rec.limit == 1 and armory_rec.inflight ~= nil and armory_rec.equipped ~= nil,
+      armory_rec and ("limit=" .. tostring(armory_rec.limit)) or "no armory record")
+    ctx.check("armory gear survived", armory_rec ~= nil and armory_rec.entity.get_item_count("colony-rifle") == 1,
+      armory_rec and tostring(armory_rec.entity.get_item_count("colony-rifle")) or "no armory")
     local crate = c.crates[exp.crate_un]
     ctx.check("crate filters survived", crate ~= nil and crate.filters[1] ~= nil and crate.filters[1].item == "coal",
       crate and crate.filters[1] and crate.filters[1].item)

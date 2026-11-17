@@ -102,6 +102,13 @@ data:extend({
     unlock("colony-watchtower"), unlock("colony-demand-crate"), unlock("colony-logistics-marker"),
     unlock("colony-rifle"), unlock("colony-haul-station"), unlock("colony-wooden-trailer"),
   }),
+  -- Armory (#56 remainder): a worker-free depot that equips militia and projects a structural aura. Vanilla
+  -- interlock: Steel Processing (the building is steel-and-iron) and Military (the player has met raiders).
+  -- Paid for in colony packs only, like every other colony technology.
+  tech("colony-armory", "icon-armory.png", 30, {"colony-frontier-pack"}, 15,
+    {"colony-logistics", "steel-processing", "military"}, {
+    unlock("colony-armory"),
+  }),
   -- Colony Ledger (#92): the colony's own inventory, published on the circuit network. It needs the vanilla
   -- circuit network, so it is gated on that too - same interlock rule as the rest of the tree.
   tech("colony-ledger", "icon-ledger.png", 20, {"colony-frontier-pack"}, 15,

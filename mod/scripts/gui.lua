@@ -18,6 +18,9 @@ local desirability = require("scripts.model.desirability")
 local breeding = require("scripts.model.breeding")
 local garrison = require("scripts.model.garrison")
 local turret_model = require("scripts.model.turret")
+local defence = require("scripts.model.defence")
+local armour = require("scripts.model.armour")
+local armory = require("scripts.armory")
 local milestones = require("scripts.model.milestones")
 local tags = require("scripts.model.tags")
 local quota = require("scripts.model.quota")
@@ -28,9 +31,9 @@ function M.bind(c, l) colony_mod, ledger_sig = c, l end
 
 M.REQUEST_ROWS = 3
 M.DEFAULT_COUNT = 20
-local HOUSE_FRAME, MACHINE_FRAME, HUT_FRAME, INFO_FRAME, CRATE_FRAME, LEDGER_FRAME =
+local HOUSE_FRAME, MACHINE_FRAME, HUT_FRAME, INFO_FRAME, CRATE_FRAME, LEDGER_FRAME, ARMORY_FRAME =
   "colony_house_frame", "colony_machine_frame", "colony_hut_frame", "colony_info_frame", "colony_crate_frame",
-  "colony_ledger_frame"
+  "colony_ledger_frame", "colony_armory_frame"
 local MACHINE_GUIS = {
   ["assembling-machine"] = "assembling_machine_gui", ["furnace"] = "furnace_gui", ["boiler"] = "boiler_gui", ["lab"] = "lab_gui",
   ["ammo-turret"] = "turret_gui",   -- #59: same marker/panel opt-in; ammo-turrets dock beside the vanilla turret GUI
@@ -512,6 +515,71 @@ scheduler.register("gui.refresh_hut", function(d)
   end
   draw_hut_range(h)
   scheduler.after(30, "gui.refresh_hut", d)
+end)
+
+-- ---------- Armory panel (#56 remainder) ----------
+-- A worker-free depot, so no labour rows: the player only sets a manning limit. Gear rows show the chest,
+-- what is on its way and the restock target; the radius is the aura the equipped militia project.
+local function fill_armory(frame, a, colony)
+  frame.clear()
+  local limit = a.limit or 0
+  local row = frame.add{type = "flow", direction = "horizontal"}
+  row.style.vertical_align = "center"
+  row.add{type = "label", caption = {"colony-gui.armory-limit"}, style = "bold_label",
+    tooltip = {"colony-gui.armory-limit-tt"}}
+  local less = row.add{type = "button", name = "colony_armory_limit_less", caption = "-",
+    tooltip = {"colony-gui.armory-limit-tt"}}
+  less.style.width = 24
+  local val = row.add{type = "label", caption = tostring(limit), tooltip = {"colony-gui.armory-limit-tt"}}
+  val.style.width = 24
+  val.style.horizontal_align = "center"
+  local more = row.add{type = "button", name = "colony_armory_limit_more", caption = "+",
+    tooltip = {"colony-gui.armory-limit-tt"}}
+  more.style.width = 24
+  local equipped = armory.equipped_count(colony, a)
+  frame.add{type = "label", caption = {"colony-gui.armory-equipped", equipped, limit}}
+  frame.add{type = "label", caption = {"colony-gui.armory-radius", defence.RADIUS,
+    string.format("%.0f%%", defence.aura(equipped) * 100)}}
+  if limit <= 0 then frame.add{type = "label", caption = {"colony-gui.armory-inert"}} end
+  frame.add{type = "line"}
+  local contents = armory.contents(a)
+  for _, target in ipairs(armour.armory_targets(limit)) do
+    local have = contents[target.item] or 0
+    local incoming = a.inflight[target.item] or 0
+    frame.add{type = "label", caption = "[item=" .. target.item .. "] " .. have .. " / " .. target.count
+      .. (incoming > 0 and (" (+" .. incoming .. " on the way)") or "")}
+  end
+end
+
+local function open_armory(player, e)
+  local old = player.gui.relative[ARMORY_FRAME]; if old then old.destroy() end
+  local colony = colony_at(e)
+  local a = colony and colony.armories and colony.armories[e.unit_number]
+  if not a then return end
+  local frame = player.gui.relative.add{type = "frame", name = ARMORY_FRAME, direction = "vertical",
+    caption = e.localised_name, anchor = {gui = defines.relative_gui_type.container_gui,
+      position = defines.relative_gui_position.right, names = {"colony-armory"}}}
+  local body = frame.add{type = "flow", name = "body", direction = "vertical"}
+  fill_armory(body, a, colony)
+  scheduler.after(30, "gui.refresh_armory", {player_index = player.index, un = e.unit_number, colony_id = colony.id})
+end
+
+scheduler.register("gui.refresh_armory", function(d)
+  local player = game.get_player(d.player_index)
+  local frame = player and player.valid and player.gui.relative[ARMORY_FRAME]
+  local e = player and player.opened
+  if not (frame and frame.valid and frame.visible and e and e.valid and e.unit_number == d.un) then return end
+  local colony = storage.colonies[d.colony_id]
+  local a = colony and colony.armories and colony.armories[d.un]
+  if not a then return end
+  local contents = armory.contents(a)
+  local sig = {a.limit, armory.equipped_count(colony, a)}
+  for _, target in ipairs(armour.armory_targets(a.limit or 0)) do
+    sig[#sig + 1] = contents[target.item] or 0
+    sig[#sig + 1] = a.inflight[target.item] or 0
+  end
+  if not unchanged(frame, sig) then fill_armory(frame.body, a, colony) end
+  scheduler.after(30, "gui.refresh_armory", d)
 end)
 
 -- ---------- colony overview + priority matrix (#38 #27) ----------
@@ -1099,6 +1167,19 @@ events.on(defines.events.on_gui_click, function(ev)
     if frame and frame.body then fill_hut(frame.body, h) end
     return
   end
+  if name == "colony_armory_limit_less" or name == "colony_armory_limit_more" then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid and e.name == colony_mod.ARMORY) then return end
+    local colony = colony_at(e)
+    local a = colony and colony.armories and colony.armories[e.unit_number]
+    if not a then return end
+    armory.shift_limit(a, name == "colony_armory_limit_more" and 1 or -1)
+    if colony_mod.reassign_workforce then colony_mod.reassign_workforce(colony) end
+    local frame = player.gui.relative[ARMORY_FRAME]
+    if frame and frame.body then fill_armory(frame.body, a, colony) end
+    return
+  end
   if name == "colony_hut_limit_less" or name == "colony_hut_limit_more" then
     local player = game.get_player(ev.player_index)
     local e = player and player.opened
@@ -1624,6 +1705,7 @@ events.on(defines.events.on_gui_opened, function(ev)
   elseif labour.HUTS[name] then open_hut(player, e)
   elseif name == colony_mod.HALL then open_info(player, e)
   elseif colony_mod.CRATES[name] then open_crate(player, e)
+  elseif name == colony_mod.ARMORY then open_armory(player, e)
   elseif name == colony_mod.LEDGER then open_ledger(player, e)
   elseif MACHINE_GUIS[type] then open_machine(player, e) end
 end)

@@ -1574,6 +1574,29 @@ def watchtower():
 
 
 @asset
+def armory():
+    """stone-and-steel depot: flat reinforced roof, armory door, rifle racks and an armour plaque (#56)"""
+    a, b = building(2, 2, top=120, bottom=12, persp=.18)
+    x0, y0, x1, y1 = site(b, .10, .20)
+    b.ground(x0 - 4, y0 - 4, x1 + 4, b.base + 4, (20, 14, 8), .4)
+    plinth(b, x0, y0, x1, y1)
+    wh = 2.7
+    walls(b, x0, y0, x1, y1, wh, (116, 112, 104), stone(8))
+    flat_roof(b, x0, y0, x1, y1, wh + .18, (86, 92, 100), par=.16, tex=tin(7))
+    eave_shadow(a, b, x0, x1, y1, wh, .14)
+    door(a, b, x0 + 28, y1, 30, 1.35, col=(52, 58, 66))
+    window(a, b, x0 + 6, y1, 12, .6, .75, lit=True)
+    # rifle rack leaning by the door: three dark stocks, bright barrels
+    for k in range(3):
+        rx = x1 - 30 + k * 9
+        b.line((rx, y1 - 14, 0), (rx, y1 - 14, 1.15), 2.2, WOOD_D)
+        a.line([b.p(rx, y1 - 14, 1.15), b.p(rx + 5, y1 - 14, .55)], 2, IRON_D, hi=0)
+    b.box(x0 + 6, y1 - 12, x0 + 24, y1 - 8, 0, .5, (94, 100, 106), top=(124, 130, 136))
+    sign(a, b, x1 - 10, y1, wh - .35, em_pick, 20, 18)
+    finish(a, b, "armory", 2, 2)
+
+
+@asset
 def cemetery():
     """walled graveyard: grass, a gravel path, rows of headstones and a wooden cross"""
     a, b = building(2, 2, top=92, persp=.12)

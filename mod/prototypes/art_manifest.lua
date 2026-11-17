@@ -2,6 +2,7 @@
 -- width/height are source px; scale is the engine scale; shift is in tiles.
 return {
   ["apartment"] = {width = 292, height = 493, scale = 0.5, shift = {0, -1.66406}},
+  ["armory"] = {width = 164, height = 260, scale = 0.5, shift = {0, -0.84375}},
   ["boar"] = {width = 64, height = 64, scale = 0.5, shift = {0, 0}},
   ["bush"] = {width = 64, height = 64, scale = 0.7, shift = {0, 0}},
   ["cabin"] = {width = 228, height = 354, scale = 0.5, shift = {0, -1.07812}},

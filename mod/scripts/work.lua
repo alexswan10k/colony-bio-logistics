@@ -43,6 +43,7 @@ local recreation = require("scripts.model.recreation")
 local jobs = require("scripts.model.jobs")
 local material_priority = require("scripts.model.material_priority")
 local needs = require("scripts.model.needs")
+local armory = require("scripts.armory")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
@@ -1691,6 +1692,11 @@ local function find_haul_task(colony, cap, hauler_pos)
   for _, w in ipairs(colony_mod.well_list(colony)) do
     local o = well_offer(w, colony); if o then providers[#providers + 1] = o end
   end
+  -- Armories (#56 remainder): a manned depot asks for gear in the ordinary `tools` band. A limit of 0 emits
+  -- no offer at all, so an unmanned Armory never pulls rifles out of the hall.
+  for _, a in ipairs(colony_mod.armory_list(colony)) do
+    local o = armory.offer(a, colony); if o then requesters[#requesters + 1] = o end
+  end
   for _, p in ipairs(colony_mod.pool_list(colony)) do
     local o = pool_offer(colony, p); if o then requesters[#requesters + 1] = o end
   end
@@ -1789,8 +1795,8 @@ local function take_load(colony, offer)
   end
   if #taken == 0 then return nil end
   if offer.kind == "supply" or offer.kind == "direct" then
-    local tgt = offer.target or offer.house or offer.machine or offer.hut or offer.crate or offer.pan or offer.pool or offer.tavern or offer.canteen
-    local inflight_obj = tgt and (tgt.house or tgt.machine or tgt.hut or tgt.crate or tgt.pan or tgt.pool or tgt.tavern or tgt.canteen or tgt)
+    local tgt = offer.target or offer.house or offer.machine or offer.hut or offer.crate or offer.pan or offer.pool or offer.tavern or offer.canteen or offer.armory
+    local inflight_obj = tgt and (tgt.house or tgt.machine or tgt.hut or tgt.crate or tgt.pan or tgt.pool or tgt.tavern or tgt.canteen or tgt.armory or tgt)
     if inflight_obj and inflight_obj.inflight then
       for _, s in ipairs(taken) do
         inflight_obj.inflight[s.item] = (inflight_obj.inflight[s.item] or 0) + s.count
@@ -2044,14 +2050,14 @@ local function haul_trip(colony, task)
     dest = (dest_entity and dest_entity.valid and dest_entity.position) or colony.hall.position
     state = "to_bin"
   else -- direct or supply
-    local tgt_obj = task.target or task.house or task.machine or task.crate or task.pool or task.tavern or task.canteen or task.hut
+    local tgt_obj = task.target or task.house or task.machine or task.crate or task.pool or task.tavern or task.canteen or task.hut or task.armory
     dest_entity = tgt_obj and tgt_obj.entity
     dest = (dest_entity and dest_entity.valid and dest_entity.position) or colony.hall.position
     state = "to_house"
   end
 
   local bin_obj = task.bin or (task.kind == "compost" and (task.target and (task.target.bin or task.target))) or nil
-  local target_obj = inflight_target or (task.target and (task.target.house or task.target.machine or task.target.crate or task.target.pool or task.target.tavern or task.target.canteen or task.target.hut or (task.kind ~= "collect" and task.target))) or (task.kind == "collect" and task.machine or nil)
+  local target_obj = inflight_target or (task.target and (task.target.house or task.target.machine or task.target.crate or task.target.pool or task.target.tavern or task.target.canteen or task.target.hut or task.target.armory or (task.kind ~= "collect" and task.target))) or (task.kind == "collect" and task.machine or nil)
 
   return {colony_id = colony.id, job = "haul", state = state, bin = bin_obj,
     target = target_obj, inflight_target = inflight_target, dest_entity = dest_entity,

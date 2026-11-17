@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 38
+local SCHEMA = 40
 
 local migrations = {
   [1] = function()
@@ -289,6 +289,16 @@ local migrations = {
     local s = storage.command or {}
     s.selection, s.markers, s.owner, s.leased = s.selection or {}, s.markers or {}, s.owner or {}, s.leased or {}
     storage.command = s
+  end,
+  [39] = function()
+    -- M3 Stage 1 (militia, #55) needed no migration: gear is nil-safe fields on storage.unit_state[un].gear.
+    -- This slot is intentionally a no-op so schema numbers stay aligned with the migration sequence.
+  end,
+  [40] = function()
+    -- Armories (#56 remainder): colony.armories [unit_number] = {entity, colony_id, inflight, equipped, limit,
+    -- logistics_enabled, priority}. All fields are plain data (unit numbers, counts, booleans); the LuaEntity
+    -- reference is re-resolved by the engine on load, exactly like wells, taverns and watchtowers.
+    for _, c in pairs(storage.colonies or {}) do c.armories = c.armories or {} end
   end,
 }
 

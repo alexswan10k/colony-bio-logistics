@@ -841,7 +841,9 @@ function M.reassign_workforce(colony)
   for un, c in pairs(colony.colonists or {}) do
     local st = storage.unit_state and storage.unit_state[un]
     if c.valid and st then
-      if st.state == "idle" then
+      -- M3 militia (#55): an on-duty militia is not "idle", but a lock change must still reach work.assign
+      -- (which re-posts it or demobilises it according to the current lock). Without this the job is sticky.
+      if st.state == "idle" or militia.is_duty(st) then
         work.assign(colony, un)
       elseif (st.state == "sleeping" or st.state == "to_bed") and not work.is_sleep_time(c.surface) then
         work.wake_up(colony, un, c)

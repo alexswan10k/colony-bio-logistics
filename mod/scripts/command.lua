@@ -177,7 +177,7 @@ local function apply(pi, kind, target)
   for _, un in ipairs(units) do
     local st = storage.unit_state and storage.unit_state[un]
     local e = entity_of(un)
-    if st and e and e.name == "colony-colonist" then
+    if st and e and model.is_colony_unit(e.name) then
       local ctx = {
         is_child = storage.age and storage.age[un] and storage.age[un].stage == "child",
         is_truck = storage.trucks and storage.trucks[un] ~= nil,
@@ -232,6 +232,7 @@ local function apply(pi, kind, target)
   notify(game.get_player(pi), pos, "colony-message.command-ordered", ordered, {noun})
   return ordered, #units - #candidates
 end
+M.apply = apply   -- exposed for the m3_militia whistle regression case; no functions in storage
 
 -- Order at the world position carried by a custom-input event (s18_command proved cursor_position exists).
 events.on(M.ORDER_INPUT, function(ev)
@@ -284,7 +285,7 @@ events.on(defines.events.on_player_selected_area, function(ev)
   local s = state()
   local ids = {}
   for _, e in ipairs(ev.entities or {}) do
-    if e and e.valid and e.name == "colony-colonist" then ids[#ids + 1] = e.unit_number end
+    if e and e.valid and model.is_colony_unit(e.name) then ids[#ids + 1] = e.unit_number end
   end
   local units = model.select(s.selection[ev.player_index], ids, "set")
   s.selection[ev.player_index] = units

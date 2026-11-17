@@ -6,15 +6,13 @@
 --     applied. This model returns the raw *scripted* damage to hand to damage(); it never subtracts engine
 --     resistances a second time.
 --   * A unit has no armour inventory/grid/resistances. Defender armour is pure data, applied ONCE by the
---     adapter's heal-back on on_entity_damaged using model/armour.mitigation. engage() never applies that
---     mitigation; the only place it considers the defender is an OFFENSIVE armour-piercing bonus (a rifle
---     defeats part of an armoured target's protection), which is issued as extra script damage, not as a
---     second mitigation subtraction.
+--     adapter's heal-back on on_entity_damaged using model/armour.mitigation. engage() returns only the raw
+--     outgoing script damage; it never subtracts or adds a defender-side term (a speculative "armour piercing"
+--     bonus was removed in the review pass: no Stage 1 target has armour gear, so it was unreachable code).
 --   * The colonist hitscan is reduced to a 1-damage baseline on the militia prototype, so engine + script
 --     damage do not double-count; the script path below is the real damage.
 --
 -- No Factorio globals (game/storage/script/defines/surface), no input mutation, plain tables only.
-local armour = require("scripts.model.armour")
 local labour = require("scripts.model.labour")
 local garrison = require("scripts.model.garrison")
 
@@ -31,13 +29,12 @@ M.PREFERENCE = garrison.PREFERENCE
 ---@field wear boolean|nil true when the weapon wears like a tool per completed engagement
 ---@field uses integer|nil wear threshold (rifle/bow); nil when ammo-based
 ---@field magazine_every integer|nil spend one magazine every N engagements (guns)
----@field pierce number|nil offensive bonus fraction against an armoured defender
 ---@type table<string, WeaponDef>
 M.WEAPONS = {
-  ["colony-rifle"] = {damage = 40, type = "physical", ammo = nil, wear = true, uses = labour.TOOL_USES, pierce = 0.35},
-  ["submachine-gun"] = {damage = 14, type = "physical", ammo = "firearm-magazine", magazine_every = 10, pierce = 0.2},
-  ["pistol"] = {damage = 18, type = "physical", ammo = "firearm-magazine", magazine_every = 10, pierce = 0.1},
-  ["colony-bow"] = {damage = 14, type = "physical", ammo = "colony-arrow", wear = true, uses = labour.TOOL_USES, pierce = 0},
+  ["colony-rifle"] = {damage = 40, type = "physical", ammo = nil, wear = true, uses = labour.TOOL_USES},
+  ["submachine-gun"] = {damage = 14, type = "physical", ammo = "firearm-magazine", magazine_every = 10},
+  ["pistol"] = {damage = 18, type = "physical", ammo = "firearm-magazine", magazine_every = 10},
+  ["colony-bow"] = {damage = 14, type = "physical", ammo = "colony-arrow", wear = true, uses = labour.TOOL_USES},
 }
 
 -- Quality scales the raw damage. Mirrors model/armour's string-keyed quality input.
@@ -55,23 +52,16 @@ function M.outgoing(weapon, quality_name)
   return def.damage * qd(quality_name), def.type, def.ammo
 end
 
---- Damage for one strike of `attacker` against `target`, and its damage type.
---- `attacker = {weapon=, quality=}`, `target = {armour=, quality=}` (both may be nil/empty).
---- The defender's armour mitigation is NOT subtracted here - that happens once, in the adapter's heal-back.
---- The only use of `target` is an offensive piercing bonus: a better weapon defeats part of an armoured
---- target's protection, added as extra script damage (never as a second mitigation subtraction).
+--- Damage for one strike of `attacker`, and its damage type. `attacker = {weapon=, quality=}`.
+--- The defender's armour mitigation is NOT applied here - it happens once, in the adapter's heal-back on
+--- on_entity_damaged. A second arg is accepted for source compatibility with the plan's `engage(gear, target)`
+--- signature but is deliberately ignored: no Stage 1 target carries armour gear, so any defender-side term
+--- would be unreachable in-game (review finding 4).
 ---@param attacker table|nil
----@param target table|nil
+---@param target table|nil unused; accepted for signature compatibility
 ---@return number, string
 function M.engage(attacker, target)
-  attacker, target = attacker or {}, target or {}
-  local damage, dtype = M.outgoing(attacker.weapon, attacker.quality)
-  local tmit = armour.mitigation(target.armour, target.quality)
-  if tmit > 0 then
-    local def = M.WEAPONS[attacker.weapon]
-    damage = damage * (1 + (def and def.pierce or 0) * tmit)
-  end
-  return damage, dtype
+  return M.outgoing(attacker and attacker.weapon, attacker and attacker.quality)
 end
 
 --- Best weapon present in `counts`, with its quality. PREFERENCE order, never pairs() over the map.

@@ -27,6 +27,13 @@ local function militia_entity(colony, un)
   return e and e.valid and e or nil
 end
 
+-- True while the unit is an on-duty militia. Used by colony.reassign_workforce so a lock change actually
+-- reaches work.assign even though the unit is not "idle" (review finding 3).
+function M.is_duty(st)
+  return st ~= nil and st.job == "militia"
+    and (st.state == "militia-hold" or st.state == "militia-fight")
+end
+
 local function quality_of(stack)
   local q = stack and stack.quality
   if type(q) == "string" then return q end
@@ -34,7 +41,8 @@ local function quality_of(stack)
 end
 
 -- Colony stock, with item qualities, read from the Town Hall. Gear is issued from (and ammo spent out of)
--- this single depot, so two militia can never draw the same physical item.
+-- this single depot, so two militia can never draw the same physical item, and a Watchtower's stock room is
+-- never a source (review finding 5: no garrison starvation).
 local function hall_stock(colony)
   local counts, quals = {}, {}
   local hall = colony and colony.hall
@@ -57,6 +65,21 @@ local function remove_from_hall(colony, item, count)
   -- LuaEntity has no arbitrary fields in 2.1; invalidate the colony's plain-data stock cache instead.
   if colony then colony.ledger_cache = nil; colony.stock_cache = nil end
   return n
+end
+
+-- Return a militia's physical gear to the hall. Called on death and on demobilisation (review finding 5),
+-- so a rifle is never lost with its owner and a lock change hands the items back to common stock.
+function M.return_gear(colony, st)
+  local gear = st and st.gear
+  if not gear then return end
+  local hall = colony and colony.hall
+  if hall and hall.valid then
+    for _, item in ipairs({gear.weapon, gear.armour}) do
+      if item then hall.insert{name = item, count = 1} end
+    end
+  end
+  st.gear = nil
+  if colony then colony.ledger_cache = nil; colony.stock_cache = nil end
 end
 
 -- Draw weapon and armour (one each) from the hall into pure-data gear. Quality is read from the live stack
@@ -87,35 +110,26 @@ function M.issue_gear(colony, st, e, opts)
   return gear
 end
 
--- Spawn a ready militia unit (used by the spike and by conversion). Registered in the colony roster like a
--- colonist, so mortality, death cleanup and the command whistle all find it by unit number.
-function M.spawn(colony, at, opts)
-  local hall = colony and colony.hall
-  if not (hall and hall.valid) then return nil end
-  local pos = hall.surface.find_non_colliding_position("colony-militia", at or hall.position, 10, 0.5)
-  if not pos then return nil end
-  local e = hall.surface.create_entity{name = "colony-militia", position = pos, force = hall.force}
-  if not e then return nil end
-  colony.colonists[e.unit_number] = e
-  colony.pop_cache, colony.pop_tick = nil, nil
-  script.register_on_object_destroyed(e)
-  local st = {colony_id = colony.id, job = "militia", state = "militia-hold"}
-  storage.unit_state[e.unit_number] = st
+-- The ONE initialisation routine for an on-duty militia, shared by spawn, convert and assign. Every creation
+-- path must end here: state, gear, label and the first scan timer. (Review finding 1.)
+function M.init(colony, un, e, st, opts)
+  st.colony_id = colony.id
+  st.job = "militia"
+  st.state = "militia-hold"
+  st.gear = st.gear or {}
   M.issue_gear(colony, st, e, opts)
   work.set_label(e, "militia", true)
-  scheduler.after(M.SCAN_TICKS + (e.unit_number * 29) % 120, "militia.scan", {un = e.unit_number})
-  return e
+  scheduler.after(M.SCAN_TICKS + (un * 29) % 120, "militia.scan", {un = un})
+  return st
 end
 
--- Convert an existing colonist into a militia prototype, migrating all per-unit storage keys to the new unit
--- number. The old entity is destroyed only AFTER the migration, so work.lua's on_object_destroyed cleanup
--- finds nothing to remove under the old number. Rendering objects tied to the old entity are recreated by the
--- state machine. Returns the new unit number (or nil on failure).
-function M.convert(colony, un, e, st)
-  if e.name == "colony-militia" then return un end
-  local pos = e.surface.find_non_colliding_position("colony-militia", e.position, 6, 0.5)
+-- Swap a unit to a different prototype, migrating all per-unit storage keys to the new unit number. The old
+-- entity is destroyed only AFTER the migration, so work.lua's on_object_destroyed cleanup finds nothing to
+-- remove under the old number. Returns new_unit_number, new_entity (or nil on failure).
+local function swap_entity(colony, un, e, st, new_name)
+  local pos = e.surface.find_non_colliding_position(new_name, e.position, 6, 0.5)
   if not pos then return nil end
-  local new = e.surface.create_entity{name = "colony-militia", position = pos, force = e.force}
+  local new = e.surface.create_entity{name = new_name, position = pos, force = e.force}
   if not new then return nil end
   local nun = new.unit_number
   colony.colonists[nun], colony.colonists[un] = new, nil
@@ -128,10 +142,51 @@ function M.convert(colony, un, e, st)
     local t = storage[key]
     if t and t[un] then t[nun] = t[un]; t[un] = nil end
   end
-  if colony.away and colony.away[un] then colony.away[nun] = colony.away[un]; colony.away[un] = nil end
+  -- colony.away is a commuter COUNT (not a per-unit map), so there is nothing to migrate here.
   script.register_on_object_destroyed(new)
-  work.set_label(new, "militia", true)
   e.destroy()
+  return nun, new
+end
+
+-- Spawn a ready militia unit (used by the spike). Registered in the colony roster like a colonist, so
+-- mortality, death cleanup and the command whistle all find it by unit number.
+function M.spawn(colony, at, opts)
+  local hall = colony and colony.hall
+  if not (hall and hall.valid) then return nil end
+  local pos = hall.surface.find_non_colliding_position("colony-militia", at or hall.position, 10, 0.5)
+  if not pos then return nil end
+  local e = hall.surface.create_entity{name = "colony-militia", position = pos, force = hall.force}
+  if not e then return nil end
+  colony.colonists[e.unit_number] = e
+  colony.locks = colony.locks or {}
+  colony.locks[e.unit_number] = "militia"   -- same lock a GUI-locked/converted militia carries
+  colony.pop_cache, colony.pop_tick = nil, nil
+  script.register_on_object_destroyed(e)
+  local st = {}
+  storage.unit_state[e.unit_number] = st
+  M.init(colony, e.unit_number, e, st, opts)
+  return e
+end
+
+-- Convert an existing colonist (the real player path: GUI lock -> work.assign -> militia.assign). The swap
+-- migrates storage, then M.init arms and starts the new unit; it is NOT left inert (review finding 1).
+function M.convert(colony, un, e, st)
+  work.release(st)   -- return any carry, undo claims; idempotent for an idle colonist
+  local nun, new = swap_entity(colony, un, e, st, "colony-militia")
+  if not nun then return nil end
+  M.init(colony, nun, new, st)
+  return nun
+end
+
+-- Hand a militia back to the workforce: return its gear, swap it to a civilian, and re-assign it so the
+-- player's new lock takes effect. Called by work.assign when the unit is no longer locked to militia.
+function M.demobilize(colony, un, e, st)
+  M.return_gear(colony, st)
+  local nun, new = swap_entity(colony, un, e, st, "colony-colonist")
+  if not nun then return nil end
+  storage.unit_state[nun] = {colony_id = colony.id, state = "idle"}
+  work.clear_label(nun)
+  work.assign(colony, nun)
   return nun
 end
 
@@ -143,14 +198,10 @@ function M.assign(colony, un, e, st)
     local nun = M.convert(colony, un, e, st)
     return nun
   end
-  -- Already a militia: keep an on-duty state; a fresh/idle one re-enters the hold scan.
+  -- Already a militia on duty: keep its state (a redundant reassign is a no-op).
   if st.state == "militia-hold" or st.state == "militia-fight" then return end
-  st.job = "militia"
-  st.state = "militia-hold"
-  st.gear = st.gear or {}
-  M.issue_gear(colony, st, e)
-  work.set_label(e, "militia", true)
-  scheduler.after(M.SCAN_TICKS + (un * 29) % 120, "militia.scan", {un = un})
+  -- A militia returning from a whistle lease / sleep / idle re-enters duty with its existing gear.
+  M.init(colony, un, e, st)
 end
 
 -- Command Whistle hook: a militia's gear is pure data and is carried across the lease by abort_intents; this
@@ -233,7 +284,7 @@ local function strike(d)
   -- Only land a scripted strike inside the unit's attack range; the engine command walks it into range.
   local dx, dy = target.position.x - e.position.x, target.position.y - e.position.y
   if dx * dx + dy * dy <= M.ATTACK_RANGE * M.ATTACK_RANGE then
-    local damage, dtype = militia_model.engage(st.gear, {})
+    local damage, dtype = militia_model.engage(st.gear)
     -- Dot form passes all five params (damage, force, type, source, cause); colon would add a 6th self arg.
     target.damage(damage, e.force, dtype, e, e)   -- cause = militia: on_entity_died attribution stays honest
   end
@@ -259,6 +310,17 @@ events.on(defines.events.on_entity_damaged, function(ev)
   if hp <= 0 then return end
   local healed = math.min(applied * mitigation, e.max_health - hp)
   if healed > 0 then e.health = hp + healed end
+end)
+
+-- A dead militia's physical gear goes back to the hall (review finding 5), once, before cleanup erases state.
+events.on(defines.events.on_entity_died, function(ev)
+  local e = ev.entity
+  -- A just-killed entity can already be invalid at handler time (cf. mortality.lua): check the name only.
+  if not (e and e.name == "colony-militia") then return end
+  local st = storage.unit_state and storage.unit_state[e.unit_number]
+  if not st then return end
+  local colony = storage.colonies[st.colony_id]
+  if colony then M.return_gear(colony, st) end
 end)
 
 return M

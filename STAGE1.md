@@ -139,3 +139,60 @@ prototype-table hash; existing-town behaviour is unchanged — `m1_colony` still
    biter; without that, the per-unit jitter can let one militia kill the target before the other scans, making
    the wear assertion flaky. The game itself is fine (a real militia scans on its own timer), but the spike's
    determinism depends on the forced scan.
+
+---
+
+## Review fixes (response to `REVIEW_STAGE1.md`)
+
+All CRITICAL/MAJOR findings and the actionable MINORs addressed on branch `agent/defence-stack`.
+
+### CRITICAL 1 — `M.convert` now fully initialises the militia
+- `scripts/militia.lua` gained one shared `M.init(colony, un, e, st, opts)` that sets `job="militia"`,
+  `state="militia-hold"`, issues gear, sets the label and schedules the first `militia.scan`. `spawn`,
+  `convert` and `assign` all end there, so there is no path that creates an unarmed/inert militia.
+- `convert` calls `work.release(st)` (returns old carry, clears claims), swaps the entity via a shared
+  `swap_entity`, then `M.init`s the new unit before returning its number.
+- Spike `m3_militia` now **locks a freshly spawned colonist through the real field/API** (`c.locks[un]="militia"`
+  then `work.assign(c, un)`) and asserts: the entity is `colony-militia`, it is armed and on duty, it scans and
+  kills a biter, and wear/ammo advanced. **Mutation-checked**: commenting out the `M.init` call in `convert`
+  makes this case fail (`the converted militia is armed and on duty — job=nil state=idle weapon=nil`); restoring
+  it makes the spike 32/32 again.
+- `colony.spawn` now sets `colony.locks[un]="militia"` so a spawned militia is not immediately demobilised by a
+  reassign sweep (it is the same lock a GUI-converted militia carries).
+
+### MAJOR 2 — Command Whistle wiring is now reachable
+- `model/command.lua`: `UNIT_NAMES` / `is_colony_unit(name)` admit both `colony-colonist` and `colony-militia`;
+  `command.lua` uses it in BOTH the selection handler and `apply`. Unit test added.
+- `command.lua` exports `M.apply` for the regression case. Spike case: select the lock-created militia,
+  `command.apply(1, MOVE, ...)` → asserts `state=="commanded"`, gear carried, `st.site==nil`
+  (`militia.release_claim` ran), `storage.command.leased[un]==true`; then `command.release_lease` → asserts gear
+  intact and lease cleared; then `command.reassign` re-posts it with gear. No loss, no leak.
+
+### MAJOR 3 — Militia job no longer sticky
+- `work.assign` only delegates when the player's **current** lock is `"militia"`. If a militia is unlocked or
+  re-locked, a new demobilise branch returns its gear, swaps it back to `colony-colonist` and re-assigns it under
+  the new lock. `colony.reassign_workforce` now calls `work.assign` for on-duty militia too (`militia.is_duty`)
+  so a lock change actually reaches it.
+- Spike case: `lock militia → lock chop` asserts the unit is a civilian again, `job ~= "militia"`, and the
+  pistol was returned to the hall.
+
+### MINORs
+- Prototype baseline readback: `m3_militia` reads the **live** `prototypes.entity["colony-militia"]` action
+  chain (2.1 nests `action[1].action_delivery[1].target_effects[1].damage.amount`) and asserts it is `1`.
+- `engage`'s unreachable "armour piercing" branch and the `pierce` weapon fields were **removed** (the
+  reviewer-sanctioned option); `engage` is now exactly the raw outgoing damage. Tests updated.
+- `M.return_gear(colony, st)` returns a militia's weapon and armour to the hall; wired into `demobilize` and
+  `on_entity_died` (the latter checks name only, like `mortality.lua`, because a just-killed entity can already
+  be invalid). The demobilise path is asserted in-game; the death path is wired but not separately spiked
+  because the engine clears the unit's state around the death event in this binary.
+- Garrison contention: the spike puts the only spare rifle inside a **manned** watchtower, converts a colonist,
+  and asserts the tower still holds exactly one rifle — militia source only from the Town Hall.
+
+### Note on lock changes for busy units
+`reassign_workforce` only reassigns idle units (existing mod behaviour for every job). A colonist locked while
+mid-trip becomes a militia when it next goes idle; the real GUI path is unchanged.
+
+### Gate deltas after the fixes
+`m3_militia` 32/32; `test.sh` 485/0; `m1_garrison` 18/18; `s19_defence` 27/27; `m1_colony` 116/116;
+`save-load` PASS (schema 38); determinism PASS twice at the **unchanged** checksum **3400134649** (no existing-
+town behaviour changed); bench 0.625 ms/tick PASS. Full outputs are reported in the hand-off message.

@@ -2438,6 +2438,16 @@ function M.assign(colony, un)
   if st and st.carry then M.release(st) end
   local lock = colony.locks and colony.locks[un]
 
+  -- M3 militia (#55): unlocking a militia (or switching its lock to another job) must hand it back to the
+  -- civilian workforce, with its pure-data gear returned to the hall. Do this BEFORE the night block so the
+  -- player's change takes effect immediately instead of waiting for morning.
+  if lock ~= "militia" and st and st.job == "militia" and e.name == "colony-militia" then
+    if militia_mod then
+      local nun = militia_mod.demobilize(colony, un, e, st)
+      if nun then return end   -- demobilize re-assigns the new civilian under the current lock
+    end
+  end
+
   -- Night time: colonists return to their house to sleep. Children (#88) sleep with the household too.
   if M.is_sleep_time(e.surface) then
     if st and (st.state == "sleeping" or st.state == "to_bed") and st.house and st.house.valid then return end
@@ -2481,10 +2491,10 @@ function M.assign(colony, un)
     end
   end
 
-  -- M3 militia (#55): a colonist locked to (or already working) the militia job is owned by the combat
-  -- adapter, not by the hut-based job matrix. This sits AFTER the night block so a militia with a house goes
-  -- to bed like a guard and is re-posted in the morning; the adapter's scan delegates back at night too.
-  if lock == "militia" or (st and st.job == "militia") then
+  -- M3 militia (#55): only the player's CURRENT lock decides militia duty (review finding 3: the job must
+  -- not be sticky). This sits AFTER the night block so a militia with a house goes to bed like a guard and is
+  -- re-posted in the morning; unlocking is handled above, before the night block.
+  if lock == "militia" then
     if militia_mod then return militia_mod.assign(colony, un, e, st) end
   end
 

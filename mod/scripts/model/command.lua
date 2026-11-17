@@ -15,6 +15,11 @@ M.WATCHDOG_TICKS = 300        -- adapter: leased-state expiry / nightfall check,
 
 -- States another subsystem owns. Ordering one of these would strand a train, a coach, a truck driver, a
 -- sleeper inside a house or a colonist indoors during an alarm, so they are refused outright.
+-- Entity names the whistle may select/order. A militia is a colonist in uniform, not a different kind of
+-- unit (#55): both must be selectable or the ORDERABLE/gear-carry wiring for militia is unreachable dead code.
+M.UNIT_NAMES = {["colony-colonist"] = true, ["colony-militia"] = true}
+function M.is_colony_unit(name) return M.UNIT_NAMES[name] == true end
+
 M.PROTECTED = {
   child = true, to_bed = true, sleeping = true,
   to_shelter = true, sheltered = true, exposed = true,

@@ -2407,6 +2407,9 @@ function M.assign(colony, un)
   local e = colony.colonists[un]
   if not (e and e.valid and colony.hall.valid) then return end
   local st = storage.unit_state[un]
+  -- A Command Whistle order (#58) owns the unit until its lease ends; scripts/command.lua hands it back.
+  -- This must precede the shelter check below: an alarm must not pull a commanded colonist indoors.
+  if st and st.state == "commanded" then return end
   -- Waiting inside a Motor Pool while its truck works: the truck decides when the shift ends.
   if st and st.state == "driving" and storage.trucks and storage.trucks[st.truck] then return end
   -- Bound for (or waiting at) a Passenger Platform: the next train decides (scripts/transit.lua).
@@ -3041,6 +3044,7 @@ end)
 events.on(defines.events.on_ai_command_completed, function(ev)
   local st = storage.unit_state[ev.unit_number]
   if not st then return end
+  if st.state == "commanded" then return end   -- #58: scripts/command.lua owns this lease's completion
   local colony = storage.colonies[st.colony_id]
   if not colony then return end
   if st.state == "to_platform" then

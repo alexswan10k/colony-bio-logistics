@@ -121,5 +121,30 @@
 ---@field trailers integer
 ---@field key integer|nil
 
+---@class CommandIntent
+---@field release_carry boolean
+---@field free_hut_slot boolean
+---@field free_site_claim string|false
+---@field return_car boolean
+---@field return_trailer boolean
+---@field clear_carry_sprite boolean
+---@field clear_label boolean
+---@field restore_destructible boolean
+---@field old_job string
+---@field old_state string
+
+---@class CommandState
+---@field colony_id integer|nil
+---@field job string
+---@field state "commanded"
+---@field order string
+---@field until_tick integer
+---@field lease_owner integer|nil
+
+---@class CommandInput
+---@field position {x: number, y: number}|nil
+---@field radius number|nil
+---@field enemy_un integer|nil
+
 local M = {}
 return M

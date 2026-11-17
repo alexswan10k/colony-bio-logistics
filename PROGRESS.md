@@ -4,6 +4,16 @@ Running log of completed slices, newest first. One line per slice: what it is, t
 commit, and the headline fact a future reader shouldn't have to re-derive. Detailed decisions
 live on the GitHub issue and in `AGENTS.md`.
 
+## 2026-11-17 — #58 Command Whistle (RTS orders, first slice)
+
+A selection-tool whistle plus right-click/X custom inputs issue leased Move / Attack / Attack-Move orders; the
+lease parks the unit in `commanded` (protected from `work.assign` and the alarm sweep) and hands it back on
+completion, expiry or nightfall. `model/command.lua` is pure; per-player selection/markers/lease ownership live
+in `storage.command` (schema 38) with disconnect cleanup. `s18_command` (18 checks) proved the engine facts: no
+`attack_move` (use `attack_area` = 5), unit groups suppress per-unit completion, `set_multi_command` wants a
+destination, and 200 `set_command`s cost 0.24 ms. Determinism re-baselined to **328728317** (new prototypes,
+behaviour unchanged); 465 unit tests, m1_colony 116/116, m1_tech 13/13, save/load PASS.
+
 ## 2026-11-12 — #46 geographic specialisation scoring (land-based hut composition)
 
 Worker-free town specialty. Each type (coast / fertile / forest / industrial) is scored 0..1 from

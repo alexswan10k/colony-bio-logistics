@@ -1,0 +1,149 @@
+-- Command Whistle (#58): the pure rules. Engine facts live in s18_command; this file never mocks Factorio.
+local command = require("scripts.model.command")
+
+describe("command whistle (order precedence, #58)", function()
+  it("refuses sleep, shelter, travel, commute, driving and children", function()
+    for _, state in ipairs({"child", "to_bed", "sleeping", "to_shelter", "sheltered", "exposed",
+        "to_platform", "waiting_train", "driving", "to_park"}) do
+      eq(command.commandable({state = state}), false, "should be protected: " .. state)
+    end
+    eq(command.commandable({state = "idle"}, {is_child = true}), false)
+    eq(command.commandable({state = "idle"}, {is_truck = true}), false)
+    eq(command.commandable({state = "idle"}, {is_commuter = true}), false)
+    eq(command.commandable({state = "idle"}, {driving = true}), false)
+    eq(command.commandable(nil, {alarm_covers = true}), true, "a colonist with no state is idle")
+  end)
+
+  it("orders idle and ordinary work trips, including guards and hunters", function()
+    for _, state in ipairs({"idle", "to_construct", "building", "repairing", "to_pickup", "to_house",
+        "to_hut", "to_machine", "to_crate", "to_pool", "to_tavern", "to_bin", "to_hall", "to_site",
+        "working", "hunting", "to_tower", "guarding", "guarding-fight"}) do
+      eq(command.commandable({state = state}), true, "should be orderable: " .. state)
+    end
+    eq(command.commandable({state = "unknown-future-state"}), false, "unknown states fail closed")
+    eq(command.commandable({state = "commanded"}), true, "a new order can replace an existing lease")
+  end)
+
+  it("select sorts, dedupes and respects set/add/remove/clear", function()
+    eq(table.concat(command.select({9, 2, 2, 5}, {7, 5, 1}, "set"), ","), "1,5,7")
+    eq(table.concat(command.select({1, 5, 7}, {3, 5}, "add"), ","), "1,3,5,7")
+    eq(table.concat(command.select({1, 3, 5, 7}, {3, 7}, "remove"), ","), "1,5")
+    eq(table.concat(command.select({1, 5}, {9}, "clear"), ","), "")
+  end)
+
+  it("accepts the storage map form and caps at MAX_SELECT without aliasing", function()
+    local current = {[8] = true, [3] = true}
+    local out = command.select(current, {[3] = true, [11] = true}, "add")
+    eq(table.concat(out, ","), "3,8,11")
+    current[5] = true
+    eq(table.concat(out, ","), "3,8,11", "result must not alias its input")
+    local many = {}
+    for i = 1, command.MAX_SELECT + 50 do many[i] = true end
+    local capped = command.select(nil, many, "set")
+    eq(#capped, command.MAX_SELECT)
+    eq(capped[1], 1)
+    eq(capped[#capped], command.MAX_SELECT)
+  end)
+
+  it("abort intents describe every claim the adapter must release, without mutating", function()
+    local st = {state = "to_pickup", job = "chop", colony_id = 4, carry = {{item = "wood", count = 3}},
+      hut = {workers = {[7] = true}}, site_key = "tree:1,2", car = 88, trailer = 99}
+    local intents = command.abort_intents(st)
+    eq(intents.release_carry, true)
+    eq(intents.free_hut_slot, true)
+    eq(intents.free_site_claim, "tree:1,2")
+    eq(intents.return_car, true)
+    eq(intents.return_trailer, true)
+    eq(intents.restore_destructible, false)
+    eq(intents.old_job, "chop")
+    eq(intents.old_state, "to_pickup")
+    eq(st.state, "to_pickup", "input untouched")
+    eq(st.site_key, "tree:1,2", "input untouched")
+    local empty = command.abort_intents(nil)
+    eq(empty.free_site_claim, false)
+    eq(empty.old_job, "idle")
+  end)
+
+  it("guard and hunter intents free the hut post", function()
+    for _, st in ipairs({{state = "guarding", job = "guard", hut = {}},
+        {state = "hunting", job = "hunt", hut = {}}}) do
+      eq(command.abort_intents(st).free_hut_slot, true)
+      eq(command.commandable(st), true)
+    end
+  end)
+
+  it("MOVE plans go_to_location with no distraction and a lease", function()
+    local r = command.plan({12, 3}, command.ORDERS.MOVE, {position = {x = 5, y = -2}}, 1000,
+      {colonies = {[12] = 2, [3] = 2}, jobs = {[12] = "haul", [3] = "chop"}, owner = 1})
+    eq(table.concat(command.to_list(r.states), ","), "3,12")
+    eq(r.states[12].state, "commanded")
+    eq(r.states[12].job, "haul")
+    eq(r.states[12].colony_id, 2)
+    eq(r.states[12].lease_owner, 1)
+    eq(r.states[12].until_tick, 1000 + command.LEASE_TICKS)
+    eq(r.commands[12].kind, "go_to_location")
+    eq(r.commands[12].destination.x, 5)
+    eq(r.commands[12].destination.y, -2)
+    eq(r.commands[12].radius, 1.5)
+    eq(r.commands[12].distraction, "none")
+  end)
+
+  it("ATTACK_MOVE plans attack_area with by_enemy, ATTACK plans a target", function()
+    local am = command.plan({4}, command.ORDERS.ATTACK_MOVE, {position = {x = 1, y = 2}, radius = 12}, 0)
+    eq(am.commands[4].kind, "attack_area")
+    eq(am.commands[4].radius, 12)
+    eq(am.commands[4].distraction, "by_enemy")
+    local at = command.plan({4}, command.ORDERS.ATTACK, {position = {x = 1, y = 2}, enemy_un = 99}, 0)
+    eq(at.commands[4].kind, "attack")
+    eq(at.commands[4].target_un, 99)
+    eq(at.commands[4].distraction, "none")
+    eq(at.states[4].order, command.ORDERS.ATTACK)
+  end)
+
+  it("STOP issues a stop command but creates no lease", function()
+    local r = command.plan({2, 1}, command.ORDERS.STOP, nil, 50)
+    eq(next(r.states), nil)
+    eq(r.commands[1].kind, "stop")
+    eq(r.commands[2].kind, "stop")
+  end)
+
+  it("plan is deterministic and returns fresh tables", function()
+    local a = command.plan({5, 2}, command.ORDERS.MOVE, {position = {x = 1, y = 1}}, 7)
+    local b = command.plan({2, 5}, command.ORDERS.MOVE, {position = {x = 1, y = 1}}, 7)
+    eq(table.concat(command.to_list(a.states), ","), table.concat(command.to_list(b.states), ","))
+    eq(a.commands[2].destination.x, b.commands[2].destination.x)
+    a.commands[2].destination.x = 99
+    eq(b.commands[2].destination.x, 1, "plans must not share command tables")
+  end)
+
+  it("expiry and completion release exactly when they should", function()
+    local st = {state = "commanded", until_tick = 100}
+    eq(command.expired(st, 99), false)
+    eq(command.expired(st, 100), true)
+    eq(command.after_completion(st, "success", 99), "release_to_work")
+    eq(command.after_completion(st, "in_progress", 99), "keep")
+    eq(command.after_completion(st, "in_progress", 100), "release_to_work")
+    eq(command.after_completion(st, "deleted", 99), "release_to_work")
+    eq(command.after_completion({state = "working"}, "success", 0), "keep")
+  end)
+
+  it("disconnect cleanup drops one player's selection/markers and releases only their leases", function()
+    local data = {selection = {[1] = {4, 7}, [2] = {9}},
+      markers = {[1] = {"a"}, [2] = {"b"}}, owner = {[4] = 1, [7] = 1, [9] = 2}}
+    local out = command.drop_player(data, 1)
+    eq(out.selection[1], nil)
+    eq(table.concat(out.selection[2], ","), "9")
+    eq(out.markers[1], nil)
+    eq(table.concat(out.markers_removed, ","), "a")
+    eq(table.concat(out.released, ","), "4,7")
+    eq(out.owner[9], 2)
+    eq(data.owner[4], 1, "input untouched")
+    eq(command.drop_player(data, 3).released[1], nil)
+  end)
+
+  it("labels are plain text and distinct for move vs attack", function()
+    truthy(command.label_for(command.ORDERS.MOVE):find("moving", 1, true))
+    truthy(command.label_for(command.ORDERS.ATTACK):find("attacking", 1, true))
+    truthy(command.label_for(command.ORDERS.ATTACK_MOVE):find("attacking", 1, true))
+  end)
+end)

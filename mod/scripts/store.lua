@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 37
+local SCHEMA = 38
 
 local migrations = {
   [1] = function()
@@ -282,6 +282,13 @@ local migrations = {
     -- world and arms itself once, so the only layout change is a marker so a fresh world arms in on_init and
     -- an existing save arms here. Replaced by the armed timer, which run for all subsequent save loads.
     storage.cold_armed = true
+  end,
+  [38] = function()
+    -- Command Whistle (#58): per-player selection sets and render ids, plus per-unit lease ownership. All
+    -- plain data (unit numbers / player indexes / render objects), cleaned up on player disconnect.
+    local s = storage.command or {}
+    s.selection, s.markers, s.owner, s.leased = s.selection or {}, s.markers or {}, s.owner or {}, s.leased or {}
+    storage.command = s
   end,
 }
 

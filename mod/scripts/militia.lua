@@ -6,6 +6,7 @@
 local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local work = require("scripts.work")
+local armory = require("scripts.armory")
 local militia_model = require("scripts.model.militia")
 local armour = require("scripts.model.armour")
 local garrison = require("scripts.model.garrison")
@@ -20,7 +21,9 @@ M.SCAN_TICKS = 45
 M.STRIKE_TICKS = 20
 
 -- What lives on storage.unit_state[un].gear (plain data only, survives a Command Whistle lease):
---   {weapon=, quality=, armour=, armour_quality=, uses=, ammo_count=}
+--   {weapon=, quality=, armour=, armour_quality=, uses=, ammo_count=, source_armory=}
+-- `source_armory` is a unit number (never an entity ref): gear drawn from an Armory goes back there and its
+-- post's equipped count is claimed while the militia holds it (M3 Stage 2, #56).
 
 local function militia_entity(colony, un)
   local e = colony and colony.colonists and colony.colonists[un]
@@ -69,17 +72,27 @@ end
 
 -- Return a militia's physical gear to the hall. Called on death and on demobilisation (review finding 5),
 -- so a rifle is never lost with its owner and a lock change hands the items back to common stock.
-function M.return_gear(colony, st)
+function M.return_gear(colony, st, un)
   local gear = st and st.gear
   if not gear then return end
   local hall = colony and colony.hall
-  if hall and hall.valid then
-    for _, item in ipairs({gear.weapon, gear.armour}) do
-      if item then hall.insert{name = item, count = 1} end
+  local source = colony and colony.armories and gear.source_armory
+    and colony.armories[gear.source_armory] or nil
+  for _, item in ipairs({gear.weapon, gear.armour}) do
+    if item then
+      -- A mined or full Armory falls back to the hall, so gear is never dropped with its owner.
+      if source and armory.put(colony, source, item, 1) > 0 then
+        -- returned to its source
+      elseif hall and hall.valid then
+        hall.insert{name = item, count = 1}
+      end
     end
   end
   st.gear = nil
-  if colony then colony.ledger_cache = nil; colony.stock_cache = nil end
+  if colony then
+    armory.clear_equipped(colony, un)
+    colony.ledger_cache = nil; colony.stock_cache = nil
+  end
 end
 
 -- Draw weapon and armour (one each) from the hall into pure-data gear. Quality is read from the live stack
@@ -87,8 +100,44 @@ end
 function M.issue_gear(colony, st, e, opts)
   st.gear = st.gear or {}
   local gear = st.gear
-  local counts, quals = hall_stock(colony)
   opts = opts or {}
+  -- A stocked Armory in range is the militia's depot (#56 remainder). Gear drawn from it is claimed on the
+  -- Armory record, so the post becomes "manned" and cannot be stripped of the same item twice. Spike `opts`
+  -- force the old hall path on purpose (exact gear without depending on random world stock).
+  local got_source
+  if not (opts.weapon or opts.armour) and e and e.valid and colony and colony.armories then
+    local function wanted(counts, quals)
+      local list = {}
+      if not gear.weapon then
+        local w = militia_model.best_gear(counts, quals)
+        if w then list[#list + 1] = {item = w, count = 1} end
+      end
+      if not gear.armour then
+        local a = armour.best(counts, quals)
+        if a then list[#list + 1] = {item = a, count = 1} end
+      end
+      return list
+    end
+    local a, grants = armory.gear_source(colony, e.position, wanted)
+    if a and #grants > 0 then
+      local _, quals = armory.contents(a)
+      for _, g in ipairs(grants) do
+        if armory.take(a, g.item, g.count) > 0 then
+          local q = quals[g.item] or "normal"
+          if militia_model.WEAPONS[g.item] and not gear.weapon then
+            gear.weapon, gear.quality, gear.uses, gear.ammo_count = g.item, q, 0, 0
+          elseif not gear.armour then
+            gear.armour, gear.armour_quality = g.item, q
+          end
+          gear.source_armory = a.entity.unit_number
+          got_source = a
+        end
+      end
+      if got_source then armory.mark_equipped(colony, e.unit_number, got_source) end
+    end
+  end
+  -- Hall fills whatever the Armory could not supply (and is the only source for spike-injected gear).
+  local counts, quals = hall_stock(colony)
   if not gear.weapon then
     local weapon, wq
     if opts.weapon then weapon, wq = opts.weapon, opts.quality or "normal"
@@ -181,7 +230,7 @@ end
 -- Hand a militia back to the workforce: return its gear, swap it to a civilian, and re-assign it so the
 -- player's new lock takes effect. Called by work.assign when the unit is no longer locked to militia.
 function M.demobilize(colony, un, e, st)
-  M.return_gear(colony, st)
+  M.return_gear(colony, st, un)
   local nun, new = swap_entity(colony, un, e, st, "colony-colonist")
   if not nun then return nil end
   storage.unit_state[nun] = {colony_id = colony.id, state = "idle"}
@@ -222,9 +271,13 @@ local function end_engagement(colony, un, st)
       gear.uses = (gear.uses or 0) + 1
       if gear.uses >= (def.uses or 1) then gear.weapon, gear.uses = nil, 0 end
     end
-    -- Ammo (a magazine or an arrow) is spent out of colony stock, never a colony.machines row (#59). A
-    -- rifle's `spent == weapon` is its own break, already handled by wear above.
-    if spent and spent ~= weapon then remove_from_hall(colony, spent, 1) end
+    -- Ammo (a magazine or an arrow) is spent out of the gear's own depot, never a colony.machines row (#59).
+    -- A rifle's `spent == weapon` is its own break, already handled by wear above.
+    if spent and spent ~= weapon then
+      local src = colony and colony.armories and gear.source_armory
+        and colony.armories[gear.source_armory] or nil
+      if not (src and armory.take(src, spent, 1) > 0) then remove_from_hall(colony, spent, 1) end
+    end
   end
   st.site, st.attempts = nil, nil
   st.state = "militia-hold"
@@ -320,7 +373,7 @@ events.on(defines.events.on_entity_died, function(ev)
   local st = storage.unit_state and storage.unit_state[e.unit_number]
   if not st then return end
   local colony = storage.colonies[st.colony_id]
-  if colony then M.return_gear(colony, st) end
+  if colony then M.return_gear(colony, st, e.unit_number) end
 end)
 
 return M

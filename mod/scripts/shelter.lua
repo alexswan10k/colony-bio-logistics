@@ -9,8 +9,11 @@ local alarm = require("scripts.model.alarm")
 local work = require("scripts.work")
 local M = {}
 
-local colony_mod   -- injected by scripts.colony via M.bind
+local colony_mod, armory_mod   -- injected by scripts.colony via M.bind / M.bind_armory
 function M.bind(c) colony_mod = c end
+-- M3 Stage 2: the Armory's structural aura rides THIS handler, not a second on_entity_damaged. No alarm, no
+-- sweep and no per-tick work is added for a town with no manned posts (armory.mitigate returns immediately).
+function M.bind_armory(a) armory_mod = a end
 
 -- Every place a colonist can hide, in a stable order: houses, then the Town Hall.
 local function shelters(colony)
@@ -124,6 +127,9 @@ events.on(defines.events.on_entity_damaged, function(ev)
   local owner = territory.owner_at(e.surface.index, e.position)
   local colony = owner and storage.colonies[owner]
   if colony and colony.hall.valid and colony.hall.force == e.force then M.raise(colony, e.position) end
+  -- One multiplexed handler for #61 alarms and the #56 structural aura. `mitigate` is a no-op unless this is
+  -- damage to a colony structure and a manned post covers the spot; it never heals units or enemies.
+  if armory_mod then armory_mod.mitigate(ev) end
 end)
 
 return M

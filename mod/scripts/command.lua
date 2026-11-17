@@ -40,8 +40,10 @@ local function draw_markers(pi, units)
   for _, un in ipairs(units) do
     local e = entity_of(un)
     if e and e.valid then
+      -- 2.1's draw_circle takes `players` (not `for_player`): only the selecting player sees this circle,
+      -- matching the per-player selection in storage.command.
       marks[#marks + 1] = rendering.draw_circle{surface = e.surface, target = e, radius = 0.85,
-        color = {0.2, 0.9, 0.3, 0.9}, width = 2, filled = false}
+        color = {0.2, 0.9, 0.3, 0.9}, width = 2, filled = false, players = {pi}}
     end
   end
   s.markers[pi] = marks
@@ -70,6 +72,13 @@ local function release_lease(un, halt)
   local st = storage.unit_state and storage.unit_state[un]
   if not model.is_commanded(st) then return end
   local e = entity_of(un)
+  -- A commanded colonist can still ACQUIRE goods while leased: work.lua's kill-credit handler
+  -- (on_entity_died) keys only on `job == "hunt"`, never on state, so a hunter that shoots under an
+  -- Attack-Move order appends meat to the commanded state's `carry`. Same hazard for any future
+  -- subsystem that writes carry/car/trailer/site_key into a leased state. Funnel through work.release
+  -- exactly as work.assign's normal back-to-work path does (work.lua:2433) so those goods reach the
+  -- hall and every claim is undone before the fresh idle state replaces this one.
+  work.release(st)
   work.clear_label(un)
   clear_carry_sprite(un)
   storage.unit_state[un] = {colony_id = st.colony_id, job = st.job or "idle", state = "idle"}
@@ -79,6 +88,7 @@ local function release_lease(un, halt)
   end
   if st.colony_id then scheduler.after(1, "command.reassign", {un = un, colony_id = st.colony_id}) end
 end
+M.release_lease = release_lease   -- exposed for the s18_command regression case; no functions in storage
 
 scheduler.register("command.reassign", function(d)
   local col = storage.colonies and storage.colonies[d.colony_id]

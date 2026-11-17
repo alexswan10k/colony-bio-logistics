@@ -126,3 +126,77 @@ only affect a state that never occurs there). Two full `determinism.sh` runs pro
   need a real in-game test - headless cannot produce mouse input.
 - **Prototype/audit.** The whistle recipe is unlocked by `colony-settlement`; `m1_tech` passes, but a future
   tech-audit rule could flag a tool recipe. The `[input-name]` section is new; the locale audit passes.
+
+## 7. Review fixes (`REVIEW.md`, commit after 4062172)
+
+### MAJOR — a commanded hunter's kill credit was thrown away
+
+`work.lua:3360-3368` credits meat into `st.carry` for **any** colonist with `job == "hunt"`, without checking
+`state`; a hunter shooting under an Attack-Move order therefore wrote meat into the leased `commanded` state.
+`release_lease` replaced that state with a fresh table, so the meat vanished. Fixed in
+`mod/scripts/command.lua:release_lease`: the leased state is now funnelled through `work.release(st)` **before**
+the fresh idle state is written, exactly as `work.assign` does at `work.lua:2433`. `work.release` returns carry
+to the hall (spoilage to the nearest bin), restores cars/trailers and clears site claims, so any goods or claims
+acquired during a lease survive the hand-back. `M.release_lease` is exported for the regression case; no new
+`require` was added (`scripts.command` already imports `scripts.work` at load time), no function is stored in
+`storage`, and `model/command.lua` is untouched — the pure boundary is intact.
+
+**Every carry-producing path traced:**
+- *Hunt kill* (`work.lua:3368`) — the actual bug; now released through `work.release`.
+- *Harvest / farm / fish / mine / preserve yields* (`work.finish`, `work.lua:2917`) — guarded by
+  `st.state == "working"` (`work.lua:2727`); a leased unit is `"commanded"`, so no yield is written while leased.
+  If the yield landed in the tick *before* the order, `abort_intents` sees the carry and the order-time
+  `work.release` returns it.
+- *Haul pickups / construction materials* (`work.lua:2134`, `construct.finish`) — a trip is never started for a
+  leased unit (`work.assign` early-returns); a trip started just before the order is released at order time.
+  `construct.finish` has no state guard but operates on the replacement state (no `site`/`carry`), so it cannot
+  create or lose goods.
+- *Spoilage to a bin* (`work.lua:3251`) — only reached from work.lua's own completion handler, which now
+  early-returns for `commanded`; at order time `work.release` routes spoil to the nearest bin anyway.
+- `site_key`, `car` and `trailer` claims are also released by that same call, so no phantom claims remain.
+
+**Regression evidence:**
+- Unit (`tests/command_test.lua`): "funnels a commanded hunter's carry through work.release before resetting
+  the state" — asserts `work.release` sees `{item="colony-meat", count=3}` on a `commanded`, `job="hunt"` state
+  and that the released state is clean.
+- Spike (`s18_command`): a minimal real colony/Town Hall, a commanded hunter with 3 meat credited in its carry,
+  then `release_lease` → `[integrated] kill credit from a commanded hunter reached the hall - before=0 after=3`
+  and a clean idle state.
+- **Mutation check:** removing the `work.release(st)` line makes the unit test fail
+  (`work.release must see the leased state: expected 1, got 0`) **and** the spike fail
+  (`[integrated] ... hall - before=0 after=0`). Restoring the line returns both to green.
+
+### MINORs
+
+- **Tooltip honesty.** `item-description.colony-command-whistle` now says X/middle-click "releases the selection
+  and stops colonists that are under a whistle order; ordinary workers just keep their current job and are
+  deselected".
+- **Per-player selection circles.** Verified on https://lua-api.factorio.com/latest/classes/LuaRendering.html:
+  2.1's `draw_circle` takes `players` (an array of `PlayerIdentification`), **not** `for_player`. Circles now
+  pass `players = {pi}`, so only the selecting player sees them; `storage.command.markers[pi]` remains per-player
+  and is destroyed on selection change and disconnect.
+
+### Issue #58
+
+Posted the in-game gesture checklist (right-click order/attack, global custom-input and GUI guards, four area
+gestures, zero-area click, Stop honesty, attack-move caveat, multiplayer) as
+https://github.com/alexswan10k/colony-bio-logistics/issues/58#issuecomment-6948524354. **The issue remains OPEN**
+(`gh issue view 58` → `state: OPEN`) pending the owner's manual verification.
+
+### Gates after the fixes
+
+| Gate | Output |
+|---|---|
+| `scripts/test.sh` | `466 passed, 0 failed` (was 465; +1 regression test) |
+| `scripts/lint-determinism.sh` | `determinism lint ok` |
+| `luajit -bl` on changed Lua (`command.lua`, `s18_command.lua`, `command_test.lua`) | all compiled |
+| `scripts/typecheck.sh` | `Diagnosis completed, no problems found` |
+| `scripts/determinism.sh` | `final checksum: 328728317`, `DETERMINISM: PASS`, m1_colony 116/116 |
+| `scripts/save-load.sh` | `SAVE/LOAD: PASS` |
+| `scripts/headless-spike.sh s18_command` | `SUMMARY pass=20 fail=0 unknown=0 errors=0` (was 18; +2 integrated checks) |
+| `TICKS=19500 scripts/headless-spike.sh m1_colony` | `SUMMARY pass=116 fail=0 unknown=0 errors=0` |
+| `scripts/headless-spike.sh m1_tech` | `SUMMARY pass=13 fail=0 unknown=0 errors=0` |
+
+Checksum **did not move** (`328728317`): the fix touches only the adapter's lease-release path, no headless
+run has a player or a lease, and no prototype changed. The integrated spike exercises the release path directly
+without altering the deterministic `m1_colony` world.

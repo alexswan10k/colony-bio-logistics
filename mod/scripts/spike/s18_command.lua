@@ -13,6 +13,7 @@
 --  8. Is a label preserved across a command, and what does 200 set_commands cost?
 local core = require("scripts.spike.core")
 local events = require("scripts.events")
+local command_adapter = require("scripts.command")
 
 local S   -- module-local spike state; not save-safe on purpose (dev-only)
 
@@ -231,6 +232,37 @@ core.register("s18_command", {
         ctx.log("[needs in-game] custom-input cursor_position / selected-area payload: real mouse input only; "
           .. "synthetic raises are rejected by the engine")
         ctx.log("[needs in-game] real right-click vs vanilla rotate/selection, GUI-click fix, and single-click zero-area selection")
+
+        -- [integrated] Regression for the review's item-loss finding: work.lua credits a hunt kill to
+        -- st.carry whenever job == "hunt", even while state == "commanded". Build a minimal real colony
+        -- with a hall, credit meat to a commanded hunter, release the lease, and assert the hall got it.
+        local cid = 9001
+        local hall = s.create_entity{name = "colony-town-hall", position = {x = p.x + 14, y = p.y + 12}, force = f}
+        local hunter = spawn(14, 9)
+        if hall and hunter then
+          storage.colonies[cid] = {id = cid, surface_index = s.index, hall = hall,
+            colonists = {[hunter.unit_number] = hunter}, houses = {}, huts = {}, crates = {}, bins = {},
+            claimed = {}, storage_priority = 3, alarms = {}, machines = {}, towers = {}, pools = {}}
+          local hun = hunter.unit_number
+          storage.unit_state[hun] = {colony_id = cid, job = "hunt", state = "commanded",
+            carry = {{item = "colony-meat", count = 3}}, until_tick = game.tick + 3600}
+          storage.command.leased[hun] = true
+          storage.command.owner[hun] = 1
+          local before = hall.get_item_count("colony-meat")
+          command_adapter.release_lease(hun, false)
+          ctx.check("[integrated] kill credit from a commanded hunter reached the hall",
+            hall.get_item_count("colony-meat") - before == 3,
+            "before=" .. before .. " after=" .. hall.get_item_count("colony-meat"))
+          ctx.check("[integrated] lease release left a clean idle state",
+            storage.unit_state[hun].state == "idle" and storage.unit_state[hun].carry == nil
+            and storage.command.leased[hun] == nil and storage.command.owner[hun] == nil)
+          -- Keep the scheduled command.reassign harmless: work.assign returns early with no colonist here.
+          storage.colonies[cid].colonists[hun] = nil
+          storage.unit_state[hun] = nil
+        else
+          ctx.check("[integrated] hall and hunter for the carry regression spawned", false)
+        end
+
         -- Cost: 200 set_commands on one unit, averaged over 20 passes.
         ctx.profile("set_command x 200", function()
           for i = 1, 200 do

@@ -147,3 +147,43 @@ describe("command whistle (order precedence, #58)", function()
     truthy(command.label_for(command.ORDERS.ATTACK_MOVE):find("attacking", 1, true))
   end)
 end)
+
+-- Regression for the review's MAJOR finding: work.lua's hunt kill-credit (on_entity_died) writes meat into
+-- st.carry whenever st.job == "hunt", even while state == "commanded". The old release_lease discarded the
+-- whole state table, so the meat vanished. This pins the adapter's release path (the s18_command spike pins
+-- the real hall insert). Reverting the fix (removing the work.release call) makes this test fail.
+describe("command whistle release (item-loss regression, #58 review)", function()
+  it("funnels a commanded hunter's carry through work.release before resetting the state", function()
+    local mock = require("tests.mock_factorio")
+    local env = mock.install(); env = env.reset()
+    local released = {}
+    package.loaded["scripts.work"] = {
+      release = function(st)
+        released[#released + 1] = {un = st.un, job = st.job, state = st.state, carry = st.carry}
+        st.carry, st.state = nil, "idle"
+      end,
+      clear_label = function() end,
+      assign = function() end,
+      is_sleep_time = function() return false end,
+    }
+    package.loaded["scripts.scheduler"] = {register = function() end, after = function() end}
+    local cmd = require("scripts.command")
+    storage.unit_state, storage.unit_labels, storage.carry_sprites = {}, {}, {}
+    storage.command = {selection = {}, markers = {}, owner = {}, leased = {}}
+    storage.colonies = {[1] = {colonists = {[7] = {valid = true, name = "colony-colonist"}}}}
+    storage.unit_state[7] = {un = 7, colony_id = 1, job = "hunt", state = "commanded",
+      carry = {{item = "colony-meat", count = 3}}, until_tick = 9999}
+    storage.command.leased[7] = true
+    storage.command.owner[7] = 1
+    cmd.release_lease(7, false)
+    eq(#released, 1, "work.release must see the leased state")
+    eq(released[1].job, "hunt")
+    eq(released[1].state, "commanded")
+    eq(released[1].carry[1].item, "colony-meat")
+    eq(released[1].carry[1].count, 3)
+    eq(storage.unit_state[7].state, "idle")
+    eq(storage.unit_state[7].carry, nil)
+    eq(storage.command.leased[7], nil)
+    eq(storage.command.owner[7], nil)
+  end)
+end)

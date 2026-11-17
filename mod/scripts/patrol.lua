@@ -122,7 +122,9 @@ local function resume_travel(colony, un, st, rec, e, keep_target)
   -- calls resume_travel) meant the counter could never reach MAX_PATH_ATTEMPTS and no blacklist ever formed.
   -- The target must also survive a retry: a fail completion carries only the *patroller's* unit number, so
   -- without keep_target the third failure would find target_un already cleared and blacklist nothing.
-  rec.target_un = keep_target and rec.target_un or nil
+  -- `rec.target` is the LIVE entity from target_select; enemy units/spawners cannot be re-resolved with
+  -- game.get_entity_by_unit_number in 2.1 (they lack the get-by-unit-number flag), so it must ride along.
+  if not keep_target then rec.target = nil end
   rec.engage_at = nil
   if e and e.valid then work.set_label(e, "patrol", true) end
   travel_to(rec, colony, un, e)
@@ -161,7 +163,7 @@ function M.start(colony, un, e, st)
   colony.patrol_seq = (colony.patrol_seq or 0) + 1
   local seq = colony.patrol_seq
   local rec = {post = route[1].post, route = route, idx = 1,
-    until_tick = patrol_model.lease_tick(game.tick), target_un = nil, attempts = 0,
+    until_tick = patrol_model.lease_tick(game.tick), target_un = nil, target = nil, attempts = 0,
     blacklist = {}, seq = seq, started = game.tick}
   colony.patrols[un] = rec
   st.state = "patrolling"
@@ -213,7 +215,10 @@ scheduler.register("patrol.step", function(d)
   local pick = patrol_model.target_select(list, pos, r, rec.blacklist, game.tick)
   if pick then
     st.state, st.target_un = "patrol-engage", pick.unit_number
-    rec.target_un, rec.attempts, rec.engage_at = pick.unit_number, 0, game.tick
+    -- Keep the LIVE entity from the scan. Enemy `unit`/`unit-spawner` prototypes lack Factorio 2.1's
+    -- get-by-unit-number flag, so resolving pick.unit_number later with game.get_entity_by_unit_number
+    -- returns nil and the engagement can never strike. This is a transient lease field, exactly like st.site.
+    rec.target_un, rec.target, rec.attempts, rec.engage_at = pick.unit_number, pick.entity, 0, game.tick
     local engine = engage_cmd(pick)
     if engine then e.commandable.set_command(engine) end
     work.set_label(e, "patrol ⚔", true)
@@ -242,7 +247,13 @@ scheduler.register("patrol.engage", function(d)
   if not valid(rec, colony, d.un, st, d.seq) or st.state ~= "patrol-engage" then return end
   local e = entity_of(colony, d.un)
   if not e then return M.end_patrol(colony, d.un, "gone") end
-  local target = rec.target_un and game.get_entity_by_unit_number(rec.target_un) or nil
+  -- Night ends the patrol here too (patrol.step is only a 45-tick scan): without this an engagement kept
+  -- re-arming itself for the whole ENGAGE_COOLDOWN after nightfall, contradicting "nightfall ends it".
+  if work.is_sleep_time(e.surface) then return M.end_patrol(colony, d.un, "night") end
+  -- The live entity was captured by target_select in patrol.step. Do NOT look it up by unit number: in 2.1
+  -- unit/unit-spawner prototypes lack get-by-unit-number, so game.get_entity_by_unit_number always returns
+  -- nil here and should_disengage(nil) would silently skip every strike.
+  local target = rec.target
   local hp = target and target.valid and target.health or nil
   local cooldown = (rec.engage_at or game.tick) + patrol_model.ENGAGE_COOLDOWN - game.tick
   if patrol_model.should_disengage(hp, cooldown) then
@@ -324,21 +335,22 @@ local function on_command_completed(ev)
   local result = RESULT[tostring(ev.result)] or "fail"
   if result == "in_progress" then return end
   -- A path into a nest may fail repeatedly. The engine event names the *patroller*, not its target, so keep
-  -- rec.target_un across retries; only clear it once the target is blacklisted or the command succeeded.
-  local failing = rec.target_un
+  -- both the unit number AND the live entity across retries; clear them only once the target is blacklisted
+  -- or the command succeeded. (The lookup-by-unit-number API cannot see enemy units/spawners in 2.1.)
+  local failing, failing_ent = rec.target_un, rec.target
+  local keep = false
   if result == "fail" or result == "deleted" then
     rec.attempts = (rec.attempts or 0) + 1
     if rec.attempts >= patrol_model.MAX_PATH_ATTEMPTS then
       if failing then rec.blacklist[failing] = game.tick + patrol_model.BLACKLIST_TICKS end
       local next_wp, next_idx = patrol_model.next_waypoint(rec.route, rec.idx)
       rec.idx, rec.attempts = next_idx or 1, 0
-      rec.target_un = nil
     else
-      rec.target_un = failing   -- keep for the next failed path
+      keep = true   -- keep for the next failed path
     end
-  else
-    rec.target_un = nil
   end
+  rec.target_un = keep and failing or nil
+  rec.target = keep and failing_ent or nil
   -- destroy_when_commands_fail=false keeps the unit alive; this resume is the ONLY place its state changes.
   resume_travel(colony, ev.unit_number, st, rec, e, true)
 end
@@ -346,12 +358,20 @@ events.on(defines.events.on_ai_command_completed, on_command_completed)
 M.on_command_completed = on_command_completed   -- exposed for the m3_patrol failed-path regression
 
 -- A mined post drops its waypoints; active patrols finish their current loop against the cached route (the
--- next dispatch will not re-post them). `on_object_destroyed` also prunes UI selections.
+-- next dispatch will not re-post them). A DEAD PATROLLER is different: work.lua's on_object_destroyed nils
+-- storage.unit_state[un], so every timer path that validates through valid(st) returns early and would leave
+-- a stale colony.patrols[un] forever. With POST_SQUAD=2 two such leaks make a post permanently inert. This
+-- handler must therefore prune the patrol lease WITHOUT requiring unit_state, using only the unit number.
 events.on(defines.events.on_object_destroyed, function(ev)
   local un = ev.useful_id
   if not un then return end
   for _, colony in pairs(storage.colonies or {}) do
     if colony.patrol_posts and colony.patrol_posts[un] then colony.patrol_posts[un] = nil end
+    if colony.patrols and colony.patrols[un] then
+      colony.patrols[un] = nil
+      colony.patrol_seq = (colony.patrol_seq or 0) + 1   -- invalidate any deferred timer for that generation
+      work.clear_label(un)
+    end
   end
   for _, sel in pairs(state().selection) do
     for i, p in ipairs(sel) do if p == un then table.remove(sel, i) break end end

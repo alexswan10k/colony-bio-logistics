@@ -1,10 +1,12 @@
 -- M3 Stage 3 integration spike (#57): Patrol Posts and autonomous militia patrols.
 --   * a post with ordered waypoints dispatches an armed militia through the real staggered timer;
---   * the squad walks the loop (idx wraps), kills a biter and damages a nest through Stage 1's damage model;
+--   * the squad walks the loop (idx wraps) and, with ZERO scripted strikes from the spike, autonomously
+--     kills a biter and destroys an isolated biter-spawner (all biter units swept) through Stage 1's damage;
 --   * repeated failed paths into a nest never silently delete it (allow_destroy_when_commands_fail=false,
 --     bounded attempts + blacklist), and stale construct.finish/work.finish/patrol.lease timers are no-ops;
 --   * a Command Whistle order preempts the patrol and the militia keeps its rifle;
---   * nightfall ends the patrol and hands the unit back to work; the schema-41 registries survive.
+--   * nightfall ends the patrol; a patroller that DIES frees its squad slot and the post re-recruits;
+--   * the schema-41 registries survive.
 -- Headless has no player for waypoint *gestures* (the custom-input shape is already proven by s18_command);
 -- waypoints are added through the same adapter API those gestures call.
 -- Run: TICKS=9000 scripts/headless-spike.sh m3_patrol
@@ -21,7 +23,7 @@ local construct = require("scripts.model.construct")
 
 core.register("m3_patrol", {
   issue = 57, auto = true,
-  desc = "patrol posts: ordered waypoints, loop, biter kill, nest damage, failed paths, stale timers, whistle preemption, night",
+  desc = "patrol posts: loop, autonomous biter kill, autonomous nest kill, no direct strikes, failed paths, stale timers, whistle preemption, night, death cleanup",
   usage = "",
   run = function(ctx)
     local s, p = ctx.surface, ctx.position
@@ -60,7 +62,6 @@ core.register("m3_patrol", {
     ctx.check("removal renumbers the GUI list", patrol.remove_waypoint(c, pun, 1)
       and #c.patrol_posts[pun].waypoints == 1
       and patrol.add_waypoint(c, pun, w1) == 2)
-    -- Put the route back in click order (1 = w1, 2 = w2).
     patrol.clear_waypoints(c, pun)
     patrol.add_waypoint(c, pun, w1); patrol.add_waypoint(c, pun, w2)
 
@@ -69,13 +70,25 @@ core.register("m3_patrol", {
       and storage.unit_state[m.unit_number].gear.weapon == "colony-rifle")
     if not (m and m.valid) then return ctx.finish() end
     local mun = m.unit_number
-    -- Test isolation: this spike checks the PATROL's damage/lease/route rules, not militia survivability. A
-    -- biter-spawner continuously spawns biters, so without this the squad can be killed mid-test and every
-    -- later phase becomes vacuous. s18 proved a destructible=false unit still accepts and executes commands.
+    -- The biter/nest phases must not be interrupted by spawns killing the squad. The DEATH case at the end
+    -- deliberately makes the unit destructible again and kills it through the real engine path.
     m.destructible = false
     local st = storage.unit_state[mun]
-    local phase_b, phase_c, phase_d, phase_e
+    local phase_b, phase_b2, phase_c, phase_d, phase_e, phase_f
     ctx.check("a fresh militia is on duty, not patrolling yet", st.state == "militia-hold")
+
+    -- Sweep every biter UNIT (never a spawner) so a nest is the only target left. The reviewer's isolated-nest
+    -- reproduction used the same idea; without it a spawner's own near-spawns are always the nearest target and
+    -- the strictly-nearest model (correctly) keeps picking them first.
+    local sweeping = false
+    local function sweep_units()
+      if not sweeping then return end
+      for _, en in ipairs(s.find_entities_filtered{type = "unit", force = "enemy",
+          area = {{p.x - 30, p.y - 30}, {p.x + 40, p.y + 40}}}) do
+        if en.valid then en.destroy() end
+      end
+      ctx.after(5, sweep_units)
+    end
 
     -- Phase A: the real patrol.dispatch timer recruits a nearby idle militia within DISPATCH_TICKS.
     ctx.after(patrol.DISPATCH_TICKS + 60, function()
@@ -107,85 +120,79 @@ core.register("m3_patrol", {
       end
       ctx.after(20, loop_poll)
 
-      -- Phase B: hostiles. The biter is a unit; the nest is a unit-spawner (patrols, unlike guards, see both).
+      -- Phase B1: ONE biter, no spawner. ZERO strikes from the spike - the patrol's own patrol.engage timer
+      -- must resolve its live target and land the damage. Reverting that fix makes this check fail.
       phase_b = function()
         local biter = s.create_entity{name = "small-biter", position = {p.x + 10, p.y + 6}, force = "enemy"}
-        local nest = s.create_entity{name = "biter-spawner", position = {p.x + 14, p.y + 6}, force = "enemy"}
-        ctx.check("biter and nest spawned in range", biter and biter.valid and nest and nest.valid)
-        local nest_hp = nest and nest.valid and nest.health or 0
-        local fight = {t = 0, killed = false, nest_hit = false, engaged = false}
-        local function fight_poll()
-          fight.t = fight.t + 30
-          -- The nest's own spawns would always be the nearest target; clear them so the nest case is
-          -- deterministic (the biter-kill case is measured first, above).
-          for _, en in ipairs(s.find_entities_filtered{type = "unit", force = "enemy",
-              area = {{p.x - 10, p.y - 10}, {p.x + 24, p.y + 24}}}) do
-            if en.valid and not (biter and biter.valid and en.unit_number == biter.unit_number) then en.destroy() end
-          end
-          if fight.t == 900 then
-            ctx.probe("nest diagnostic", function()
-              local r = c.patrols[mun]
-              local found = s.find_entities_filtered{type = {"unit", "unit-spawner"}, force = "enemy",
-                area = {{p.x - 12, p.y - 12}, {p.x + 28, p.y + 28}}}
-              local names = {}
-              for _, en in ipairs(found) do names[#names + 1] = en.name .. "#" .. tostring(en.unit_number) end
-              local dist = (nest and nest.valid and m.valid)
-                and math.sqrt((m.position.x - nest.position.x) ^ 2 + (m.position.y - nest.position.y) ^ 2) or -1
-              local bl = {}
-              for un, until_tick in pairs(r and r.blacklist or {}) do
-                bl[#bl + 1] = tostring(un) .. "@" .. tostring(until_tick)
-              end
-              return "state=" .. tostring(st.state) .. " target=" .. tostring(r and r.target_un)
-                .. " nestvalid=" .. tostring(nest and nest.valid) .. " nesthp=" .. tostring(nest and nest.valid and nest.health)
-                .. " dist=" .. string.format("%.1f", dist) .. " found=" .. table.concat(names, ",")
-                .. " blacklist=" .. table.concat(bl, ";")
-            end)
-          end
-          if fight.t == 300 then
-            ctx.probe("fight diagnostic", function()
-              local r = c.patrols[mun]
-              local target = r and r.target_un and game.get_entity_by_unit_number(r.target_un) or nil
-              local dist = (m.valid and target and target.valid)
-                and math.sqrt((m.position.x - target.position.x) ^ 2 + (m.position.y - target.position.y) ^ 2) or -1
-              return "state=" .. tostring(st.state) .. " target=" .. tostring(r and r.target_un)
-                .. " tvalid=" .. tostring(target and target.valid) .. " hp=" .. tostring(target and target.valid and target.health)
-                .. " mvalid=" .. tostring(m.valid) .. " gear=" .. tostring(st.gear and st.gear.weapon)
-                .. " dist=" .. string.format("%.1f", dist) .. " strike=" .. tostring(militia.patrol_strike ~= nil)
-            end)
-            if biter and biter.valid then
-              local ok, hit = pcall(function() return militia.patrol_strike(c, mun, st, biter) end)
-              ctx.check("direct Stage 1 strike lands on the biter", ok and hit,
-                "ok=" .. tostring(ok) .. " hit=" .. tostring(hit))
-            end
-          end
-          -- A live spawner continuously emits biters that are nearer than the nest itself, so the pure
-          -- target_select (correctly) keeps picking those. Strike the nest directly through the SAME shared
-          -- Stage 1 patrol_strike path the engage timer uses, isolating the "damages a nest" damage rule.
-          if nest and nest.valid and not fight.nest_hit and not (biter and biter.valid) then
-            pcall(function() militia.patrol_strike(c, mun, st, nest) end)
-          end
+        ctx.check("biter spawned in range", biter and biter.valid)
+        local engaged, t = false, 0
+        local function biter_poll()
+          t = t + 30
           local r = c.patrols[mun]
-          if r and (st.state == "patrol-engage" or r.target_un) then fight.engaged = true end
-          if not (biter and biter.valid) then fight.killed = true end
-          if nest and nest.valid and nest.health < nest_hp - 0.5 then fight.nest_hit = true end
-          if fight.killed and fight.nest_hit then
-            ctx.check("patrol engages a hostile", fight.engaged)
-            ctx.check("patrol kills a biter with Stage 1 damage", fight.killed)
-            ctx.check("patrol damages a nearby nest", fight.nest_hit,
-              "nest " .. nest_hp .. " -> " .. tostring(nest and nest.valid and nest.health))
-            return phase_c()
+          if r and (st.state == "patrol-engage" or r.target_un) then engaged = true end
+          if not (biter and biter.valid) then
+            ctx.check("patrol autonomously engages a hostile", engaged)
+            ctx.check("patrol kills a biter with zero scripted strikes", true,
+              "t=" .. t)
+            return phase_b2()
           end
-          if fight.t > 2400 then
-            ctx.check("patrol engages a hostile", fight.engaged)
-            ctx.check("patrol kills a biter with Stage 1 damage", fight.killed,
-              "biter hp=" .. tostring(biter and biter.valid and biter.health))
-            ctx.check("patrol damages a nearby nest", fight.nest_hit,
-              "nest " .. nest_hp .. " -> " .. tostring(nest and nest.valid and nest.health))
-            return phase_c()
+          if t > 1200 then
+            ctx.check("patrol autonomously engages a hostile", engaged)
+            ctx.check("patrol kills a biter with zero scripted strikes", false,
+              "biter hp=" .. tostring(biter and biter.valid and biter.health) .. " state=" .. tostring(st.state))
+            return phase_b2()
           end
-          ctx.after(30, fight_poll)
+          ctx.after(30, biter_poll)
         end
-        ctx.after(30, fight_poll)
+        ctx.after(30, biter_poll)
+      end
+
+      -- Phase B2: ISOLATED nest - only a biter-spawner, every biter unit swept every 5 ticks, and NOT ONE
+      -- militia.patrol_strike call from the spike. The pass depends on the autonomous patrol damaging and
+      -- destroying the nest. Reverting the live-entity fix makes this check fail (hp stays ~350).
+      phase_b2 = function()
+        local nest = s.create_entity{name = "biter-spawner", position = {p.x + 14, p.y + 6}, force = "enemy"}
+        ctx.check("isolated nest spawned in range", nest and nest.valid)
+        local nest_hp = nest and nest.valid and nest.health or 0
+        sweeping = true
+        sweep_units()
+        local t, picked, damaged = 0, false, false
+        local function nest_poll()
+          t = t + 30
+          local r = c.patrols[mun]
+          local live = r and r.target
+          if live and live.valid and live.unit_number == (nest and nest.valid and nest.unit_number) then picked = true end
+          if not (nest and nest.valid) or (nest and nest.health <= 0) then
+            ctx.check("patrol selects the isolated nest autonomously", picked)
+            ctx.check("patrol destroys a nest with zero scripted strikes", true,
+              "nest " .. nest_hp .. " -> destroyed at t=" .. t)
+            sweeping = false
+            return phase_c()
+          end
+          if nest.health < nest_hp - 0.5 then damaged = true end
+          if t == 600 then
+            ctx.probe("autonomous nest diagnostic", function()
+              local rr = c.patrols[mun]
+              local lt = rr and rr.target
+              return "state=" .. tostring(st.state) .. " target_un=" .. tostring(rr and rr.target_un)
+                .. " live=" .. tostring(lt and lt.valid) .. " liveun=" .. tostring(lt and lt.valid and lt.unit_number)
+                .. " nestun=" .. tostring(nest and nest.valid and nest.unit_number)
+                .. " hp=" .. tostring(nest and nest.valid and nest.health)
+                .. " gear=" .. tostring(st.gear and st.gear.weapon)
+            end)
+          end
+          if t > 1800 then
+            ctx.check("patrol selects the isolated nest autonomously", picked,
+              "target_un=" .. tostring(r and r.target_un) .. " state=" .. tostring(st.state))
+            ctx.check("patrol destroys a nest with zero scripted strikes", false,
+              "nest " .. nest_hp .. " -> " .. tostring(nest and nest.valid and nest.health)
+              .. " damaged=" .. tostring(damaged))
+            sweeping = false
+            return phase_c()
+          end
+          ctx.after(30, nest_poll)
+        end
+        ctx.after(30, nest_poll)
       end
 
       -- Phase C: lifecycle guards. Kept local so every phase can re-enter after an earlier one ends a patrol.
@@ -212,18 +219,17 @@ core.register("m3_patrol", {
         ctx.check("a patrol is live for the failure/stale-timer checks", r ~= nil)
         if not r then return phase_d() end
         local old_seq = r.seq
-        -- Feed the SAME handler a real failed path calls. script.raise_event cannot synthesise this engine
-        -- event on 2.1 (s18 found the same for custom inputs), so the handler is exposed for the regression.
+        -- script.raise_event cannot synthesise this engine event on 2.1 (s18 found the same for custom
+        -- inputs), so the handler is exposed for the regression.
         ctx.probe("[engine] synthetic on_ai_command_completed raise", function()
           local ok, err = pcall(script.raise_event, defines.events.on_ai_command_completed,
             {unit_number = mun, result = defines.behavior_result.fail})
           return ok and "raised" or ("rejected: " .. tostring(err))
         end)
-        -- A failed path into a nest happens while the patrol is engaging that nest: give the lease a target so
-        -- the repeated-failure rule has something to blacklist (an unreachable target is the whole point).
-        local spawners = s.find_entities_filtered{type = "unit-spawner", force = "enemy",
-          area = {{p.x - 20, p.y - 20}, {p.x + 24, p.y + 24}}}
-        r.target_un = spawners[1] and spawners[1].unit_number or r.target_un
+        -- A failed path into a nest happens while the patrol is engaging that nest: give the lease a target
+        -- unit number so the repeated-failure rule has something to blacklist (an unreachable target is the
+        -- whole point). No live entity is needed - the fail event only names the patroller.
+        r.target_un = r.target_un or (mun + 99999)
         for _ = 1, patrol_model.MAX_PATH_ATTEMPTS + 2 do
           patrol.on_command_completed({unit_number = mun, result = defines.behavior_result.fail})
         end
@@ -239,8 +245,7 @@ core.register("m3_patrol", {
         ctx.check("failed paths are bounded by a blacklist", r.attempts <= patrol_model.MAX_PATH_ATTEMPTS
           and next(r.blacklist) ~= nil, "attempts=" .. tostring(r.attempts))
 
-        -- The direct analogue of s18_command's stale-timer checks: a pre-armed work timer must be a no-op
-        -- against a live patrol, and a lease timer from a preempted generation must not end this one.
+        -- The direct analogue of s18_command's stale-timer checks.
         scheduler.after(construct.WORK_TICKS, "construct.finish", {un = mun})
         scheduler.after(1, "work.finish", {un = mun})
         scheduler.after(2, "patrol.lease", {un = mun, colony_id = c.id, seq = old_seq - 1})
@@ -258,24 +263,18 @@ core.register("m3_patrol", {
         if not r then old_seq = (c.patrols[mun] and c.patrols[mun].seq) or old_seq end
         local weapon = st.gear and st.gear.weapon
         storage.command.selection[1] = {mun}
-        ctx.probe("whistle preemption diagnostic", function()
-          return "state=" .. tostring(st.state) .. " sel=" .. tostring(storage.command.selection[1] and #storage.command.selection[1])
-            .. " mvalid=" .. tostring(m.valid) .. " e=" .. tostring(m.valid and m.name)
-            .. " commanded=" .. tostring(command_model.commandable(st, {}))
-        end)
         command.apply(1, command_model.ORDERS.MOVE, {position = {x = p.x + 20, y = p.y}})
-        st = storage.unit_state[mun]   -- command.apply replaces the state table; the old local is stale
+        st = storage.unit_state[mun]   -- command.apply replaces the state table
         ctx.check("whistle preempts the patrol", st.state == "commanded" and c.patrols[mun] == nil
           and storage.command.leased[mun] == true, "state=" .. tostring(st.state))
         ctx.check("preemption does not lose the rifle", st.gear and st.gear.weapon == weapon,
           tostring(weapon) .. " -> " .. tostring(st.gear and st.gear.weapon))
-        -- A stale lease timer from the preempted generation must not resurrect or re-end anything.
         scheduler.after(2, "patrol.lease", {un = mun, colony_id = c.id, seq = old_seq})
         ctx.after(40, function()
           ctx.check("a stale patrol.lease cannot overwrite a whistle order", st.state == "commanded"
             and c.patrols[mun] == nil, "state=" .. tostring(st.state))
           command.release_lease(mun, false)
-          st = storage.unit_state[mun]   -- release_lease also replaces the state table
+          st = storage.unit_state[mun]
           ctx.check("lease release leaves an armed idle militia", st.state == "idle"
             and st.gear and st.gear.weapon == weapon, "state=" .. tostring(st.state))
           return phase_e()
@@ -294,7 +293,46 @@ core.register("m3_patrol", {
           s.always_day, s.freeze_daytime, s.daytime = true, true, 0
           ctx.check("schema-41 registries still hold the post", storage.schema == 41
             and c.patrol_posts[pun] ~= nil and #c.patrol_posts[pun].waypoints == 2)
-          ctx.finish()
+          return phase_f()
+        end)
+      end
+
+      -- Phase F: a patroller that DIES must free its squad slot. work.lua nils unit_state on destruction, so
+      -- the cleanup cannot depend on valid(st); the destroyed-object handler must prune colony.patrols[un].
+      -- With the cleanup reverted, the stale lease keeps counting toward POST_SQUAD and this check fails.
+      phase_f = function()
+        local r = ensure_patrol()
+        ctx.check("a patrol is live before the death case", r ~= nil)
+        local m2 = militia.spawn(c, {p.x + 5, p.y + 5}, {weapon = "colony-rifle"})
+        ctx.check("a second militia spawned for the squad", m2 and m2.valid)
+        if not (m2 and m2.valid) then return ctx.finish() end
+        m2.destructible = false
+        local un2 = m2.unit_number
+        ctx.after(patrol.DISPATCH_TICKS + 60, function()
+          local active = 0
+          for _, rec in pairs(c.patrols) do if rec.post == pun then active = active + 1 end end
+          ctx.check("the post fills both squad slots", active == 2 and c.patrols[mun] and c.patrols[un2],
+            "active=" .. active)
+          -- Real engine death. No direct registry manipulation in the spike.
+          m.destructible = true
+          m.die()
+          ctx.after(10, function()
+            ctx.check("dead patroller's registry entry was pruned",
+              c.patrols[mun] == nil and storage.unit_state[mun] == nil,
+              "reg=" .. tostring(c.patrols[mun] ~= nil) .. " st=" .. tostring(storage.unit_state[mun] ~= nil))
+            local m3 = militia.spawn(c, {p.x + 5, p.y + 6}, {weapon = "colony-rifle"})
+            ctx.check("a replacement militia spawned", m3 and m3.valid)
+            if not (m3 and m3.valid) then return ctx.finish() end
+            local un3 = m3.unit_number
+            ctx.after(patrol.DISPATCH_TICKS + 60, function()
+              local active2 = 0
+              for _, rec in pairs(c.patrols) do if rec.post == pun then active2 = active2 + 1 end end
+              ctx.check("post re-recruits after a death",
+                active2 == 2 and c.patrols[un3] ~= nil and c.patrols[mun] == nil,
+                "active=" .. active2 .. " replacement=" .. tostring(c.patrols[un3] ~= nil))
+              ctx.finish()
+            end)
+          end)
         end)
       end
     end)

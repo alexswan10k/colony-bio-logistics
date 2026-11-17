@@ -38,6 +38,8 @@ local mortality = require("scripts.mortality")
 local shelter = require("scripts.shelter")
 local commute = require("scripts.commute")
 local illness = require("scripts.illness")
+local militia = require("scripts.militia")
+local command = require("scripts.command")
 local mortality_model = require("scripts.model.mortality")
 local breeding = require("scripts.model.breeding")
 local stats = require("scripts.stats")
@@ -2006,6 +2008,9 @@ end)
 
 work.bind(M); gui.bind(M, ledger_signal); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M); commute.bind(M, transit); illness.bind(M)   -- avoids a require cycle (runtime require is illegal)
 ledger_signal.bind(M)
+-- M3 militia (#55): bind the combat adapter and hand it to work/command so they can delegate militia units
+-- and preserve gear across whistle leases without a runtime require cycle.
+militia.bind(M); work.bind_militia(militia); command.bind_militia(militia)
 
 -- ---------- opt-in machine registry (#34) ----------
 -- The badge is alt-mode only: a small Town Hall icon over every machine the colony serves, so the player

@@ -46,6 +46,8 @@ local needs = require("scripts.model.needs")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
 function M.bind(c) colony_mod = c end
+local militia_mod   -- injected by scripts.colony via M.bind_militia (M3 militia, #55)
+function M.bind_militia(m) militia_mod = m end
 
 M.WORK_TICKS = yields.WORK_TICKS
 -- Tools the Toolsmith has made since the game started. A diagnostic for the spikes, not game state: it is not saved.
@@ -66,7 +68,7 @@ M.PLANT_REACH = 1.6          -- a forester plants from here (tiles): clear of th
 M.ORES = mine_plan.ORES   -- every ore a Miner's Hut can be pointed at
 M.LABELS = {forage = "forager", chop = "woodcutter", mine = "miner", farm = "farmer", forest = "forester",
   hunt = "hunter", fish = "fisher", preserve = "preserver", haul = "hauler", construct = "builder",
-  research = "scholar", heal = "doctor", guard = "guard"}
+  research = "scholar", heal = "doctor", guard = "guard", militia = "militia"}
 
 local function key(e) return e.surface.index .. ":" .. e.position.x .. "," .. e.position.y end
 -- A planting spot has no entity to key on, so the lattice position is its identity (#97). Two foresters never
@@ -2423,6 +2425,9 @@ function M.assign(colony, un)
   if st and st.state == "sheltered" then e.destructible = true end   -- its alarm is gone: out and back to work
 
   -- Colonists actively delivering or constructing must NOT have their state wiped by an asynchronous assignment!
+  -- M3 militia states are deliberately NOT in this list: a stale assign must still reach the night block below
+  -- (a militia goes to bed like a guard), and a daytime one reaches the militia delegation, whose adapter
+  -- returns early when the unit is already on duty. No state is wiped by a redundant assign.
   if st and (st.state == "to_construct" or st.state == "building" or st.state == "repairing"
       or st.state == "to_pickup" or st.state == "to_house" or st.state == "to_hut" or st.state == "to_machine"
       or st.state == "to_crate" or st.state == "to_pool" or st.state == "to_tavern"
@@ -2443,7 +2448,8 @@ function M.assign(colony, un)
     end
     local house = colony_mod.house_of_colonist(colony, un)
     if house and house.valid then
-      storage.unit_state[un] = {colony_id = colony.id, job = is_child(un) and "child" or (st and st.job) or lock or "idle", state = "to_bed", house = house}
+      storage.unit_state[un] = {colony_id = colony.id, job = is_child(un) and "child" or (st and st.job) or lock or "idle", state = "to_bed", house = house,
+        gear = st and st.gear}   -- M3: militia gear is pure data; keep it through the night (#55)
       M.set_label(e, "going to bed 🏠", true)
       local dp = M.door_point(e.surface, house) or house.position
       if dist2(e.position, dp) <= 1.0 or dist2(e.position, house.position) <= 1.0 then
@@ -2473,6 +2479,13 @@ function M.assign(colony, un)
       M.set_label(e, "child", true)
       return
     end
+  end
+
+  -- M3 militia (#55): a colonist locked to (or already working) the militia job is owned by the combat
+  -- adapter, not by the hut-based job matrix. This sits AFTER the night block so a militia with a house goes
+  -- to bed like a guard and is re-posted in the morning; the adapter's scan delegates back at night too.
+  if lock == "militia" or (st and st.job == "militia") then
+    if militia_mod then return militia_mod.assign(colony, un, e, st) end
   end
 
   local pop = math.max(colony_mod.live_colonists(colony) - 1, 0)
@@ -3083,7 +3096,9 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   -- A guard whose attack command failed is the fight branch's business (below): it retries up to
   -- garrison.MAX_ATTEMPTS before standing down. Every other failed command is a dead end that releases the trip.
   local guard_fight = st.job == "guard" and st.state == "guarding-fight"
-  if ev.result ~= defines.behavior_result.success and st.job ~= "hunt" and st.state ~= "to_bed" and not guard_fight then
+  local militia_fight = st.job == "militia" and st.state == "militia-fight"  -- M3: the strike timer owns it
+  if ev.result ~= defines.behavior_result.success and st.job ~= "hunt" and st.state ~= "to_bed"
+      and not guard_fight and not militia_fight then
     if st.state == "to_construct" and (st.path_attempts or 0) < 3 then
       st.path_attempts = (st.path_attempts or 0) + 1
       local e = unit_entity(colony, ev.unit_number)

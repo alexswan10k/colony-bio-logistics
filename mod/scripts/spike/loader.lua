@@ -6,7 +6,7 @@ for _, m in ipairs({
   "m1_bench", "m1_desirability", "m1_blueprint", "m1_motor", "m1_tavern", "m1_rail", "m1_death", "m1_shelter", "m1_commute", "m1_illness",
   "m1_stats", "m1_breed", "m1_migrant", "m1_garrison", "m1_haul_dist", "m1_material", "m1_haul_station",
   "m1_tech", "m1_forest", "m2_ledger", "m2_cold", "m2_tower", "s16_links", "m2_specialization", "m3_turret",
-  "s17_gleba", "m2_gleba", "s18_command", "s19_defence",
+  "s17_gleba", "m2_gleba", "s18_command", "s19_defence", "m3_militia",
 }) do
   require("scripts.spike." .. m)
 end

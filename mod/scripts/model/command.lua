@@ -29,6 +29,9 @@ M.ORDERABLE = {
   to_pool = true, to_tavern = true, to_bin = true, to_hall = true,
   to_site = true, working = true, hunting = true,
   to_tower = true, guarding = true, ["guarding-fight"] = true,
+  -- M3 militia (#55): a whistle order preempts a militia exactly like a guard. Its gear is pure data in
+  -- st.gear and is carried across the lease by abort_intents (see below), so the order loses nothing.
+  to_militia = true, ["militia-hold"] = true, ["militia-fight"] = true,
   -- Re-ordering an already commanded unit replaces its lease (last writer wins between players).
   commanded = true,
 }
@@ -96,6 +99,10 @@ function M.abort_intents(st)
     clear_carry_sprite = true,
     clear_label = true,
     restore_destructible = false,   -- never re-enable a sheltered colonist by ordering it
+    -- M3 militia (#55): gear is pure data on unit_state. Carry it into the lease instead of dropping it,
+    -- and flag that any in-flight gear haul claim must be released so no item is lost or double-claimed.
+    gear = st.gear,
+    release_gear_claim = st.job == "militia",
     old_job = st.job or "idle",
     old_state = st.state or "idle",
   }

@@ -73,7 +73,7 @@ end
 -- occupants, so the panel stays usable when a town grows to hundreds of colonists.
 local LOCK_OPTS = {{"auto", "A"}, {"haul", "H"}, {"forage", "F"}, {"chop", "C"}, {"mine", "M"}, {"farm", "G"},
   {"forest", "O"}, {"hunt", "T"}, {"fish", "I"}, {"preserve", "P"}, {"construct", "B"}, {"research", "R"},
-  {"heal", "D"}, {"guard", "V"}}
+  {"heal", "D"}, {"guard", "V"}, {"militia", "L"}}
 
 local function fill_roster(pane, colony, ids)
   colony.locks = colony.locks or {}
@@ -773,7 +773,7 @@ local function update_info(body, colony)
       counts.haul or 0, counts.forage or 0, counts.chop or 0, counts.mine or 0, counts.farm or 0,
       counts.hunt or 0, counts.fish or 0, counts.preserve or 0, counts.construct or 0,
       counts.research or 0, counts.heal or 0, counts.guard or 0, math.max(st.pop - busy, 0),
-      counts.forest or 0}
+      counts.forest or 0, counts.militia or 0}
   end
   if body.status_territory then
     body.status_territory.caption = {"colony-gui-info.territory", st.chunks, st.huts, st.machines, st.towers, st.crates}

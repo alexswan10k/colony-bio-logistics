@@ -13,6 +13,11 @@ M.FOOD = {{item = "colony-forage", per = 1}, {item = "colony-fish", per = 1}, {i
 
 M.WATER = {{item = "colony-water", per = 0.5}}
 
+-- Needs a water tower serves directly at evaluation time. Shared by every reader of `plan`/`demand` (haul
+-- offers in work.lua and the house panel in gui.lua) so a tower-fed house shows no phantom water request.
+-- Never mutated; `nil` (rather than this set) is passed when the house was not served (#D1).
+M.TOWER_SERVED = {water = true}
+
 M.TIERS = {
   tent = {
     capacity = 1, buffer_intervals = 6,

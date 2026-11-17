@@ -97,9 +97,12 @@ M.STOCK_TTL = 30
 M.HOUSE_STOCK_TTL = 20          -- ticks a house's stock snapshot may be reused by the haul planner (#22)
 M.POWERED_ENERGY = 10000        -- J in the hidden sink buffer that counts as 'powered'
 M.FOOD_PER_COLONIST = yields.FOOD_PER_INTERVAL   -- food items per interval
-M.FOOD_ITEMS = {"colony-forage", "colony-fish", "colony-meat", "colony-produce", "raw-fish",
-  "colony-preserved-meat", "colony-preserved-fish", "colony-canned-meat", "colony-canned-fish",
-  "colony-bread", "yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
+-- Single source of truth for "colony food": the items a house can actually eat (#D2, #50 commute agrees).
+-- The old hand-maintained list also held yumako, jellynut, bioflux, yumako-mash and jelly, which no colonist
+-- can eat - counting them fed the migration gate, desirability and the empty-larder rule with inedible stock.
+-- Derive it instead so the ledger/migration/desirability can never drift from housing.FOOD again.
+M.FOOD_ITEMS = {}
+for _, opt in ipairs(housing.FOOD) do M.FOOD_ITEMS[#M.FOOD_ITEMS + 1] = opt.item end
 M.INTERVAL = 600                -- default ticks between evaluations
 M.TARGET_STOCK_INTERVALS = 5
 
@@ -1184,7 +1187,10 @@ function M.evaluate(data)
   local rotten = {}     -- houses that just ate nearly spoiled food (#47)
   for i, h in ipairs(houses) do
     -- Reset before the injection block: a house whose tower ran dry must not inherit last evaluation's service
-    -- flag and keep its water haul request suppressed (#D1).
+    -- flag and keep its water haul request suppressed (#D1). Accepted tradeoff: the flag is only recomputed here
+    -- on the evaluation cadence (600 ticks by default), so if a tower runs dry or is destroyed mid-interval the
+    -- house keeps its water need suppressed for at most one interval. The next evaluation resets it and the
+    -- emergency pantry / a haul offer then covers the gap; this avoids a per-tick tower rescan.
     h.tower_served = false
     local tier = housing.TIERS[h.kind]
     local stock, inv = M.house_stock(h)

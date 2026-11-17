@@ -1148,9 +1148,8 @@ end
 
 -- Haul planning ----------------------------------------------------------------------------------
 -- A house that drank from a water tower this evaluation keeps an empty water shelf by design: skip the water
--- need in its haul plan, or a hauler is sent to "refill" a tank the tower already serves (#D1, #96). Shared and
--- never mutated - it is only read by `housing.plan`/`housing.demand`.
-local TOWER_SERVED = {water = true}
+-- need in its haul plan, or a hauler is sent to "refill" a tank the tower already serves (#D1, #96).
+-- `housing.TOWER_SERVED` is the one shared set, also used by the house panel so it shows no phantom request.
 
 -- House demand: critical (already unmet / empty) beats buffering a well-stocked house.
 local function house_offer(colony, h)
@@ -1158,7 +1157,7 @@ local function house_offer(colony, h)
   -- The band and the demand list are `model/housing.lua`'s business (#22): this is only the adapter.
   local plan = housing.plan(housing.TIERS[h.kind], colony_mod.house_stock_cached(h), h.inflight,
     colony_mod.is_powered(h), h.mouths or h.occupants or 0, h.sat,
-    h.tower_served and TOWER_SERVED or nil)
+    h.tower_served and housing.TOWER_SERVED or nil)
   if not plan then return nil end
   return {kind = "supply", house = h, entity = h.entity, pos = h.entity.position,
     priority = plan.critical and haul_plan.PRIORITY.critical or haul_plan.PRIORITY.request,

@@ -1051,9 +1051,11 @@ describe("housing", function()
     eq(by_need(unserved.demands).water.count, 12)
     eq(by_need(h.demand(h.TIERS.homestead, stock, {}, false, 4, false, nil)).water.count, 12)
     -- With water marked served (tower poured and `step` drank it), no critical band and no water demand at all:
-    -- the rest of the needs are met, so the whole house offer disappears.
-    eq(h.plan(h.TIERS.homestead, stock, {}, false, 4, sat, {water = true}), nil)
-    eq(by_need(h.demand(h.TIERS.homestead, stock, {}, false, 4, false, {water = true})).water, nil)
+    -- the rest of the needs are met, so the whole house offer disappears. Use the shared set the haul planner
+    -- and the house panel both pass, so a drift in that constant fails here too.
+    eq(h.TOWER_SERVED.water, true)
+    eq(h.plan(h.TIERS.homestead, stock, {}, false, 4, sat, h.TOWER_SERVED), nil)
+    eq(by_need(h.demand(h.TIERS.homestead, stock, {}, false, 4, false, h.TOWER_SERVED)).water, nil)
   end)
   it("distributes colonists", function()
     local o, homeless = h.distribute(7, {4, 4})

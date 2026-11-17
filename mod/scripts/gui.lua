@@ -136,7 +136,10 @@ local function fill_house(frame, h, colony)
     end
     frame.add{type = "label", caption = caption}
   end
-  local demand = housing.demand(tier, stock, h.inflight, powered, h.occupants or 0)
+  -- A tower-served house keeps an empty water shelf by design: skip that need here too, or the panel shows a
+  -- phantom "requesting [item=colony-water] 12" the haul planner deliberately never builds (#D1).
+  local demand = housing.demand(tier, stock, h.inflight, powered, h.occupants or 0, nil,
+    h.tower_served and housing.TOWER_SERVED or nil)
   if #demand == 0 then frame.add{type = "label", caption = {"colony-gui.fully-stocked"}}
   else
     local want = {}

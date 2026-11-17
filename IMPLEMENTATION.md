@@ -36,11 +36,10 @@ These are data-stage, `MAP_SEED`-independent. All five spoil into `spoilage`.
   `LuaRecipePrototype doesn't contain key result_is_always_fresh`. At runtime the real fields
   `product.always_fresh` / `product.reset_freshness_on_craft` read back as `nil` on `LuaRecipePrototype.products`
   (the data stage honours `always_fresh` — proven by the fresh-output probe — but does not expose it at runtime).
-- **Decision:** no freshness gate in `work.lua` is needed for engine-crafted jam. The colony's Smokehouse path
-  is Lua bookkeeping (`remove_item` + `st.carry`), so it does not invoke the engine recipe; the jam it creates
-  is a fresh stack. Because the input can only be a reasonably fresh fruit in practice (spoiled fruit becomes
-  `spoilage` on its own, and raw fruit is not a standing haul request), this is acceptable and is called out
-  for the adversarial reviewer below.
+- **Decision (corrected after review):** the engine path inherits freshness, but the colony Smokehouse does not
+  run an engine recipe — it removes counts and carries a bare Lua yield. The first implementation therefore
+  left a laundering hole; the second commit closes it by reading the source stack's `spoil_percent` in the
+  adapter and refusing fruit at/above `gleba.MAX_INPUT_SPOIL` (0.5). See §6.
 
 ### Cold chain, compost, spores
 
@@ -58,11 +57,11 @@ These are data-stage, `MAP_SEED`-independent. All five spoil into `spoilage`.
 
 | File | Change |
 |---|---|
-| `mod/scripts/model/gleba.lua` | **NEW** pure model: `PRODUCT`, `SALT`, `SALT_PER_BATCH = 1`, ordered `RAW` (yumako 2, jellynut 2, mash 1, jelly 1), `SHELF_TICKS = 162000` (documentation only), `recipe(stock) -> {raw, product, count}`, `wants()` (salt only, currently advisory). No Factorio globals. |
-| `mod/scripts/model/preserve.lua` | Requires `gleba`; `M.recipe` tries meat/fish first, then falls back to `gleba.recipe`. `M.wants` unchanged. |
+| `mod/scripts/model/gleba.lua` | **NEW** pure model: `PRODUCT`, `SALT`, `SALT_PER_BATCH = yields.CURE.salt`, `TECH`, `MAX_INPUT_SPOIL = 0.5`, ordered `RAW` (yumako 2, jellynut 2, mash 1, jelly 1), `SHELF_TICKS = 162000` (documentation only), `recipe(stock, freshness) -> {raw, product, count}`. No Factorio globals, no dead `wants()`. |
+| `mod/scripts/model/preserve.lua` | Requires `gleba`; `M.recipe(stock, freshness, gleba_unlocked)` tries meat/fish first, then applies the freshness + researched-tech guards before the Gleba fallback. `M.wants` unchanged. |
 | `mod/scripts/model/housing.lua` | `{item = "colony-gleba-jam", per = 1}` inserted in `M.FOOD` after preserved meat, before bread. |
 | `mod/scripts/model/labour.lua` | Smokehouse `keep` gains the four raw Gleba names (inputs must not be hauled back out). |
-| `mod/scripts/work.lua` | Generic Smokehouse branch honours `recipe.count or preserve.RAW_PER_BATCH` when removing/counting the raw input (2 fruit vs 1 pulp); meat/fish are byte-identical. |
+| `mod/scripts/work.lua` | Generic Smokehouse branch honours `recipe.count or preserve.RAW_PER_BATCH`; `chest_freshness` (worst stack `spoil_percent`) + `preserve_inputs` (freshness and the force's `colony-gleba-cuisine.researched`) feed both `preserve_ready` (job slots / status) and the completion-time conversion. Meat/fish are unaffected. |
 | `mod/prototypes/buildings.lua` | New `colony-gleba-jam` item (45 min spoil, stack 100, spoilage) + four disabled energy-8 recipes (2 yumako / 2 jellynut / 1 mash / 1 jelly + 1 salt). No `always_fresh`. |
 | `mod/prototypes/technology.lua` | New `colony-gleba-cuisine` tech (20 frontier packs, time 15), four `unlock-recipe` effects. |
 | `mod/graphics/icon-gleba-jam.png` | **NEW** 64px tinted reuse of `icon-preserved-fish.png` (stopgap art, per PLAN §5). |
@@ -78,15 +77,15 @@ These are data-stage, `MAP_SEED`-independent. All five spoil into `spoilage`.
 ## 3. Gate outputs (exact)
 
 ```
-scripts/test.sh                  -> 450 passed, 0 failed          (was 441)
+scripts/test.sh                  -> 452 passed, 0 failed          (was 441, then 450)
 scripts/lint-determinism.sh      -> determinism lint ok
 scripts/typecheck.sh             -> Diagnosis completed, no problems found
-luajit -bl <each of 13 changed/new .lua> -> all OK
-scripts/determinism.sh           -> DETERMINISM: PASS; final checksum: 2125884680
+luajit -bl <every changed/new .lua> -> all OK
+scripts/determinism.sh           -> DETERMINISM: PASS; final checksum: 2125884680 (unchanged)
 scripts/save-load.sh             -> SAVE/LOAD: PASS (schema 37)
 scripts/headless-spike.sh s17_gleba -> 27 PASS, 0 FAIL, 0 errors
-TICKS=19500 scripts/headless-spike.sh m2_gleba -> 11 PASS; jam production flow=25
-scripts/headless-spike.sh m1_colony -> 116 PASS, 0 FAIL
+TICKS=19500 scripts/headless-spike.sh m2_gleba -> 17 PASS, 0 FAIL (flow=0 before research, 19 after)
+TICKS=19500 scripts/headless-spike.sh m1_colony -> 116 PASS, 0 FAIL
 scripts/headless-spike.sh m1_tech  -> 13 PASS, 0 FAIL
 ```
 
@@ -124,25 +123,22 @@ check changed; no Gleba item is created or consumed in that save. New baseline: 
    different raw counts, so the generic Smokehouse branch now uses `recipe.count or preserve.RAW_PER_BATCH`
    for the `remove_item`/`stats.consumed` pair. Meat/fish are unaffected (no `count` field), and determinism
    confirms behaviour is unchanged.
-4. **No freshness gate added.** PLAN's fallback was a `spoil_percent` gate in `work.lua` if laundering is
-   possible. The spike proved the engine inherits freshness (~0.999 in, ~0.999 out), and none of our products
-   set `always_fresh`, so the fallback is unnecessary. The colony's manual conversion is reviewed below.
+4. **Freshness gate added after review.** PLAN's fallback was a `spoil_percent` gate in `work.lua` if
+   laundering is possible. The spike proved the engine inherits freshness, but the colony's manual conversion
+   bypasses the engine recipe and needed its own guard (§6).
 5. **Checksum moved** (see §3) — PLAN predicted unchanged.
 6. **Spikes.lua probe protos** were added to pin item 4/3 of the spike; they are dev-only (startup setting
    gated), like the existing pod probes. They are part of the reason the new baseline checksum differs.
 
 ## 5. What the adversarial reviewer should scrutinise
 
-- **Freshness laundering via the colony path.** The Smokehouse does NOT run the engine recipe: `work.lua`
-  calls `remove_item` and sets `st.carry = {{item = "colony-gleba-jam", count = 1}}`, so the jam that appears
-  in the hut/hall is a brand-new, 0%-spoiled stack. The s17 result proves *engine* crafts cannot launder, but
-  it does not cover this Lua path. Our mitigations are: raw fruit is never a standing haul request (it must be
-  belted/insertered in, opt-in), fruit that reaches 100% spoilage becomes `spoilage` on its own and is
-  composted, and the 2:1 + salt + worker cost. A reviewer could argue for an explicit adapter gate that reads
-  the hut stack's `spoil_percent` before consuming, or that carries the input freshness into the output
-  stack. Consider whether "ship fresh fruit in a refrigerated wagon, cure it on Nauvis" is intended (we think
-  yes: cold chain is the purchased upgrade) versus "let near-spoiled fruit be refreshed" (we think physics
-  already prevents it).
+- **Freshness laundering via the colony path — FIXED (§6).** The first commit's Smokehouse did not run the
+  engine recipe and turned a 99.9%-spoiled fruit into fresh jam. The current code reads the source stack's
+  `spoil_percent` and refuses fruit at/above 0.5, both when opening job slots and again at trip completion;
+  the hut's status line then reports missing inputs. Carrying the freshness into `st.carry` was rejected
+  because it would add fields to every saved carry entry; refusing spoiled inputs needs no schema change.
+  Shipping *fresh* fruit in a refrigerated wagon and curing it on Nauvis remains intended (cold chain is the
+  purchased upgrade); only over-ripe fruit is refused.
 - **Food-chain balance.** `colony-gleba-jam` is 45 min, i.e. *shorter* than a whole yumako (1 h) and much
   shorter than bioflux (2 h); curing fruit is a shelf-life **downgrade** but a pulp upgrader (mash 3 min /
   jelly 4 min -> 45 min). Nutrition is `per = 1`, identical to every other food. Is 2 fruit -> 1 jam too
@@ -157,4 +153,57 @@ check changed; no Gleba item is created or consumed in that save. New baseline: 
   and that `m1_tech` rule 6 stays green for future Gleba recipes.
 - **Prototype-checksum baseline.** Any follow-up adding/removing a prototype will move the checksum again;
   reviewers should re-run `scripts/determinism.sh` and update the recorded baseline rather than assume the
-  old value.
+  old value. (Second commit: even a *comment-only* edit to a data Lua file moves it — see §6.)
+
+## 6. Review fixes (second commit, after `REVIEW.md`)
+
+Two MAJOR findings and the MINOR were fixed; all gates re-run green (§3 reflects the new counts).
+
+### MAJOR 1 — the tech now gates the colony path, not just the player recipes
+
+- Added `gleba.TECH = "colony-gleba-cuisine"` to the pure model (single source of truth for the id).
+- `work.lua:preserve_inputs` reads `hut.entity.force.technologies[gleba.TECH].researched` and passes the boolean
+  into `preserve.recipe`; both `preserve_ready` (job slots + `hut_inputs_missing` status) and the
+  `work.finish` Smokehouse branch use it. Meat/fish curing is unchanged because `preserve.recipe` returns
+  before the Gleba fallback.
+- `m2_gleba` now builds and stocks the town **before** research: at ~3000 ticks the jam production flow must
+  be exactly **0** while the tech is unresearched, then the spike researches it and asserts flow **>= 1**
+  later (actual: 0 -> 19). This is the case the first commit could not have passed.
+
+### MAJOR 2 — the colony path no longer launders spoiled fruit
+
+- `gleba.MAX_INPUT_SPOIL = 0.5` (exclusive threshold). `gleba.recipe(stock, freshness)` skips any raw whose
+  worst stack is at/above it, and tries the next raw. The adapter's `chest_freshness` reads the real
+  `LuaItemStack.spoil_percent` (not the count-only view); over-ripe fruit closes the Smokehouse's slots and
+  shows missing inputs, then rots into `spoilage` for the compost loop. No schema change: nothing is added to
+  `st.carry` or `storage`.
+- `m2_gleba` asserts at runtime: fresh fruit keeps slots open -> setting every yumako stack to
+  `spoil_tick = now + 600` (~99.7% spoiled, still `yumako`) closes them -> `spoil_percent = 0` reopens them.
+- Docs corrected: design-doc §3.1 paragraph and the locale recipe description now describe the refuse gate;
+  the pure model's header explains both guards. **The recipe comment in `buildings.lua` was deliberately left
+  byte-for-byte unchanged**: with the fix it is now true, and Factorio's final checksum includes a hash of
+  mod Lua files — a comment-only edit moved it 2125884680 -> 1100852567 in an isolated run. Restoring the
+  comment verbatim returns the checksum to 2125884680 with no behaviour change. The expanded explanation
+  lives in the design doc and model header instead.
+
+### MINOR
+
+- Deleted the unused `gleba.wants()` and its unit test.
+- `gleba.SALT_PER_BATCH = yields.CURE.salt` (same source as `preserve`), asserted by a unit test.
+
+### Mutation checks (each fix reverted in an isolated temp copy; new test/spike must fail)
+
+| Reverted change | Result |
+|---|---|
+| Remove the `MAX_INPUT_SPOIL` check in `gleba.recipe` | `tests/model_test.lua` "refuses over-ripe fruit" FAILS (`expected nil, got table`) |
+| Remove the `gleba_unlocked == false` branch in `preserve.recipe` | "Gleba curing is gated on the researched tech" FAILS (`expected nil, got table`) |
+| Pass `nil` instead of `chest_freshness(...)` in `preserve_inputs` | `m2_gleba` "over-ripe fruit closes the smokehouse's slots" FAILS (16 PASS / 1 FAIL) |
+| Pass `true` instead of the researched flag in `preserve_inputs` | `m2_gleba` "Gleba Cuisine unresearched: no colony jam is produced" FAILS (flow=5, 16 PASS / 1 FAIL) |
+
+### Checksum attribution addendum
+
+The earlier isolation table in §3 holds. Additionally, an isolated run with all second-commit script fixes
+reverted still produced **1100852567**, and reverting only the `buildings.lua` comment restored
+**2125884680** — i.e. Factorio hashes data-stage Lua *source bytes* into the mod checksum (and hence the final
+benchmark checksum), while locale text does not. No colony behaviour changed in the second commit; the
+shipped baseline remains **2125884680**, verified twice.

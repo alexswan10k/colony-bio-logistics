@@ -709,16 +709,34 @@ describe("Gleba preserves (#70)", function()
     for _, r in ipairs(gleba.RAW) do eq(idx[r.item], nil) end
     truthy(idx["colony-gleba-jam"] ~= nil)
   end)
-  it("asks for salt only - never a standing perishable import", function()
-    local w = gleba.wants({["colony-salt"] = 1}, {["colony-salt"] = 1})
-    eq(#w, 1); eq(w[1].item, "colony-salt"); eq(w[1].count, 2)
-    eq(#gleba.wants({["colony-salt"] = 4}, {}), 0)
+  it("shares the curing salt cost with yields, not a second literal", function()
+    local yields = require("scripts.model.yields")
+    eq(gleba.SALT_PER_BATCH, yields.CURE.salt)
+    eq(gleba.SALT, preserve.SALT)
+  end)
+  it("refuses over-ripe fruit so the Lua path cannot launder it into fresh jam (#70)", function()
+    -- Mutation check: removing the freshness argument/gate makes these two assertions fail.
+    local stock = {["colony-salt"] = 1, yumako = 2}
+    eq(gleba.recipe(stock, {yumako = 0.999}), nil)
+    eq(gleba.recipe(stock, {yumako = gleba.MAX_INPUT_SPOIL}), nil)  -- threshold is exclusive
+    eq(gleba.recipe(stock, {yumako = 0.4}).raw, "yumako")
+    local mixed = {["colony-salt"] = 1, yumako = 2, jelly = 1}
+    eq(gleba.recipe(mixed, {yumako = 0.999, jelly = 0.1}).raw, "jelly")     -- skips a spoiled raw
   end)
   it("the Smokehouse cures meat/fish first, then falls back to Gleba with a count", function()
     eq(preserve.recipe({["colony-salt"] = 1, ["colony-meat"] = 1, yumako = 2}).raw, "colony-meat")
     local r = preserve.recipe({["colony-salt"] = 1, yumako = 2})
     eq(r.raw, "yumako"); eq(r.count, 2); eq(r.product, "colony-gleba-jam")
     eq(preserve.recipe({yumako = 2}), nil)       -- preserve's own salt gate still applies
+  end)
+  it("Gleba curing is gated on the researched tech; meat/fish are not (#70)", function()
+    -- Mutation check: dropping the `gleba_unlocked == false` branch makes the first assertion fail.
+    local stock = {["colony-salt"] = 1, yumako = 2}
+    eq(preserve.recipe(stock, nil, false), nil)
+    eq(preserve.recipe(stock, nil, true).raw, "yumako")
+    eq(gleba.TECH, "colony-gleba-cuisine")
+    local meat = {["colony-salt"] = 1, ["colony-meat"] = 1}
+    eq(preserve.recipe(meat, nil, false).raw, "colony-meat")  -- pre-#70 behaviour unchanged
   end)
 end)
 

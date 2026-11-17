@@ -24,12 +24,16 @@ M.PRODUCT = {["colony-meat"] = "colony-preserved-meat", ["colony-fish"] = "colon
 -- choice is stable when a hut holds several inputs at once; Gleba fruit is the fallback (model/gleba.lua, #70).
 -- Gleba recipes carry an explicit `count` (2 fruit / 1 pulp); meat and fish leave it nil so work.lua still
 -- uses preserve.RAW_PER_BATCH for them.
-function M.recipe(stock)
+-- `freshness` (item -> spoil_percent) and `gleba_unlocked` (the researched-tech flag) apply ONLY to the Gleba
+-- fallback: meat/fish curing predates #70 and must be unchanged by them. `gleba_unlocked == false` closes the
+-- Smokehouse's Gleba work entirely, which is what makes the colony tech gate real rather than cosmetic.
+function M.recipe(stock, freshness, gleba_unlocked)
   if (stock[M.SALT] or 0) < M.SALT_PER_BATCH then return nil end
   for _, raw in ipairs(M.RAW) do
     if (stock[raw] or 0) >= M.RAW_PER_BATCH then return {raw = raw, product = M.PRODUCT[raw]} end
   end
-  return gleba.recipe(stock)
+  if gleba_unlocked == false then return nil end
+  return gleba.recipe(stock, freshness)
 end
 
 -- What a Smokehouse wants delivered: salt, plus a little of each raw item. `counts`/`inflight` are item -> n.

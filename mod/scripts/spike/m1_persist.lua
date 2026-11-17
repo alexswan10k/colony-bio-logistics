@@ -46,6 +46,11 @@ core.register("m1_persist", {
       c.armories[armory_e.unit_number].limit = 1
       armory_e.insert{name = "colony-rifle", count = 1}
     end
+    -- Patrol Post (#57): an ordered waypoint list is plain data and must survive the round-trip.
+    local post_e = build("colony-patrol-post", {p.x - 6, p.y + 6})
+    if post_e and post_e.valid then
+      c.patrol_posts[post_e.unit_number].waypoints = {{x = p.x - 3, y = p.y + 6}, {x = p.x - 6, y = p.y + 9}}
+    end
     build("colony-farm-plot", {p.x + 4, p.y - 8})
     -- A ghost the colony cannot pay for stays a ghost, so the registry has something to survive.
     local ghost = s.create_entity{name = "entity-ghost", inner_name = "steel-chest",
@@ -74,6 +79,8 @@ core.register("m1_persist", {
         colony_id = c.id, colonists = colony.live_colonists(c), houses = #colony.house_list(c),
         huts = count(c.huts), plots = count(c.plots), crates = count(c.crates),
         armories = count(c.armories), armory_un = armory_e and armory_e.valid and armory_e.unit_number or nil,
+        patrol_posts = count(c.patrol_posts), post_un = post_e and post_e.valid and post_e.unit_number or nil,
+        post_wp_x = p.x - 3,
         ghosts = count(c.ghosts), repairs = count(c.repairs), chunks = chunks_of(c),
         crate_un = crate.unit_number, lock_un = lock_un, next_colony_id = storage.next_colony_id,
         hall_fish = hall.get_item_count("raw-fish"), scheduled = count(storage.scheduled), schema = storage.schema,
@@ -122,6 +129,11 @@ core.register("m1_persist_load", {
       armory_rec and ("limit=" .. tostring(armory_rec.limit)) or "no armory record")
     ctx.check("armory gear survived", armory_rec ~= nil and armory_rec.entity.get_item_count("colony-rifle") == 1,
       armory_rec and tostring(armory_rec.entity.get_item_count("colony-rifle")) or "no armory")
+    ctx.check("patrol post registry survived", count(c.patrol_posts) == exp.patrol_posts, count(c.patrol_posts))
+    local post_rec = exp.post_un and c.patrol_posts[exp.post_un]
+    ctx.check("patrol post entity + ordered waypoints survived", post_rec ~= nil and post_rec.entity.valid
+      and #post_rec.waypoints == 2 and post_rec.waypoints[1].x == exp.post_wp_x,
+      post_rec and ("waypoints=" .. #post_rec.waypoints) or "no post")
     local crate = c.crates[exp.crate_un]
     ctx.check("crate filters survived", crate ~= nil and crate.filters[1] ~= nil and crate.filters[1].item == "coal",
       crate and crate.filters[1] and crate.filters[1].item)

@@ -2417,7 +2417,9 @@ function M.assign(colony, un)
   local st = storage.unit_state[un]
   -- A Command Whistle order (#58) owns the unit until its lease ends; scripts/command.lua hands it back.
   -- This must precede the shelter check below: an alarm must not pull a commanded colonist indoors.
-  if st and st.state == "commanded" then return end
+  -- M3 patrol (#57): an autonomous patrol is the same kind of lease (state "patrolling"/"patrol-engage"),
+  -- owned by scripts/patrol.lua. A stale assign must not wipe a live route; nightfall/lease expiry ends it.
+  if st and (st.state == "commanded" or st.state == "patrolling" or st.state == "patrol-engage") then return end
   -- Waiting inside a Motor Pool while its truck works: the truck decides when the shift ends.
   if st and st.state == "driving" and storage.trucks and storage.trucks[st.truck] then return end
   -- Bound for (or waiting at) a Passenger Platform: the next train decides (scripts/transit.lua).
@@ -3078,7 +3080,10 @@ end)
 events.on(defines.events.on_ai_command_completed, function(ev)
   local st = storage.unit_state[ev.unit_number]
   if not st then return end
-  if st.state == "commanded" then return end   -- #58: scripts/command.lua owns this lease's completion
+  -- #58/#57: scripts/command.lua and scripts/patrol.lua own their leases' completion. A patrol's
+  -- attack_area + by_enemy does not emit a completion while a target lives, and when one does fire it is
+  -- only an early-release hint for the patrol adapter - work.lua must never reassign a patrolling unit.
+  if st.state == "commanded" or st.state == "patrolling" or st.state == "patrol-engage" then return end
   local colony = storage.colonies[st.colony_id]
   if not colony then return end
   if st.state == "to_platform" then

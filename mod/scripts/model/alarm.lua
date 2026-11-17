@@ -22,6 +22,9 @@ M.EXEMPT = {to_shelter = true, sheltered = true, driving = true, to_platform = t
   to_tower = true, guarding = true, ["guarding-fight"] = true,
   -- M3 militia (#55): militia fight, they do not hide. Same exemption as a posted guard.
   to_militia = true, ["militia-hold"] = true, ["militia-fight"] = true,
+  -- M3 patrol (#57): a patrol is on duty like a posted guard - it keeps shooting while the town hides.
+  -- Nightfall ends a patrol (patrol.lease/step), not an alarm.
+  patrolling = true, ["patrol-engage"] = true,
   commanded = true}   -- #58: a whistle order is a temporary lease; the alarm must not pull it indoors
 
 local function d2(a, b) local dx, dy = a.x - b.x, a.y - b.y; return dx * dx + dy * dy end

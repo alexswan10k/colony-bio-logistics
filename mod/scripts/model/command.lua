@@ -37,6 +37,9 @@ M.ORDERABLE = {
   -- M3 militia (#55): a whistle order preempts a militia exactly like a guard. Its gear is pure data in
   -- st.gear and is carried across the lease by abort_intents (see below), so the order loses nothing.
   to_militia = true, ["militia-hold"] = true, ["militia-fight"] = true,
+  -- M3 patrol (#57): a whistle order PREEMPTS a patrol - the player always has the final say. The patrol
+  -- adapter releases the route claim (abort_intents.release_patrol) and the militia gear rides the lease.
+  patrolling = true, ["patrol-engage"] = true,
   -- Re-ordering an already commanded unit replaces its lease (last writer wins between players).
   commanded = true,
 }
@@ -108,6 +111,10 @@ function M.abort_intents(st)
     -- and flag that any in-flight gear haul claim must be released so no item is lost or double-claimed.
     gear = st.gear,
     release_gear_claim = st.job == "militia",
+    -- M3 patrol (#57): the route claim (colony.patrols[un]) is a lease too. The adapter drops it before the
+    -- state is overwritten; the physical gear is NOT returned - abort_intents.gear carries it into the order
+    -- exactly as for a militia, so preemption never loses a rifle.
+    release_patrol = st.state == "patrolling" or st.state == "patrol-engage",
     old_job = st.job or "idle",
     old_state = st.state or "idle",
   }

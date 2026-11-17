@@ -109,6 +109,12 @@ data:extend({
     {"colony-logistics", "steel-processing", "military"}, {
     unlock("colony-armory"),
   }),
+  -- Patrol Post (#57): ordered waypoints turn idle militia into an autonomous route squad. Needs the Armory
+  -- (where their gear comes from) and the vanilla Military interlock, paid for in colony packs only.
+  tech("colony-patrol-post", "icon-patrol-post.png", 30, {"colony-frontier-pack"}, 15,
+    {"colony-armory", "military"}, {
+    unlock("colony-patrol-post"), unlock("colony-patrol-marker"),
+  }),
   -- Colony Ledger (#92): the colony's own inventory, published on the circuit network. It needs the vanilla
   -- circuit network, so it is gated on that too - same interlock rule as the rest of the tree.
   tech("colony-ledger", "icon-ledger.png", 20, {"colony-frontier-pack"}, 15,

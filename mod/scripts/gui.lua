@@ -21,6 +21,7 @@ local turret_model = require("scripts.model.turret")
 local defence = require("scripts.model.defence")
 local armour = require("scripts.model.armour")
 local armory = require("scripts.armory")
+local patrol = require("scripts.patrol")   -- M3 Stage 3 (#57): Patrol Post waypoint panel
 local milestones = require("scripts.model.milestones")
 local tags = require("scripts.model.tags")
 local quota = require("scripts.model.quota")
@@ -31,9 +32,9 @@ function M.bind(c, l) colony_mod, ledger_sig = c, l end
 
 M.REQUEST_ROWS = 3
 M.DEFAULT_COUNT = 20
-local HOUSE_FRAME, MACHINE_FRAME, HUT_FRAME, INFO_FRAME, CRATE_FRAME, LEDGER_FRAME, ARMORY_FRAME =
+local HOUSE_FRAME, MACHINE_FRAME, HUT_FRAME, INFO_FRAME, CRATE_FRAME, LEDGER_FRAME, ARMORY_FRAME, PATROL_FRAME =
   "colony_house_frame", "colony_machine_frame", "colony_hut_frame", "colony_info_frame", "colony_crate_frame",
-  "colony_ledger_frame", "colony_armory_frame"
+  "colony_ledger_frame", "colony_armory_frame", "colony_patrol_frame"
 local MACHINE_GUIS = {
   ["assembling-machine"] = "assembling_machine_gui", ["furnace"] = "furnace_gui", ["boiler"] = "boiler_gui", ["lab"] = "lab_gui",
   ["ammo-turret"] = "turret_gui",   -- #59: same marker/panel opt-in; ammo-turrets dock beside the vanilla turret GUI
@@ -580,6 +581,61 @@ scheduler.register("gui.refresh_armory", function(d)
   end
   if not unchanged(frame, sig) then fill_armory(frame.body, a, colony) end
   scheduler.after(30, "gui.refresh_armory", d)
+end)
+
+-- ---------- Patrol Post panel (#57) ----------
+-- The ordered waypoint list is the post's whole purpose, so it is shown verbatim with a remove button per
+-- row (renumbering is automatic). The radius is the hostile-detection range a patrolling militia scans.
+local function fill_patrol(frame, post, colony)
+  frame.clear()
+  frame.add{type = "label", caption = {"colony-gui.patrol-radius", patrol.RANGE}}
+  local active = 0
+  for _, rec in pairs(colony.patrols or {}) do if rec.post == post.entity.unit_number then active = active + 1 end end
+  frame.add{type = "label", caption = {"colony-gui.patrol-active", active}}
+  frame.add{type = "line"}
+  if #post.waypoints == 0 then
+    frame.add{type = "label", caption = {"colony-gui.patrol-empty"}}
+  end
+  for idx, wp in ipairs(post.waypoints) do
+    local row = frame.add{type = "flow", direction = "horizontal"}
+    row.style.vertical_align = "center"
+    row.add{type = "label", caption = {"colony-gui.patrol-waypoint", idx,
+      string.format("%.1f", wp.x), string.format("%.1f", wp.y)}}
+    local remove = row.add{type = "button", name = "colony_patrol_remove_" .. idx,
+      caption = {"colony-gui.patrol-remove"}}
+    remove.style.width = 60
+  end
+  frame.add{type = "label", caption = {"colony-gui.patrol-hint"}}
+end
+
+local function open_patrol(player, e)
+  local old = player.gui.relative[PATROL_FRAME]; if old then old.destroy() end
+  local colony = colony_at(e)
+  local post = colony and colony.patrol_posts and colony.patrol_posts[e.unit_number]
+  if not post then return end
+  local frame = player.gui.relative.add{type = "frame", name = PATROL_FRAME, direction = "vertical",
+    caption = e.localised_name, anchor = {gui = defines.relative_gui_type.container_gui,
+      position = defines.relative_gui_position.right, names = {patrol.POST}}}
+  local body = frame.add{type = "flow", name = "body", direction = "vertical"}
+  fill_patrol(body, post, colony)
+  scheduler.after(30, "gui.refresh_patrol", {player_index = player.index, un = e.unit_number, colony_id = colony.id})
+end
+
+scheduler.register("gui.refresh_patrol", function(d)
+  local player = game.get_player(d.player_index)
+  local frame = player and player.valid and player.gui.relative[PATROL_FRAME]
+  local e = player and player.opened
+  if not (frame and frame.valid and frame.visible and e and e.valid and e.unit_number == d.un) then return end
+  local colony = storage.colonies[d.colony_id]
+  local post = colony and colony.patrol_posts and colony.patrol_posts[d.un]
+  if not post then return end
+  local sig = {}
+  for _, wp in ipairs(post.waypoints) do sig[#sig + 1] = wp.x; sig[#sig + 1] = wp.y end
+  local active = 0
+  for _, rec in pairs(colony.patrols or {}) do if rec.post == d.un then active = active + 1 end end
+  sig[#sig + 1] = active
+  if not unchanged(frame, sig) then fill_patrol(frame.body, post, colony) end
+  scheduler.after(30, "gui.refresh_patrol", d)
 end)
 
 -- ---------- colony overview + priority matrix (#38 #27) ----------
@@ -1167,6 +1223,19 @@ events.on(defines.events.on_gui_click, function(ev)
     if frame and frame.body then fill_hut(frame.body, h) end
     return
   end
+  local patrol_idx = name:match("^colony_patrol_remove_(%d+)$")
+  if patrol_idx then
+    local player = game.get_player(ev.player_index)
+    local e = player and player.opened
+    if not (e and e.valid and e.name == patrol.POST) then return end
+    local colony = colony_at(e)
+    local post = colony and colony.patrol_posts and colony.patrol_posts[e.unit_number]
+    if not post then return end
+    patrol.remove_waypoint(colony, e.unit_number, tonumber(patrol_idx))
+    local frame = player.gui.relative[PATROL_FRAME]
+    if frame and frame.body then fill_patrol(frame.body, post, colony) end
+    return
+  end
   if name == "colony_armory_limit_less" or name == "colony_armory_limit_more" then
     local player = game.get_player(ev.player_index)
     local e = player and player.opened
@@ -1706,6 +1775,7 @@ events.on(defines.events.on_gui_opened, function(ev)
   elseif name == colony_mod.HALL then open_info(player, e)
   elseif colony_mod.CRATES[name] then open_crate(player, e)
   elseif name == colony_mod.ARMORY then open_armory(player, e)
+  elseif name == patrol.POST then open_patrol(player, e)
   elseif name == colony_mod.LEDGER then open_ledger(player, e)
   elseif MACHINE_GUIS[type] then open_machine(player, e) end
 end)

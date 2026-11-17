@@ -68,6 +68,11 @@ Three headless gates cover the things the unit tests and the playable spike cann
   from the same scripted enemy hit, with heal-back that cannot run away, revive or heal an enemy; and a Watchtower
   with a real posted guard grants the same aura through the same `defence.covered` path. Registry save/load is
   asserted by `m1_persist` on schema 40.
+- `scripts/headless-spike.sh m3_patrol` - the Stage 3 M3 integration spike (#57, `TICKS=9000`): a Patrol Post with
+  ordered waypoints dispatches an armed militia, the squad walks the loop and engages a biter and a nest,
+  survives repeated failed paths (`destroy_when_commands_fail=false` + bounded retries/blacklist), ignores stale
+  `construct.finish`/`work.finish`/`patrol.lease` timers, yields to a Command Whistle order without losing gear,
+  and returns to work at nightfall. Waypoint save/load is asserted by `m1_persist` on schema 41.
 - `scripts/headless-spike.sh m1_rail` - the #49 passenger rail spike (17 checks, `TICKS=8000`): two colonies ~200 tiles
   apart on one rail line, a platform by each stop; colony A loses its only tent, its four colonists walk to the platform
   and wait, board the coach (riders drawn on it), and step off at B as B's colonists; nobody is lost. Migrants are

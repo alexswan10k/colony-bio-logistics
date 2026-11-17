@@ -5,10 +5,14 @@ local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local work = require("scripts.work")
 local model = require("scripts.model.command")
+local engine_command = require("scripts.engine_command")  -- shared with the patrol adapter (M3 Stage 3)
 local M = {}
 
 local militia_mod   -- injected by scripts.colony via M.bind_militia (cycle-safe)
 function M.bind_militia(m) militia_mod = m end
+
+local patrol_mod   -- injected by scripts.colony via M.bind_patrol (cycle-safe, M3 Stage 3)
+function M.bind_patrol(p) patrol_mod = p end
 
 M.TOOL = "colony-command-whistle"
 M.ORDER_INPUT = "colony-command-order"
@@ -119,22 +123,6 @@ scheduler.register("command.watchdog", function()
   arm_watchdog()
 end)
 
-local DISTRACTION = {none = defines.distraction.none, by_enemy = defines.distraction.by_enemy}
-local function engine_command(cmd)
-  if cmd.kind == "go_to_location" then
-    return {type = defines.command.go_to_location, destination = cmd.destination,
-      radius = cmd.radius, distraction = DISTRACTION[cmd.distraction]}
-  elseif cmd.kind == "attack_area" then
-    return {type = defines.command.attack_area, destination = cmd.destination,
-      radius = cmd.radius, distraction = DISTRACTION[cmd.distraction]}
-  elseif cmd.kind == "attack" then
-    local target = cmd.target
-    if not (target and target.valid) then return nil end
-    return {type = defines.command.attack, target = target, distraction = DISTRACTION[cmd.distraction]}
-  end
-  return {type = defines.command.stop, ticks_to_wait = 0, distraction = defines.distraction.none}
-end
-
 local function notify(player, pos, key, a, b)
   if not (player and player.valid) then return end
   player.create_local_flying_text{text = {key, a, b}, position = pos}
@@ -206,12 +194,16 @@ local function apply(pi, kind, target)
       cmd.target = (target and target.enemy and target.enemy.valid and target.enemy)
         or game.get_entity_by_unit_number(cmd.target_un)
     end
-    local engine = engine_command(cmd)
+    local engine = engine_command.to_engine(cmd)
     if engine and e and e.valid then
       local intents = model.abort_intents(st)
       -- Free the hut post BEFORE work.release so its research-lab status recount sees the smaller crew.
       if intents.free_hut_slot and st.hut and st.hut.workers then st.hut.workers[un] = nil end
       if intents.clear_carry_sprite then clear_carry_sprite(un) end
+      -- M3 patrol (#57): a manual order always preempts an autonomous patrol. Clear the route/lease claim
+      -- before the state is overwritten so a stale patrol timer cannot resurrect it; gear is pure data and
+      -- is carried into the lease by abort_intents.gear (the same rule that keeps a militia armed).
+      if intents.release_patrol and patrol_mod then patrol_mod.abort(un, st) end
       work.release(st)           -- carry, site claim, car/trailer, research status; sets state idle
       work.clear_label(un)
       -- M3 militia (#55): preserve pure-data gear across the lease (abort_intents carries it) and release

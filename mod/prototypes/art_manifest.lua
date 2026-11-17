@@ -35,6 +35,7 @@ return {
   ["miner-hut"] = {width = 164, height = 268, scale = 0.5, shift = {0, -0.90625}},
   ["motor-pool"] = {width = 228, height = 389, scale = 0.5, shift = {0, -1.35156}},
   ["passenger-platform"] = {width = 164, height = 260, scale = 0.5, shift = {0, -0.84375}},
+  ["patrol-post"] = {width = 164, height = 252, scale = 0.5, shift = {0, -0.78125}},
   ["salt-pan"] = {width = 164, height = 232, scale = 0.5, shift = {0, -0.625}},
   ["smokehouse"] = {width = 164, height = 325, scale = 0.5, shift = {0, -1.35156}},
   ["supply-crate"] = {width = 164, height = 250, scale = 0.5, shift = {0, -0.765625}},

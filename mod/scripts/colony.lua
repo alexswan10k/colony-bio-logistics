@@ -40,6 +40,7 @@ local commute = require("scripts.commute")
 local illness = require("scripts.illness")
 local militia = require("scripts.militia")
 local armory = require("scripts.armory")
+local patrol = require("scripts.patrol")
 local command = require("scripts.command")
 local mortality_model = require("scripts.model.mortality")
 local breeding = require("scripts.model.breeding")
@@ -60,6 +61,7 @@ M.PLATFORM = "colony-passenger-platform"
 M.CEMETERY = "colony-cemetery"
 M.CANTEEN = "colony-canteen"
 M.ARMORY = "colony-armory"
+M.PATROL_POST = "colony-patrol-post"
 M.MEAL_ITEMS = commute.FOOD_ITEMS     -- what a Canteen serves (#50): the foods houses eat
 local MEAL_SET = {}
 for _, item in ipairs(M.MEAL_ITEMS) do MEAL_SET[item] = true end
@@ -443,6 +445,11 @@ function M.stock_table(colony)
   for _, a in ipairs(M.armory_list(colony)) do
     for name, n in pairs(armory.contents(a)) do t[name] = (t[name] or 0) + n end
   end
+  -- Patrol Posts carry spare gear like any colony building (#57).
+  for _, p in pairs(colony.patrol_posts or {}) do
+    local inv = p.entity and p.entity.valid and p.entity.get_inventory(defines.inventory.chest)
+    if inv then for _, s in ipairs(inv.get_contents()) do t[s.name] = (t[s.name] or 0) + s.count end end
+  end
   colony.stock_cache, colony.stock_tick = t, game.tick
   return t
 end
@@ -534,6 +541,16 @@ function M.storage_list(colony)
       storage_priority = a.priority or 3, accept_all = true,
     }
   end
+  for un, p in pairs(colony.patrol_posts or {}) do
+    if p.entity and p.entity.valid then
+      local inv = p.entity.get_inventory(defines.inventory.chest)
+      local contents = {}
+      if inv then for _, s in ipairs(inv.get_contents()) do contents[s.name] = s.count end end
+      list[#list + 1] = {kind = "patrol_post", entity = p.entity, pos = p.entity.position,
+        available = contents, has_space = inv and not inv.is_full(), key = un,
+        storage_priority = 3, accept_all = true}
+    end
+  end
   colony.storage_cache, colony.storage_tick = list, game.tick
   return list
 end
@@ -608,6 +625,14 @@ function M.ledger_snapshot(colony)
       local contents = {}
       for _, s in ipairs(inv.get_contents()) do contents[s.name] = s.count end
       huts_data[#huts_data + 1] = {name = a.entity.name, contents = contents}
+    end
+  end
+  for _, p in pairs(colony.patrol_posts or {}) do
+    local inv = p.entity and p.entity.valid and p.entity.get_inventory(defines.inventory.chest)
+    if inv then
+      local contents = {}
+      for _, s in ipairs(inv.get_contents()) do contents[s.name] = s.count end
+      huts_data[#huts_data + 1] = {name = p.entity.name, contents = contents}
     end
   end
 
@@ -1635,7 +1660,9 @@ local function on_built(ev)
     if owner then refund(ev, e, name, {"colony-message.hall-too-close"}); e.destroy(); return end   -- no overlapping halls
     local id = storage.next_colony_id; storage.next_colony_id = id + 1
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, armories = {}, pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, overflow = {}, ratings = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, armories = {},
+      patrol_posts = {}, patrols = {},   -- M3 Stage 3 (#57): waypoint records and active patrol leases (schema 41)
+      pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, overflow = {}, ratings = {},
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, storage_priority = 3}
     storage.colonies[id] = colony
     M.seed_forage(colony)   -- the claimed land already has berries on it
@@ -1750,6 +1777,13 @@ local function on_built(ev)
     rendering.draw_circle{color = {0.75, 0.35, 0.2, 0.5}, width = 2, filled = false,
       radius = armory.EQUIP_RANGE, target = e, surface = e.surface, only_in_alt_mode = true}
     script.register_on_object_destroyed(e)
+  elseif name == M.PATROL_POST then
+    -- Patrol Post (#57): a 2x2 waypoint marker, built inside territory. The waypoints themselves are plain
+    -- data on colony.patrol_posts (schema [41]); idle militia are recruited onto the ordered route by a
+    -- staggered patrol.dispatch timer, never by a per-tick scan.
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    patrol.register_post(storage.colonies[owner], e, dict)
   elseif name == M.WATER_TOWER then
     -- Water Tower (#96): a worker-free assembler with a locked recipe (the bottling recipe). It bottles the
     -- fluid water the player pipes in and hands it straight to the houses around it at evaluation time, so no
@@ -1881,7 +1915,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or item_name == M.HALL or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -2055,6 +2089,8 @@ ledger_signal.bind(M)
 -- M3 militia (#55): bind the combat adapter and hand it to work/command so they can delegate militia units
 -- and preserve gear across whistle leases without a runtime require cycle.
 militia.bind(M); work.bind_militia(militia); command.bind_militia(militia)
+-- M3 Stage 3: the patrol adapter and the whistle's preemption hook (a manual order ends a patrol cleanly).
+patrol.bind(M); command.bind_patrol(patrol); patrol.bind_militia(militia)
 -- M3 Stage 2: the Armory depot/aura adapter and the single multiplexed damage handler (#56 + #61).
 armory.bind(M); shelter.bind_armory(armory)
 

@@ -19,7 +19,8 @@ M.HOLD_TICKS = 3600    -- enemies merely nearby (biters idling by their nest) ho
 -- in a Motor Pool, a passenger bound for or waiting at a platform), or it is a posted guard (tower duty is
 -- exactly the thing that must NOT run indoors (#56); it engages enemies instead of sheltering from them).
 M.EXEMPT = {to_shelter = true, sheltered = true, driving = true, to_platform = true, waiting_train = true,
-  to_tower = true, guarding = true, ["guarding-fight"] = true}
+  to_tower = true, guarding = true, ["guarding-fight"] = true,
+  commanded = true}   -- #58: a whistle order is a temporary lease; the alarm must not pull it indoors
 
 local function d2(a, b) local dx, dy = a.x - b.x, a.y - b.y; return dx * dx + dy * dy end
 

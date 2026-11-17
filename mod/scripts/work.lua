@@ -2407,6 +2407,9 @@ function M.assign(colony, un)
   local e = colony.colonists[un]
   if not (e and e.valid and colony.hall.valid) then return end
   local st = storage.unit_state[un]
+  -- A Command Whistle order (#58) owns the unit until its lease ends; scripts/command.lua hands it back.
+  -- This must precede the shelter check below: an alarm must not pull a commanded colonist indoors.
+  if st and st.state == "commanded" then return end
   -- Waiting inside a Motor Pool while its truck works: the truck decides when the shift ends.
   if st and st.state == "driving" and storage.trucks and storage.trucks[st.truck] then return end
   -- Bound for (or waiting at) a Passenger Platform: the next train decides (scripts/transit.lua).
@@ -2919,7 +2922,12 @@ end)
 
 scheduler.register("construct.finish", function(d)
   local st = storage.unit_state[d.un]
-  if not (st and st.job == "construct") then return end
+  -- #58 re-review: the job alone is not enough. A whistle lease preserves `job = "construct"` but replaces
+  -- the state with "commanded", so a 30-tick timer scheduled before the order must not revive a build the
+  -- colonist never reached - otherwise it writes `state = "idle"` and reassigns, cancelling a live order.
+  -- Only the two states that actually arm this timer may finish it; any other state (commanded, idle,
+  -- sleeping, sheltered, a new trip) makes the stale timer a no-op.
+  if not (st and (st.state == "building" or st.state == "repairing")) then return end
   local colony = storage.colonies[st.colony_id]
   local e = colony and colony.colonists[d.un]
   if not (colony and e and e.valid) then return end
@@ -3041,6 +3049,7 @@ end)
 events.on(defines.events.on_ai_command_completed, function(ev)
   local st = storage.unit_state[ev.unit_number]
   if not st then return end
+  if st.state == "commanded" then return end   -- #58: scripts/command.lua owns this lease's completion
   local colony = storage.colonies[st.colony_id]
   if not colony then return end
   if st.state == "to_platform" then

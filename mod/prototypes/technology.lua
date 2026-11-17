@@ -53,7 +53,7 @@ data:extend({
   milestone("colony-settlement", "icon-town-hall.png", {}, {
     "colony-housing-tent", "colony-forager-hut", "colony-woodcutter-hut", "colony-miner-hut",
     "colony-basket", "colony-axe", "colony-pickaxe", "colony-toolsmith",
-    "colony-compost-bin", "colony-supply-crate",
+    "colony-compost-bin", "colony-supply-crate", "colony-command-whistle",
     "colony-town-archive", "colony-frontier-pack", "colony-frontier-pack-forage",
     "colony-frontier-pack-meat", "colony-frontier-pack-produce", "colony-frontier-pack-gleba"}),
   tech("colony-frontier-charter", "icon-frontier-pack.png", 10, {"colony-frontier-pack"}, 10,

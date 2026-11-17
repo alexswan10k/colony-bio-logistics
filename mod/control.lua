@@ -7,6 +7,7 @@ require("scripts.colony")
 require("scripts.cold")
 require("scripts.work")
 require("scripts.marker")
+require("scripts.command")
 require("scripts.debug")
 
 events.on_init(store.init)

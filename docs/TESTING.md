@@ -37,12 +37,15 @@ Three headless gates cover the things the unit tests and the playable spike cann
   force, an idle colonist that does not shoot it, a commanded hunt that kills it from range, `ev.cause` naming
   the hunter, no retaliation, and `wander` actually moving the animal. It exists because hunting is the one
   feature whose core mechanism is engine AI rather than our own loop.
-- `scripts/headless-spike.sh m1_blueprint` - the #36 blueprint round-trip (26 checks): opt a furnace in and
+- `scripts/headless-spike.sh m1_blueprint` - the #36 blueprint round-trip (34 checks): opt a furnace in and
   give a demand crate filters, `create_blueprint` the pair, tag it, build the blueprint elsewhere and
   `revive` the ghosts - the opt-in flag, `collect`, the supply rows and the crate filters all come back.
   Also covers copy-paste in both directions (an opted-in source copies its settings, a plain source clears
   the destination) and that a foreign tag on the same blueprint entity is not clobbered. `TICKS=400` is
   plenty: the spike is event-driven, not a simulation.
+- `scripts/headless-spike.sh m3_turret` - the #59 ammo-turret spike (36 checks): turret opt-in and ammo
+  requests, the `collect=false` safety invariant under forged and omitted tags, and the behavioural proof
+  that a loaded turret produces no collect offer (its `get_output_inventory()` is the ammo inventory).
 - `scripts/headless-spike.sh m1_rail` - the #49 passenger rail spike (17 checks, `TICKS=8000`): two colonies ~200 tiles
   apart on one rail line, a platform by each stop; colony A loses its only tent, its four colonists walk to the platform
   and wait, board the coach (riders drawn on it), and step off at B as B's colonists; nobody is lost. Migrants are
@@ -222,7 +225,7 @@ Three headless gates cover the things the unit tests and the playable spike cann
   `has_output` / `need` / `damaged` on each machine, assignment looks at a 16-machine window rotated by a
   cursor, and population / food / stock are cached with a short TTL instead of being recomputed per
   assignment. `construct.scan` also used to read health for every machine every 300 ticks (a 13 ms tick).
-  The #54 quiet re-baseline (2026-11-06) re-ran the same harness after a 1.1-1.2 ms FAIL: short-circuit
+  The #54 quiet re-baseline (2026-11-16) re-ran the same harness after the 2026-11-06 1.1-1.2 ms FAIL: short-circuit
   attribution (demand save, 1800 ticks, baseline 0.943 ms) isolated `M.assign` (0.92 ms), split into
   `find_haul_task` (0.32 ms), `job_slots`/`hut_info` inventory reads (0.31 ms) and `colony_missing_*`
   quota fan-out (0.19 ms, `global_quotas` rebuilt a 25-item table nine times per assignment). Fixes are

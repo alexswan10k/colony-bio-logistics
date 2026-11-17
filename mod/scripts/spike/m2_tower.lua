@@ -90,12 +90,30 @@ core.register("m2_tower", {
         "sat=" .. tostring(hrec and hrec.sat))
       ctx.check("house is not failing critically for water (crit_unmet false)",
         hrec and hrec.crit_unmet == false, "crit=" .. tostring(hrec and hrec.crit_unmet))
+      ctx.check("the house is flagged tower-served (the haul planner skips its water need)",
+        hrec and hrec.tower_served == true, "tower_served=" .. tostring(hrec and hrec.tower_served))
       local out = tower.get_inventory(defines.inventory.crafter_output)
       ctx.check("the tower was drunk from (its stock dropped from 80)",
         out.get_item_count("colony-water") < 80, "tower water left: " .. tostring(out.get_item_count("colony-water")))
       ctx.check("the hall never held a single colony-water the whole run (no hauling happened)",
         hall.get_item_count("colony-water") == 0, "hall=" .. tostring(hall.get_item_count("colony-water")))
-      ctx.finish()
+
+      -- Phase 2 (#D1): now give the hall water. A house that drank from the tower ends each evaluation with an
+      -- EMPTY water shelf (the tower pours exactly what `step` consumes). Without the skip, that empty shelf
+      -- raises a critical water haul offer and a hauler shuttles bottled water from the hall to a house that
+      -- does not need it. With the fix, the hall's water stays put and the house never stocks its own shelf.
+      local seeded = 100
+      hall.insert{name = "colony-water", count = seeded}
+      ctx.check("phase 2: hall seeded with colony-water", hall.get_item_count("colony-water") == seeded)
+      at(1800, function()
+        if not (hall.valid and tent.valid) then return end
+        ctx.check("hall water is untouched over several evaluations (no tower water haul)",
+          hall.get_item_count("colony-water") == seeded,
+          "hall=" .. tostring(hall.get_item_count("colony-water")) .. " expected " .. seeded)
+        local shelf = tent.get_inventory(defines.inventory.chest).get_item_count("colony-water")
+        ctx.check("the house still holds no hauled colony-water on its own shelf", shelf == 0, "shelf=" .. tostring(shelf))
+        ctx.finish()
+      end)
     end)
   end,
 })

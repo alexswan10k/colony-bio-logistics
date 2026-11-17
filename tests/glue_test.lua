@@ -1763,4 +1763,108 @@ describe("audit glue regressions", function()
     env.on_cfg({})
     eq(scheduled_cold_count(), 1)
   end)
+
+  it("D2: inedible Gleba produce is not colony food, so the migration food gate stays closed", function()
+    local env = mock.install(); env = env.reset()
+    local colony_mod = require("scripts.colony")
+    local housing = require("scripts.model.housing")
+    local GLEBA = {"yumako", "jellynut", "bioflux", "yumako-mash", "jelly"}
+    -- One source of truth: every counted food is something a house can actually eat, and none of the Gleba
+    -- pack ingredients are counted. (The audit said "six"; there are five entries absent from housing.FOOD.)
+    local edible = {}
+    for _, opt in ipairs(housing.FOOD) do edible[opt.item] = true end
+    for _, item in ipairs(colony_mod.FOOD_ITEMS) do
+      truthy(edible[item], item .. " is counted as food but no house can eat it")
+    end
+    local in_list = {}
+    for _, item in ipairs(colony_mod.FOOD_ITEMS) do in_list[item] = true end
+    for _, item in ipairs(GLEBA) do
+      eq(edible[item], nil, item .. " is not house food")
+      eq(in_list[item], nil, item .. " is not in the food aggregate")
+    end
+    -- The owner's decision, pinned end to end: a hall holding ONLY inedible Gleba produce has zero food by
+    -- both metrics, so the migration gate's `total_food > 0` clause is false and a fed-looking town cannot
+    -- attract migrants while its colonists have nothing to eat.
+    for _, item in ipairs(colony_mod.FOOD_ITEMS) do prototypes.item[item] = {} end
+    for _, item in ipairs(GLEBA) do prototypes.item[item] = {} end
+    local counts = {}
+    for _, item in ipairs(GLEBA) do counts[item] = 100 end
+    local hall = {valid = true, get_item_count = function(name) return counts[name] or 0 end}
+    local c = {id = 1, hall = hall, houses = {}, towers = {}, huts = {}, crates = {}}
+    eq(colony_mod.food_in(c), 0, "food_in ignores all inedible Gleba produce")
+    eq(colony_mod.total_food(c), 0, "the migration gate's total_food > 0 clause is false")
+    -- The empty-larder rule agrees too: food roles still get promoted when the only stock is inedible.
+    local needs = require("scripts.model.needs")
+    local api = {food_in = colony_mod.food_in, food_available = colony_mod.food_available,
+      quota_met = function(_, item) return item ~= "colony-forage" end,
+      quota_target = function(_, item) return item == "colony-forage" and 0 or 20 end,
+      stock_count = function() return 0 end}
+    eq(needs.missing(c, api).forage, true, "only-ineligible stock still promotes forage")
+  end)
+
+  it("D3 glue: food_available sees food on house shelves that the hall-only food_in misses", function()
+    local env = mock.install(); env = env.reset()
+    local colony_mod = require("scripts.colony")
+    for _, item in ipairs(colony_mod.FOOD_ITEMS) do prototypes.item[item] = {} end
+    local hall = {valid = true, get_item_count = function() return 0 end}
+    local shelf = {["colony-forage"] = 40}
+    local inv = {get_item_count = function(item) return shelf[item] or 0 end}
+    local house = {kind = "homestead", entity = {valid = true, get_inventory = function() return inv end}}
+    local c = {id = 1, hall = hall, houses = {[7] = house}, towers = {}, huts = {}, crates = {}}
+    eq(colony_mod.food_in(c), 0, "the hall is empty")
+    eq(colony_mod.food_available(c), 40, "the whole-colony metric counts the house shelf")
+    -- The needs model consumes exactly this accessor. With an unlimited (0) forage quota the empty-larder rule
+    -- is the only thing that could promote it, so this proves the new metric reaches the live decision.
+    local needs = require("scripts.model.needs")
+    local api = {food_available = colony_mod.food_available, food_in = colony_mod.food_in,
+      quota_met = function(_, item) return item ~= "colony-forage" end,
+      quota_target = function(_, item) return item == "colony-forage" and 0 or 20 end,
+      stock_count = function() return 0 end}
+    eq(needs.missing(c, api).forage, nil, "a fed town does not promote forage to the empty band")
+    eq(needs.missing(c, {food_in = api.food_in, quota_met = api.quota_met,
+      quota_target = api.quota_target, stock_count = api.stock_count}).forage, true,
+      "the old hall-only metric still would (pins the defect)")
+  end)
+
+  it("D1 GUI: a tower-served house panel shows no phantom water request", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local gui = require("scripts.gui")
+    gui.bind(colony_mod, {})
+    local captions = {}
+    local function elem()
+      local e
+      e = {style = {}, tags = {}, clear = function() end, destroy = function() end,
+        add = function(spec) if spec and spec.caption then captions[#captions + 1] = spec.caption end return elem() end}
+      return e
+    end
+    local frame = elem()
+    local player = {index = 1, gui = {relative = {add = function() return frame end}}}
+    game.get_player = function() return player end
+    local inv = {get_item_count = function(name)
+      local stock = {["colony-forage"] = 40, wood = 40}
+      return stock[name] or 0
+    end, get_contents = function() return {} end}
+    local house = {kind = "homestead", tower_served = true, occupants = 4, inflight = {},
+      sat = {food = true, water = true, heat = true},
+      entity = {valid = true, name = "colony-housing-homestead", unit_number = 7,
+        position = {x = 0, y = 0}, surface = {index = 1},
+        get_inventory = function() return inv end}}
+    local c = {id = 1, houses = {[7] = house}, colonists = {}, locks = {}, hall = {valid = true}}
+    colony_mod.colony_of = function() return c end
+    env.fire(defines.events.on_gui_opened, {player_index = 1, gui_type = defines.gui_type.entity,
+      entity = house.entity})
+    local parts = {}
+    for _, cap in ipairs(captions) do
+      if type(cap) == "table" then
+        for _, piece in ipairs(cap) do parts[#parts + 1] = tostring(piece) end
+      else parts[#parts + 1] = tostring(cap) end
+    end
+    local text = table.concat(parts, "|")
+    truthy(text:find("colony-gui.fully-stocked", 1, true), "a served house with full shelves needs nothing")
+    -- The informational need row still lists colony-water (it shows the shelf count); only the "requesting"
+    -- caption is the phantom. With the skip it is not rendered at all.
+    eq(text:find("colony-gui.requesting", 1, true), nil, "no phantom water request in the panel")
+  end)
 end)

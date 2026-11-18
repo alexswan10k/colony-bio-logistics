@@ -109,6 +109,9 @@ local motorpool = chest_clone("steel-chest", "colony-motor-pool", "motor-pool", 
 local platform = chest_clone("iron-chest", "colony-passenger-platform", "passenger-platform", 4, 1)
 -- Canteen (#50): an outpost's food stop for commuters from other rail-linked colonies.
 local canteen = chest_clone("iron-chest", "colony-canteen", "canteen", 8, 1)
+-- Spa (#51): a worker-free 2x2 amenity that hosts tourists from another rail-linked colony. Reuses the
+-- Tavern art/icon so the minimal slice adds no new graphics; its only state is registry + desirability.
+local spa = chest_clone("iron-chest", "colony-spa", "tavern", 4, 1)
 
 -- Colony Ledger (#92): a constant combinator the colony writes itself. Every 60 ticks it republishes the
 -- colony ledger (stock, or the shortfall against quotas) as item signals, so a factory can react to what the
@@ -337,7 +340,7 @@ ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while wal
 
 data:extend({
   hall, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
-  smokehouse, kitchen, toolsmith, tavern, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, warehouse, haul_station, compost_bin,
+  smokehouse, kitchen, toolsmith, tavern, spa, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, warehouse, haul_station, compost_bin,
   cannery, refrigerated_warehouse, refrigerated_wagon, tower, ledger_entity,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
@@ -374,6 +377,7 @@ data:extend({
   item_of(motorpool, "motor-pool", "z[colony]-l2[motor-pool]"),
   item_of(platform, "passenger-platform", "z[colony]-l3[passenger-platform]"),
   item_of(canteen, "canteen", "z[colony]-l5[canteen]"),
+  item_of(spa, "tavern", "z[colony]-l4[spa]"),
   item_of(clinic, "clinic", "z[colony]-l6[clinic]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
@@ -581,6 +585,7 @@ data:extend({
   recipe("colony-motor-pool", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 20, ["iron-gear-wheel"] = 10}, 3, 1, false),
   recipe("colony-passenger-platform", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-canteen", {wood = 30, ["stone-brick"] = 10, ["iron-plate"] = 10}, 3, 1, false),
+  recipe("colony-spa", {wood = 20, ["stone-brick"] = 10, ["iron-plate"] = 5}, 3, 1, false),
   recipe("colony-clinic", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-passenger-coach", {["cargo-wagon"] = 1, wood = 20}, 5, 1, false),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4, false),

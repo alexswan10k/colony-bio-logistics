@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 41
+local SCHEMA = 42
 
 local migrations = {
   [1] = function()
@@ -311,6 +311,21 @@ local migrations = {
       c.patrols = c.patrols or {}
     end
     storage.patrol_ui = storage.patrol_ui or {selection = {}}
+  end,
+  [42] = function()
+    -- Tourism / Cultural Insights (#51): colony.spas [unit_number] = {entity, colony_id}; colony.insights is
+    -- the decaying stat, insights_total the lifetime count and last_insight_tick the payout cooldown.
+    -- storage.tourists [unit_number] = {home, host, until} holds a visitor at a Spa host (bed at home in
+    -- colony.away). Coach groups gain kind "tourist"/"tourist_return" plus host/visited, and unit_state
+    -- gains tourist/tourist_host/tourist_return/tourist_home/tourist_visited markers. All plain data;
+    -- LuaEntity references re-resolve on load, exactly like platforms and Canteens.
+    storage.tourists = storage.tourists or {}
+    for _, c in pairs(storage.colonies or {}) do
+      c.spas = c.spas or {}
+      c.insights = c.insights or 0
+      c.insights_total = c.insights_total or 0
+      c.last_insight_tick = c.last_insight_tick or 0
+    end
   end,
 }
 

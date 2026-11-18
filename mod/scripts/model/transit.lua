@@ -26,14 +26,19 @@ function M.alights_here(group, here)
   return group.from ~= here or (group.stops or 0) >= M.RETURN_AFTER
 end
 
--- groups: array of {from = colony id, n = riders, stops = stops ridden, kind = nil|"commute"|"return", home},
--- oldest first. Three kinds of rider (#49, #50):
+-- groups: array of {from = colony id, n = riders, stops = stops ridden,
+-- kind = nil|"commute"|"return"|"tourist"|"tourist_return", home, host, visited}, oldest first.
+-- Five kinds of rider (#49, #50, #51):
 --   * migrants (kind nil) get off away from `from` into `free` beds;
 --   * commuters on their way to work ("commute", from = home) get off away from home into `jobs` (the outpost's
 --     open job slots), or back at home after RETURN_AFTER stops: their beds there were held for them;
---   * commuters on their way home ("return") get off only at `home`, beds or not.
+--   * commuters on their way home ("return") get off only at `home`, beds or not;
+--   * tourists outbound ("tourist", from = home, host = colony with the Spa) get off only at `host`, or back
+--     at `home` after RETURN_AFTER stops if the host could not be reached (still no insight);
+--   * tourists going home ("tourist_return", from = host, home = home, visited = true) get off only at `home`.
 -- Returns how many get off at colony `here`, the groups left aboard (each with its stop counted), and the
--- batches that got off: array of {kind, from, home, n}.
+-- batches that got off: array of {kind, from, home, host, visited, n}. The two tourist fields are additive
+-- and nil-safe so #23/#26 saves and the older three kinds behave exactly as before.
 function M.alight(groups, here, free, jobs)
   local out, left, offs = 0, {}, {}
   free, jobs = math.max(free or 0, 0), math.max(jobs or 0, 0)
@@ -48,15 +53,25 @@ function M.alight(groups, here, free, jobs)
         off = math.min(n, jobs)
         jobs = jobs - off
       end
+    elseif g.kind == "tourist" then
+      -- Step off at the Spa colony only. A group that never finds its host rides on until RETURN_AFTER
+      -- stops and then gets off back home with visited = nil: physically returned, never paid (#51).
+      if g.host == here or ((g.stops or 0) >= M.RETURN_AFTER and g.home == here) then off = n end
+    elseif g.kind == "tourist_return" then
+      -- The payout site: only the rider's own home, never a host or a third colony on the line.
+      if g.home == here then off = n end
     elseif M.alights_here(g, here) then
       off = math.min(n, free)
       free = free - off
     end
     if off > 0 then
       out, n = out + off, n - off
-      offs[#offs + 1] = {kind = g.kind, from = g.from, home = g.home, n = off}
+      offs[#offs + 1] = {kind = g.kind, from = g.from, home = g.home, host = g.host, visited = g.visited, n = off}
     end
-    if n > 0 then left[#left + 1] = {from = g.from, n = n, stops = (g.stops or 0) + 1, kind = g.kind, home = g.home} end
+    if n > 0 then
+      left[#left + 1] = {from = g.from, n = n, stops = (g.stops or 0) + 1, kind = g.kind, home = g.home,
+        host = g.host, visited = g.visited}
+    end
   end
   return out, left, offs
 end

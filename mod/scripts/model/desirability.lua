@@ -21,6 +21,10 @@ M.defaults = {
   w_privacy = 0.15,           -- bonus for houses that are empty or hold a single colonist
   w_commute = 0.05,            -- short walks to work are a small pull (#93): a bonus, so no jobs costs nothing
   commute_far = 48,            -- tiles at which the commute bonus reaches zero
+  w_tourism = 0.10,            -- Cultural Insight at home (#51): bonus-only, saturates at one insight
+  tourism_cap = 2.0,           -- stat value at which the home bonus saturates
+  w_hospitality = 0.05,        -- per current visitor at a Spa host (#51): bonus-only
+  hospitality_cap = 2,         -- visitors counted at the host
 }
 
 local function clamp(x, lo, hi) return math.max(lo, math.min(hi, x)) end
@@ -38,6 +42,7 @@ end
 -- inputs: food_ratio (stock / target stock), free_housing_ratio, scenic, leisure, recreation (0..1), pollution (0..1+),
 -- sickness (share of the town ill, 0..1), tents (number of tents), open_jobs (unfilled hut slots),
 -- privacy (0..1: houses that are empty or single-occupancy pull), commute (0..1: see `commute_score`),
+-- tourism (Cultural Insight stat at home, #51), hospitality (current visitors at a Spa host, #51),
 -- deaths = list of ages (intervals), death_halflife = optional override (a Cemetery shortens mourning, #53)
 function M.compute(inp, p)
   p = p or M.defaults
@@ -57,6 +62,8 @@ function M.compute(inp, p)
     jobs = p.w_jobs * clamp((inp.open_jobs or 0) / p.jobs_full, 0, 1),
     privacy = p.w_privacy * clamp(inp.privacy or 0, 0, 1),
     commute = (p.w_commute or 0) * clamp(inp.commute or 0, 0, 1),
+    tourism = (p.w_tourism or 0) * clamp(math.min(inp.tourism or 0, p.tourism_cap or 2.0), 0, 1),
+    hospitality = (p.w_hospitality or 0) * clamp(inp.hospitality or 0, 0, p.hospitality_cap or 2),
   }
   local d = 0
   for _, v in pairs(parts) do d = d + v end

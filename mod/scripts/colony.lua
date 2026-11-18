@@ -37,6 +37,7 @@ local transit = require("scripts.transit")
 local mortality = require("scripts.mortality")
 local shelter = require("scripts.shelter")
 local commute = require("scripts.commute")
+local tourism = require("scripts.tourism")
 local illness = require("scripts.illness")
 local militia = require("scripts.militia")
 local armory = require("scripts.armory")
@@ -60,6 +61,7 @@ M.TAVERN = "colony-tavern"
 M.PLATFORM = "colony-passenger-platform"
 M.CEMETERY = "colony-cemetery"
 M.CANTEEN = "colony-canteen"
+M.SPA = "colony-spa"
 M.ARMORY = "colony-armory"
 M.PATROL_POST = "colony-patrol-post"
 M.MEAL_ITEMS = commute.FOOD_ITEMS     -- what a Canteen serves (#50): the foods houses eat
@@ -189,6 +191,19 @@ function M.canteen_list(colony)
   return out
 end
 
+-- Spas (#51), in a stable order: [unit_number] = {entity, colony_id}. A worker-free 2-visitor amenity;
+-- it only creates host demand, so the registry is all the state it has.
+function M.spa_list(colony)
+  local ids = {}
+  for un, s in pairs(colony.spas or {}) do
+    if s.entity.valid then ids[#ids + 1] = un else colony.spas[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.spas[un] end
+  return out
+end
+
 -- Cemeteries (#53), in a stable order: [unit_number] = {entity, colony_id, graves}.
 function M.cemetery_list(colony)
   local ids = {}
@@ -259,7 +274,7 @@ function M.live_colonists(colony)
   if colony.pop_tick and game.tick - colony.pop_tick < M.POP_TTL then return colony.pop_cache end
   local n = 0
   for id, c in pairs(colony.colonists) do
-    if c.valid then n = n + 1 else
+    if not c.valid then
       local un = id
       if settings and settings.global and settings.global["colony-debug-log"] and settings.global["colony-debug-log"].value then
         local st = storage.unit_state and storage.unit_state[un]
@@ -268,6 +283,8 @@ function M.live_colonists(colony)
       end
       colony.colonists[un] = nil
       if colony.locks then colony.locks[un] = nil end
+    elseif not tourism.is_visitor(id) then
+      n = n + 1   -- #51: a guest at a Spa is not a resident of the host town
     end
   end
   colony.pop_cache, colony.pop_tick = n, game.tick
@@ -278,9 +295,11 @@ end
 function M.colonist_ids(colony)
   local ids = {}
   for un, c in pairs(colony.colonists) do
-    if c.valid then ids[#ids + 1] = un else
+    if not c.valid then
       colony.colonists[un] = nil
       if colony.locks then colony.locks[un] = nil end
+    elseif not tourism.is_visitor(un) then
+      ids[#ids + 1] = un   -- #51: visitors get no host bed and are not in the household rosters
     end
   end
   table.sort(ids)
@@ -1163,7 +1182,7 @@ local function leave_one(colony)
   local un
   for id, c in pairs(colony.colonists) do
     local child = storage.age and storage.age[id] and storage.age[id].stage == "child"
-    if c.valid and (not un or id > un) and not commute.is_commuter(id) and not child then un = id end   -- commuters and children are not ours to lose
+    if c.valid and (not un or id > un) and not commute.is_commuter(id) and not tourism.is_visitor(id) and not child then un = id end   -- commuters, guests and children are not ours to lose
   end
   if not un then return false end
   local c = colony.colonists[un]
@@ -1179,6 +1198,10 @@ function M.evaluate(data)
   if not colony then return end
   if not colony.hall.valid then return end    -- hall gone; colony dormant
   scheduler.after(M.interval(), "colony.evaluate", data)
+
+  -- Cultural Insights (#51): the stat itself decays once per evaluation (12-evaluation half-life). The
+  -- lifetime total on the panel never decays and never feeds desirability.
+  tourism.decay(colony)
 
   -- Salt pans (#81): evaporation needs nobody. Each pan fills on its own clock, so this costs one comparison
   -- per pan per evaluation and never scans the map.
@@ -1451,6 +1474,7 @@ function M.evaluate(data)
     pollution = pollution, deaths = colony.deaths,
     sickness = pop > 0 and (colony.sick_count or 0) / pop or 0,
     tents = tents, open_jobs = open_jobs, privacy = privacy, commute = work_walk,
+    tourism = colony.insights or 0, hospitality = #tourism.here(colony),
     death_halflife = mortality_model.halflife(desirability.defaults.death_halflife, #M.cemetery_list(colony) > 0),
   })
   colony.d, colony.d_parts = d, parts
@@ -1485,9 +1509,10 @@ function M.evaluate(data)
   end
   -- Colonists with no bed (a house was removed) move by train when another colony has room (#49).
   -- Commuters at work here (#50) sleep at home, so they are never homeless here.
-  local homeless = M.live_colonists(colony) - #commute.here(colony) - M.capacity(colony) - transit.waiting_count(colony)
+  local homeless = M.live_colonists(colony) - #commute.here(colony) - #tourism.here(colony) - M.capacity(colony) - transit.waiting_count(colony)
   if homeless > 0 then transit.depart(colony, 0, homeless) end
   commute.evaluate(colony)
+  tourism.evaluate(colony)
   M.check_milestones(colony.hall.force)
   feedback.ensure(colony)
   -- Sleepers whose individual check was lost (save/load mid-walk) are woken here. Idle colonists already
@@ -1621,7 +1646,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.LEDGER or M.HOUSES[name] or labour.HUTS[name] then
+    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or M.HOUSES[name] or labour.HUTS[name] then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -1662,7 +1687,8 @@ local function on_built(ev)
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
       towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, armories = {},
       patrol_posts = {}, patrols = {},   -- M3 Stage 3 (#57): waypoint records and active patrol leases (schema 41)
-      pools = {}, taverns = {}, platforms = {}, cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, overflow = {}, ratings = {},
+      pools = {}, taverns = {}, platforms = {}, spas = {}, insights = 0, insights_total = 0, last_insight_tick = 0,
+      cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, overflow = {}, ratings = {},
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, storage_priority = 3}
     storage.colonies[id] = colony
     M.seed_forage(colony)   -- the claimed land already has berries on it
@@ -1823,6 +1849,17 @@ local function on_built(ev)
     colony.canteens = colony.canteens or {}
     colony.canteens[e.unit_number] = {entity = e, colony_id = colony.id, inflight = {}}
     script.register_on_object_destroyed(e)
+  elseif name == M.SPA then
+    -- Spa (#51): a worker-free 2-visitor amenity. Built inside territory like every other colony building;
+    -- it has no inventory logic and no per-tick work, it only gives this town a place to host tourists.
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.spas = colony.spas or {}
+    colony.spas[e.unit_number] = {entity = e, colony_id = colony.id}
+    rendering.draw_circle{color = {0.8, 0.5, 0.85, 0.5}, width = 2, filled = false, radius = 24,
+      target = e, surface = e.surface, only_in_alt_mode = true}
+    script.register_on_object_destroyed(e)
   elseif name == M.CEMETERY then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -1915,7 +1952,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or item_name == M.HALL or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -2042,6 +2079,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
       colony.canteens[un] = nil
       return
     end
+    if colony.spas and colony.spas[un] then
+      colony.spas[un] = nil   -- tourists already visiting finish their stay; no new ones are wanted
+      return
+    end
     if colony.cemeteries and colony.cemeteries[un] then
       colony.cemeteries[un] = nil   -- the graves go with it; `buried` keeps the count
       return
@@ -2085,6 +2126,8 @@ events.on(defines.events.on_object_destroyed, function(ev)
 end)
 
 work.bind(M); gui.bind(M, ledger_signal); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M); commute.bind(M, transit); illness.bind(M)   -- avoids a require cycle (runtime require is illegal)
+-- #51: the tourism adapter owns the trip's engine side; transit calls back into it on board/alight/loss.
+tourism.bind(M, transit); transit.bind_tourism(tourism)
 ledger_signal.bind(M)
 -- M3 militia (#55): bind the combat adapter and hand it to work/command so they can delegate militia units
 -- and preserve gear across whistle leases without a runtime require cycle.
@@ -2520,6 +2563,7 @@ function M.stats(colony)
     scenic = colony.scenic or 0, pollution = colony.pollution or 0,
     fallen = colony.fallen or 0, buried = colony.buried or 0,
     away = colony.away or 0, commuters_here = #commute.here(colony),
+    insights = colony.insights or 0, insights_total = colony.insights_total or 0, visitors = #tourism.here(colony),
     sick = colony.sick_count or 0, sick_lung = colony.sick_lung or 0, sick_poison = colony.sick_poison or 0}
 end
 

@@ -54,6 +54,16 @@ describe("tourism (#51)", function()
     eq(t.earns_insight({kind = "commute", home = 1, n = 1}, 1), false)
   end)
 
+  it("credits every rider of each genuine return batch, even two batches in one tick", function()
+    local b1 = {kind = "tourist_return", home = 1, host = 2, visited = true, n = 2}
+    local b2 = {kind = "tourist_return", home = 1, host = 2, visited = true, n = 1}
+    eq(t.credited(b1, 1), 2)
+    eq(t.credited(b2, 1), 1)
+    eq(t.credited(b1, 1) + t.credited(b2, 1), 3, "no legitimate rider is lost to a batch throttle")
+    eq(t.credited({kind = "tourist_return", home = 1, host = 1, visited = true, n = 2}, 1), 0)
+    eq(t.credited({kind = "tourist_return", home = 1, host = 2, visited = false, n = 2}, 1), 0)
+  end)
+
   it("halves the stat over twelve evaluations", function()
     near(t.decay(1, t.INSIGHT_HALF_LIFE), 0.5 ^ (1 / 12))
     near(t.decay(2, 12), 2 * 0.5 ^ (1 / 12))

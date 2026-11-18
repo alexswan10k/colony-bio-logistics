@@ -314,7 +314,8 @@ local migrations = {
   end,
   [42] = function()
     -- Tourism / Cultural Insights (#51): colony.spas [unit_number] = {entity, colony_id}; colony.insights is
-    -- the decaying stat, insights_total the lifetime count and last_insight_tick the payout cooldown.
+    -- the decaying stat, insights_total the lifetime count and last_insight_tick the last payout tick
+    -- (informational: payout is one insight per rider, never gated by a batch cooldown).
     -- storage.tourists [unit_number] = {home, host, until} holds a visitor at a Spa host (bed at home in
     -- colony.away). Coach groups gain kind "tourist"/"tourist_return" plus host/visited, and unit_state
     -- gains tourist/tourist_host/tourist_return/tourist_home/tourist_visited markers. All plain data;

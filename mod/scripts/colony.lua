@@ -1509,7 +1509,9 @@ function M.evaluate(data)
   end
   -- Colonists with no bed (a house was removed) move by train when another colony has room (#49).
   -- Commuters at work here (#50) sleep at home, so they are never homeless here.
-  local homeless = M.live_colonists(colony) - #commute.here(colony) - #tourism.here(colony) - M.capacity(colony) - transit.waiting_count(colony)
+  -- #51: live_colonists already excludes Spa visitors, so they must NOT be subtracted again here (doing so
+  -- under-reports homeless residents on a host that has visitors, and the #49 rail departure never fires).
+  local homeless = M.live_colonists(colony) - #commute.here(colony) - M.capacity(colony) - transit.waiting_count(colony)
   if homeless > 0 then transit.depart(colony, 0, homeless) end
   commute.evaluate(colony)
   tourism.evaluate(colony)

@@ -76,7 +76,7 @@ end
 -- spawned by colony.spawn_colonist, which assigns work immediately, so clear that claim here.
 function M.arrive_at_host(colony, batch, spawned)
   storage.tourists = storage.tourists or {}
-  local until_tick = game.tick + (storage.visit_override or tourism.VISIT_TICKS)
+  local until_tick = game.tick + tourism.VISIT_TICKS
   for _, e in ipairs(spawned) do
     local un = e.unit_number
     local st = storage.unit_state[un]
@@ -94,13 +94,13 @@ end
 function M.arrive_home(colony, batch)
   local n = batch.n or 0
   release_beds(batch.home or colony.id, n)
-  if not tourism.earns_insight(batch, colony.id) then return 0 end
-  if game.tick - (colony.last_insight_tick or 0) < tourism.INSIGHT_COOLDOWN then return 0 end
-  colony.insights = (colony.insights or 0) + n
-  colony.insights_total = (colony.insights_total or 0) + n
-  colony.last_insight_tick = game.tick
-  if colony.hall.valid then colony.hall.force.print({"colony-message.insight-earned", n}) end
-  return n
+  local paid = tourism.credited(batch, colony.id)   -- one insight per rider, never a per-batch throttle
+  if paid <= 0 then return 0 end
+  colony.insights = (colony.insights or 0) + paid
+  colony.insights_total = (colony.insights_total or 0) + paid
+  colony.last_insight_tick = game.tick              -- informational only: no payout is gated by it
+  if colony.hall.valid then colony.hall.force.print({"colony-message.insight-earned", paid}) end
+  return paid
 end
 
 -- A coach destroyed/mined before the riders got home: beds come back, no insight, ever. Called by both
@@ -137,6 +137,18 @@ local function inbound_to(host_id)
     for _, g in ipairs(rec.groups or {}) do
       if g.kind == "tourist" and g.host == host_id then n = n + g.n end
     end
+  end
+  return n
+end
+
+-- Tourists from ANY home walking to (or waiting at) a platform for this host but not yet aboard. They are
+-- neither `visiting` nor `inbound` coach riders yet, so without this reservation several homes evaluating
+-- in one tick would each see the full Spa capacity and over-send. One pass over unit_state per evaluation.
+local function waiting_to(host_id)
+  local n = 0
+  for _, st in pairs(storage.unit_state or {}) do
+    if st.tourist and st.tourist_host == host_id
+        and (st.state == "to_platform" or st.state == "waiting_train") then n = n + 1 end
   end
   return n
 end
@@ -228,7 +240,7 @@ local function run_home(colony)
     local host = storage.colonies[id]
     if host and host.hall.valid and host.hall.surface == colony.hall.surface and tourism.host_ok(colony.id, id)
         and #colony_mod.spa_list(host) > 0 and platform(host) then
-      local cap = tourism.host_capacity(#colony_mod.spa_list(host), visitors_at(id), inbound_to(id), 0)
+      local cap = tourism.host_capacity(#colony_mod.spa_list(host), visitors_at(id), inbound_to(id), waiting_to(id))
       if cap > 0 then
         want = want + cap
         if not target then target = id end

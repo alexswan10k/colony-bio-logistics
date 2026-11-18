@@ -14,8 +14,10 @@ M.HOME_TOURIST_CAP = 2        -- concurrent tourists away from one home (beds he
 M.MAX_SEND_PER_EVAL = 1       -- one new departure per home per evaluation
 M.VISIT_TICKS = 6000          -- half a commuter shift: a visit is real time, not a teleport
 M.STRANDED_TICKS = 7200       -- a visitor waiting this long for the train home walks instead
-M.INSIGHT_COOLDOWN = 600      -- ticks between payout *batches* per home (defence in depth)
 M.INSIGHT_HALF_LIFE = 12      -- evaluations before a Cultural Insight is worth half as much
+-- There is deliberately no payout cooldown: every rider on a genuine visited return batch earns exactly
+-- one insight. A rider cannot be farmed - the 6000-tick visit, HOME_TOURIST_CAP and one departure per
+-- evaluation already bound the rate - and a per-batch throttle silently discarded legitimate riders.
 M.W_TOURISM = 0.10            -- home bonus once at least one insight has landed; never a penalty
 M.W_HOSPITALITY = 0.05        -- per current visitor at the host; never a penalty
 M.TOURISM_CAP = 2.0           -- stat saturates at this for the desirability maths
@@ -59,6 +61,13 @@ function M.earns_insight(group, here)
   if not group or group.kind ~= "tourist_return" or group.visited ~= true then return false end
   if group.host == nil or group.home == nil or group.host == group.home then return false end
   return here == group.home
+end
+
+-- The number of insights an alighted batch earns: one per rider, but only for a genuine visited return
+-- group at its own home. Two batches arriving close together each pay their own riders in full - the
+-- group is consumed by transit.alight, so neither can pay twice.
+function M.credited(group, here)
+  return M.earns_insight(group, here) and (group.n or 0) or 0
 end
 
 -- One evaluation of half-life decay: after INSIGHT_HALF_LIFE evaluations a stat is worth half as much.

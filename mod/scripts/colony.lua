@@ -461,19 +461,26 @@ local function link_notify(player, rec, key)
     position = (e and e.valid) and e.position or player.position}
 end
 
+-- The ONE validity gate for a pair, shared by the GUI bind path and the blueprint rebind path (#52 review
+-- finding 3). Neither path may skip self-link, territory, force or surface checks by mutating slots directly.
+-- Returns (colony_a, colony_b) on success or (nil, nil, reason_key) on refusal.
+local function validate_link_pair(a, b)
+  if not (a and b and a.kind == crates.LINK and b.kind == crates.LINK) then return nil, nil, "link-invalid" end
+  local ea, eb = a.entity, b.entity
+  if not (ea and ea.valid and ea.type ~= "entity-ghost" and eb and eb.valid and eb.type ~= "entity-ghost") then
+    return nil, nil, "link-invalid" end
+  local ca, cb = M.colony_of(ea), M.colony_of(eb)
+  if not (ca and cb) then return nil, nil, "link-outside" end
+  if ca.id == cb.id then return nil, nil, "link-self" end
+  if ea.force ~= eb.force or ea.surface.index ~= eb.surface.index then return nil, nil, "link-invalid" end
+  return ca, cb, nil
+end
+
 -- Bind two unpaired freight crates. a = export (source), b = import (destination). Returns true, link_id on
 -- success or false, reason_key on refusal; the GUI turns the key into a flying text via link_notify.
 function M.bind_link(a, b, player)
-  if not (a and b and a.kind == crates.LINK and b.kind == crates.LINK) then
-    link_notify(player, a, "link-invalid"); return false, "link-invalid" end
-  local ea, eb = a.entity, b.entity
-  if not (ea and ea.valid and ea.type ~= "entity-ghost" and eb and eb.valid and eb.type ~= "entity-ghost") then
-    link_notify(player, a, "link-invalid"); return false, "link-invalid" end
-  local ca, cb = M.colony_of(ea), M.colony_of(eb)
-  if not (ca and cb) then link_notify(player, a, "link-outside"); return false, "link-outside" end
-  if ca.id == cb.id then link_notify(player, a, "link-self"); return false, "link-self" end
-  if ea.force ~= eb.force or ea.surface.index ~= eb.surface.index then
-    link_notify(player, a, "link-invalid"); return false, "link-invalid" end
+  local ca, cb, why = validate_link_pair(a, b)
+  if why then link_notify(player, a, why); return false, why end
   if a.link or b.link then link_notify(player, a, "link-taken"); return false, "link-taken" end
   storage.links = storage.links or {}; storage.next_link_id = storage.next_link_id or 1
   local n = 0
@@ -481,8 +488,8 @@ function M.bind_link(a, b, player)
   if n >= links.MAX_LINKS then link_notify(player, a, "link-full"); return false, "link-full" end
   local id = storage.next_link_id; storage.next_link_id = id + 1
   storage.links[id] = {id = id,
-    a = {colony_id = ca.id, un = ea.unit_number, role = links.EXPORT},
-    b = {colony_id = cb.id, un = eb.unit_number, role = links.IMPORT}}
+    a = {colony_id = ca.id, un = a.entity.unit_number, role = links.EXPORT},
+    b = {colony_id = cb.id, un = b.entity.unit_number, role = links.IMPORT}}
   a.link, a.role, b.link, b.role = id, links.EXPORT, id, links.IMPORT
   M.invalidate_demand(cb)
   work.wake_idle_colonists(ca); work.wake_idle_colonists(cb)
@@ -493,22 +500,31 @@ end
 -- Clear a pair by either half's unit number. Destruction calls this from on_object_destroyed (where the
 -- caller's own registry record is already gone), so the lookup walks the bounded link registry, not crates.
 function M.unbind_link(un)
-  if not un or not storage.links then return false end
-  local id, peer_slot
-  for lid, l in pairs(storage.links) do
-    if l.a and l.a.un == un then id, peer_slot = lid, l.b; break end
-    if l.b and l.b.un == un then id, peer_slot = lid, l.a; break end
+  if not un then return false end
+  -- Clear the caller's own record FIRST, even when no registry entry contains this un. A dangling tag-carried
+  -- id (an old/foreign blueprint) must never leave a crate that can neither bind nor be unlinked (#52 review
+  -- finding 1): the GUI Unlink button is a no-op only if this loop is skipped.
+  local cleared = false
+  for _, c in pairs(storage.colonies or {}) do
+    local rec = c.crates and c.crates[un]
+    if rec and (rec.link ~= nil or rec.role ~= nil) then
+      rec.link, rec.role = nil, nil
+      M.invalidate_demand(c)
+      cleared = true
+    end
   end
-  if not id then return false end
+  local id, peer_slot
+  if storage.links then
+    for lid, l in pairs(storage.links) do
+      if l.a and l.a.un == un then id, peer_slot = lid, l.b; break end
+      if l.b and l.b.un == un then id, peer_slot = lid, l.a; break end
+    end
+  end
+  if not id then return cleared end
   local col = storage.colonies and storage.colonies[peer_slot.colony_id]
   local peer = col and col.crates and col.crates[peer_slot.un]
   if peer then peer.link, peer.role = nil, nil; M.invalidate_demand(col) end
   storage.links[id] = nil
-  -- The self half may still be in its registry (a GUI unlink) or already removed (destruction).
-  for _, c in pairs(storage.colonies or {}) do
-    local rec = c.crates and c.crates[un]
-    if rec then rec.link, rec.role = nil, nil; M.invalidate_demand(c) end
-  end
   return true
 end
 
@@ -526,25 +542,32 @@ function M.mirror_link_filters(c)
   return true
 end
 
--- Restore a tag-carried pair identity. When a pasted duplicate would make the original pair have two live
--- halves, the paste gets a fresh id and stays unpaired; a free slot is rebound into instead. Ghosts carry the
--- id/role in their tags but are not bound until revived (when a real unit number exists).
+-- Restore a tag-carried pair identity. A ghost can only carry the tag until revival (it has no live unit
+-- number); a LIVE crate whose tag id has no registry record is stale (pair destroyed, or a blueprint string
+-- imported from another save) and stays fully unpaired - committing that id would brick the crate because
+-- bind_link refuses a "taken" half and there would be no record for Unlink to clear (#52 review finding 1).
+-- Rebinding into a free slot goes through validate_link_pair, the same gate as bind_link (#52 finding 3).
 function M.restore_link_fields(colony, c, un, payload)
   c.link, c.role = nil, nil
   local id = links.validate_id(payload and payload.id)
   local role = links.validate_role(payload and payload.role)
   if not (id and role) then return end
+  if not un then c.link, c.role = id, role; return end   -- ghost: carry the tag, bind on revival
   local link = storage.links and storage.links[id]
-  if not un or not link then c.link, c.role = id, role; return end
+  if not link then return end                            -- stale id: leave the live crate unpaired
   local a_live, b_live = M.link_slot_live(link.a), M.link_slot_live(link.b)
-  if a_live and b_live then c.role = role; return end   -- duplicate paste: fresh unpaired half
+  if a_live and b_live then return end                   -- duplicate paste: fresh unpaired half
   local free = a_live and link.b or (b_live and link.a or nil)
-  if not free then c.role = role; return end            -- both halves dead: inert unpaired half
-  free.colony_id, free.un = colony.id, un
-  c.link, c.role = id, free.role or role
+  if not free then return end                            -- both halves dead: inert unpaired half
   local peer_slot = (free == link.a) and link.b or link.a
   local peer_col = storage.colonies and storage.colonies[peer_slot.colony_id]
-  if peer_col then M.invalidate_demand(peer_col) end
+  local peer = peer_col and peer_col.crates and peer_col.crates[peer_slot.un]
+  local own_col, validated_peer_col = validate_link_pair(c, peer)
+  if not own_col then return end                         -- no self / cross-force / cross-surface / outside link
+  free.colony_id, free.un = own_col.id, un
+  c.link, c.role = id, free.role or role
+  M.invalidate_demand(own_col)
+  if validated_peer_col then M.invalidate_demand(validated_peer_col) end
 end
 
 -- Compost bins in deterministic (unit_number) order; prunes dead ones. Same shape as crate_list.
@@ -920,9 +943,13 @@ function M.demand_table(colony)
   -- #52: an import freight crate's filters are B's want list, so B's #90 demand graph and quotas know the
   -- town wants those items. The export half deliberately does NOT seed A's demand: it ships surplus only.
   for _, crate in ipairs(M.link_crate_list(colony, links.IMPORT)) do
-    for i = 1, crates.FILTER_ROWS do
-      local f = crate.filters and crate.filters[i]
-      if f and f.item then seeds[f.item] = (seeds[f.item] or 0) + (f.count or crates.DEFAULT_COUNT) end
+    -- Only a live, actually paired import half is a real want list. A stray unpaired paste with an import
+    -- role must not inflate this colony's #90 demand (#52 review finding 6).
+    if crate.link ~= nil then
+      for i = 1, crates.FILTER_ROWS do
+        local f = crate.filters and crate.filters[i]
+        if f and f.item then seeds[f.item] = (seeds[f.item] or 0) + (f.count or crates.DEFAULT_COUNT) end
+      end
     end
   end
   for _, h in pairs(colony.huts or {}) do
@@ -2188,6 +2215,10 @@ end)
 events.on(defines.events.on_object_destroyed, function(ev)
   local un = ev.useful_id
   if not un then return end
+  -- #52 review finding 2: this event is deferred to the end of the tick, and crate_list prunes a dead crate
+  -- record on the very next haul assignment. Unbind by unit number FIRST, independently of whether the
+  -- crate registry record survived, or a mined half would leave a dead slot and a "taken" peer forever.
+  if storage.links and next(storage.links) then M.unbind_link(un) end
   for _, colony in pairs(storage.colonies) do
     if colony.houses and colony.houses[un] then
       local h = colony.houses[un]
@@ -2242,8 +2273,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
       return
     end
     if colony.crates and colony.crates[un] then
-      if colony.crates[un].kind == crates.LINK then M.unbind_link(un) end   -- #52: free the peer half
-      colony.crates[un] = nil
+      colony.crates[un] = nil   -- #52: the unbind already happened unconditionally at the top of this handler
       return
     end
     if colony.bins and colony.bins[un] then

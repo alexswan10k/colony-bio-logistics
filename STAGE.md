@@ -24,22 +24,30 @@ returns `crate.link` (nil for ordinary crates). Dense filter rows unchanged.
 **`mod/scripts/model/types.lua`** — `LinkSlot`, `LinkRecord`, `CrateLinkFields` annotations for strict
 missing-fields checking.
 
-**`mod/scripts/store.lua`** — schema 41 → **42**; `migrations[42]` creates `storage.links = {}` and
+**`mod/scripts/store.lua`** — schema 41 → **43**; `migrations[43]` creates `storage.links = {}` and
 `storage.next_link_id = 1`. All plain data; no schema field is added to existing crate records (link/role are
-nil-safe).
+nil-safe). **42 is deliberately left unassigned on this branch** (the parallel tourism branch owns it);
+`M.migrate()` now skips an absent slot, so an old save upgrades cleanly here and a merge keeps both bodies
+instead of silently dropping one. Review finding 4.
 
 **`mod/scripts/colony.lua`** (thin adapter):
 - `M.LINK_CRATE = "colony-freight-crate"` added to `M.CRATES`.
 - `link_crate_list(colony, role)`; `link_record`, `link_slot_live`, `link_peer` (the trust boundary:
   cross-checks both slots against live registry records, roles, force, surface, kind); `link_candidates`.
-- `bind_link(a, b, player)` — refuses self-link, already-paired, wrong force/surface, outside territory and
-  >32 links; assigns a monotonic id, writes both slots and both `role`s, invalidates B's demand, wakes both
-  workforces, returns `(false, reason_key)` for flying text. `unbind_link(un)` finds the pair by unit number,
-  clears the peer, deletes the record; called from the existing `on_object_destroyed` crate branch.
+- `validate_link_pair(a, b)` is the single validity gate (kind, live entity, territory, self-link, force,
+  surface) shared by `bind_link` and the blueprint rebind path — no path mutates slots without it.
+  `bind_link` additionally refuses already-paired halves and >32 links; it assigns a monotonic id, writes both
+  slots and roles, invalidates B's demand, wakes both workforces and returns `(false, reason_key)` for flying
+  text. `unbind_link(un)` **always clears the caller's own link/role first** (even when no registry entry
+  contains that unit number), then clears the peer and deletes the record.
+- `on_object_destroyed` calls `unbind_link(un)` unconditionally at the top of the handler, independent of
+  whether `colony.crates[un]` still exists — the deferred event can lose the race against `crate_list` pruning.
 - `mirror_link_filters(c)` copies filter rows to the peer on panel edits.
-- `restore_link_fields` — the blueprint/copy rebind rule: a duplicate paste of an intact pair gets a fresh
-  id and stays unpaired; a free slot is rebound into; ghosts carry id/role in tags until revived.
-- `demand_table` seeds import LINK crates (export crates deliberately do not seed A's demand).
+- `restore_link_fields` — the blueprint/copy rebind rule: a ghost carries id/role in tags until revival; a
+  LIVE crate with an id that has no `storage.links` record stays fully unpaired (no dangling id); a duplicate
+  paste of an intact pair is unpaired; a free slot is rebound into **only through `validate_link_pair`**.
+- `demand_table` seeds only **paired** import LINK crates (`crate.link ~= nil`); export crates and stray
+  unpaired import-role pastes never seed demand.
 - `apply_tags`, `copy_settings`, `find_record`, `entity_tags` plumbing extended; crate destruction unlinks.
 
 **`mod/scripts/work.lua`** — `link_export_surplus(colony, exports)` computes
@@ -61,9 +69,10 @@ passenger rail and canteens; entity/item/description/technology/GUI/message loca
 **Tests** — new `tests/links_test.lua` (23 checks: id/role validation, peer resolution, valid_pair
 rejections, surplus clamp, claimed/inflight, contents, hysteresis, sort, import filtering, mirror, GUI
 candidates), extended `tests/model_test.lua` tag cases (link round-trip, forged values, dense rows),
-`tests/glue_test.lua` schema 42 + registry checks. `tests/locale_test.lua` unchanged and green.
+`tests/glue_test.lua` schema 43 + registry checks (its schema-6 → 43 migration also exercises the skipped
+slot 42). `tests/locale_test.lua` unchanged and green.
 
-**Spikes** — new `mod/scripts/spike/m2_link.lua` (34 checks), added to `spike/loader.lua`; `m1_persist`
+**Spikes** — new `mod/scripts/spike/m2_link.lua` (**44 checks**), added to `spike/loader.lua`; `m1_persist`
 records and re-checks `storage.links`/`next_link_id` across the save/load round-trip.
 
 ## Engine facts verified against https://lua-api.factorio.com/latest/
@@ -105,20 +114,56 @@ The `m2_link` spike proves reserve behaviour at offer time (surplus 5 → offer 
 real hauling (export crate got 10, A stock stayed 90 ≥ 40; B hall got 20 coal, crate 0, unfiltered junk
 untouched), self-link rejection, duplicate paste, and destruction cleanup/re-link.
 
+## Review fixes (REVIEW.md, verdict CHANGES REQUESTED)
+
+1. **MAJOR — stale blueprint id bricks a crate.** `restore_link_fields` no longer commits a tag id to a live
+   crate unless `storage.links[id]` exists; such a paste is fully unpaired (`link = nil`, `role = nil`).
+   `unbind_link` now clears the caller's `link`/`role` **before** looking for a registry record, so Unlink is
+   never a no-op. Mutation check in `m2_link`: after the pair is destroyed, paste the saved blueprint tag onto
+   a new live crate → `link=nil`; fault-inject `link=999` and call `unbind_link` → both fields cleared; the
+   same crate then binds successfully with a new id. Without the fix both checks fail.
+2. **MAJOR — destruction cleanup race.** `on_object_destroyed` calls `unbind_link(un)` unconditionally at the
+   top, before any `colony.crates[un]` lookup, so a `crate_list` prune in the one-tick window cannot orphan the
+   link. Mutation check in `m2_link`: after `crateA.destroy()` the spike calls `colony.crate_list(A)` to prune
+   the record **before** the deferred event, asserts the record is gone, and then asserts at +10 ticks that
+   the link record is deleted and the peer is inert. Without the fix the link record survives.
+3. **MINOR — rebind bypassed guards.** The new `validate_link_pair` is shared by `bind_link` and
+   `restore_link_fields`; a fault-injected stale record whose free slot is in the same colony is refused by
+   the rebind path (spike check "blueprint rebind refuses a same-colony pair").
+4. **MINOR — schema collision.** Freight links migrate at **43**, not 42; slot 42 is left for tourism and
+   `M.migrate()` skips absent slots. `AGENTS.md` was deliberately **not** edited in this follow-up per the
+   reviewer's instruction (it still mentions schema 42 from the previous commit).
+5. **MINOR — untested corners.** `m2_link` now checks a machine sink raising the reserve from 40 to 70 and
+   shrinking surplus from 60 to 30 (with the row cap still bounding the offer), a paired import crate seeding
+   B's demand by 20, and `quota_target = 0` exposing all 100 stock with only the row count as ceiling.
+   Design note: for directly-eaten food items with no quota (`colony-bread`, `colony-water`,
+   preserved/canned), `quota_target` is 0 by design (#54 "0 = unlimited"), so a freight link can ship such an
+   item down to zero reserve. That is the owner-approved reserve definition, not a new food floor; if a
+   playtest (#54) shows specialized towns are drained too aggressively, the fix belongs in per-item quotas,
+   not in the link rule.
+6. **MINOR — unpaired import-role pastes seeding demand.** Demand seeding now requires `crate.link ~= nil`,
+   and unpaired pastes carry no role at all. Spike check "an unpaired import-role paste does not seed demand"
+   reports 0 (was 500 with the old rule).
+
+Residual (not requested by the follow-up): save/load proves the new registry survives but with zero active
+links, since `m1_persist` intentionally keeps one colony; an active-pair round-trip is exercised by the tag
+checks in `m2_link` rather than by `m1_persist`.
+
 ## Gate outputs (exact)
 
 - `scripts/test.sh` → `531 passed, 0 failed`
 - `scripts/lint-determinism.sh` → `determinism lint ok`
 - `luajit -bl` on every changed Lua file → no output except `bytecode check done` (all compiled)
 - `scripts/typecheck.sh` → `Diagnosis completed, no problems found`
-- `TICKS=3600 scripts/headless-spike.sh m2_link` → `SUMMARY pass=34 fail=0 unknown=0 errors=0`
+- `TICKS=3600 scripts/headless-spike.sh m2_link` → `SUMMARY pass=44 fail=0 unknown=0 errors=0`
 - `TICKS=19500 scripts/headless-spike.sh m1_colony` → `SUMMARY pass=116 fail=0 unknown=0 errors=0`
 - `TICKS=400 scripts/headless-spike.sh m1_blueprint` → `SUMMARY pass=34 fail=0 unknown=0 errors=0`
 - `TICKS=400 scripts/headless-spike.sh m1_tech` → `SUMMARY pass=13 fail=0 unknown=0 errors=0`
 - `TICKS=19500 scripts/headless-spike.sh s16_links` → `SUMMARY pass=18 fail=0 unknown=0 errors=0`
-- `scripts/determinism.sh` (m1_colony, two runs, executed twice) → `final checksum: 1885879558`,
-  `DETERMINISM: PASS` both times.
-- `scripts/save-load.sh` → `SAVE/LOAD: PASS`, `schema unchanged - 42`,
+- `scripts/determinism.sh` (m1_colony, two runs, executed twice AFTER the fixes) → `final checksum: 1885879558`,
+  `DETERMINISM: PASS` both times — the checksum did **not** move: the fixes touch only link-crate paths and
+  storage migration bookkeeping, and no existing town has a link crate.
+- `scripts/save-load.sh` → `SAVE/LOAD: PASS`, `schema unchanged - 43`,
   `freight link registry survived the round-trip - 1`.
 - `scripts/bench-colony.sh` (500 colonists, 2000 machines, 3600 ticks) → PASS:
   `vanilla, mod disabled: 0.098 total`, `mod on, no colony: 0.099 total 0.002 script`,
@@ -130,7 +175,9 @@ untouched), self-link rejection, duplicate paste, and destruction cleanup/re-lin
 
 `1550186985` → **`1885879558`** (new freight-crate entity/item/recipe prototypes change Factorio's
 prototype-table hash). Existing-town behaviour is otherwise unchanged: `m1_colony` still 116/116 and its
-report is byte-identical between the two determinism runs.
+report is byte-identical between the two determinism runs. The review-fix pass did **not** move the checksum
+(two fresh two-run gates both returned `1885879558`), and the schema moved 42 → 43 to avoid the tourism
+collision.
 
 ## Deviations from PLAN.md
 
@@ -140,8 +187,9 @@ report is byte-identical between the two determinism runs.
    rules and avoids a second 19500-tick rail simulation.
 3. The single-link "claimed" guard is conservative: `take_load` already removes in-flight items from stock
    and invalidates the stock cache, so subtracting `claimed` as well can only *reduce* exports, never leak.
-4. `restore_link_fields` rebinds into a free slot adopting that slot's role (the peer is fixed); a paste whose
-   original pair is both live gets a fresh unpaired half with the tag's role.
+4. `restore_link_fields` rebinds into a free slot adopting that slot's role (the peer is fixed), but only after
+   `validate_link_pair`; a paste whose original pair is both live, whose id has no record, or whose rebind
+   would be a self/cross-force/cross-surface pair is left fully unpaired with no role.
 
 ## Reviewer scrutiny points
 
@@ -152,9 +200,11 @@ report is byte-identical between the two determinism runs.
   offer is emitted; unit tests pin the arithmetic and the spike checks `link-taken` on a second partner.
 - **Does the import crate strand goods?** No: it is a `collect` provider and B's own haul cycle empties it;
   the spike shows B hall coal 20, crate 0.
-- **Can a forged tag bind a pair?** `tags.decode` validates id/role; `restore_link_fields` re-checks the link
-  record and live slots; a duplicate paste is unpaired and emits no offer (spike check).
-- **Destruction cleanup timing** relies on the engine's deferred `on_object_destroyed`; the spike checks at
-  tick +10 and proves both peer unpaired and re-link with a new id.
+- **Can a forged/stale tag bind a pair?** `tags.decode` validates id/role; `restore_link_fields` re-checks the
+  link record, the live slots and `validate_link_pair`; a stale-id, duplicate or self-link paste is fully
+  unpaired and emits no offer (three spike checks).
+- **Destruction cleanup timing** relies on the engine's deferred `on_object_destroyed`; the spike forces the
+  prune race, checks at tick +10, and proves the link is deleted, the peer inert and a stale-tag paste can be
+  linked again with a fresh id.
 - **UPS:** one extra `crate_list` pass per assignment, skipped behaviourally when no link crates exist; no
   new scheduler entry, no world scan, no per-tick work. Bench result below.

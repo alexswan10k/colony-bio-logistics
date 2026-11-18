@@ -71,6 +71,9 @@ core.register("m2_link", {
     -- Tag round-trip: the pair identity rides the one namespaced key alongside dense filter rows.
     crates.set_filter(ra.filters, 1, "iron-plate"); crates.set_count(ra.filters, 1, 10)
     crates.set_filter(rb.filters, 1, "coal"); crates.set_count(rb.filters, 1, 20)
+    colony.invalidate_demand(B)
+    ctx.check("a paired import crate's filters seed B's #90 demand",
+      colony.resource_demand(B, "coal") >= 20, tostring(colony.resource_demand(B, "coal")))
     local dict = colony.entity_tags(crateA)
     local payload = dict and tags.decode(dict)
     ctx.check("the source crate's tags carry link id + role", payload and payload.crate
@@ -92,12 +95,33 @@ core.register("m2_link", {
     local dup = build("colony-freight-crate", {p.x - 110 + 24, p.y + 10})
     colony.apply_tags(A, dup, dict)
     local rdup = A.crates[dup.unit_number]
-    ctx.check("a duplicate paste is unpaired", rdup ~= nil and rdup.link == nil and rdup.role == "export")
+    ctx.check("a duplicate paste is fully unpaired", rdup ~= nil and rdup.link == nil and rdup.role == nil)
     ctx.check("the original pair is untouched by the paste", ra.link == id and rb.link == id
       and storage.links[id] ~= nil)
     ctx.check("an unpaired crate emits no offer", work.link_export_offer(rdup, A, {}) == nil
       and work.link_import_offer(rdup) == nil)
+    -- An unpaired import-role crate must not inflate demand (#52 review finding 6).
+    rdup.role, rdup.filters = links.IMPORT, {{item = "coal", count = 500}}
+    colony.invalidate_demand(A)
+    ctx.check("an unpaired import-role paste does not seed demand",
+      colony.resource_demand(A, "coal") == 0, tostring(colony.resource_demand(A, "coal")))
     dup.destroy(); if ghost and ghost.valid then ghost.destroy() end
+
+    -- Blueprint rebind must use bind_link's guards (#52 review finding 3). Fault-inject a stale record whose
+    -- one dead slot is in the SAME colony as the pasted crate; a direct slot mutation would create a self-link.
+    local fault_id = 9991
+    local orphan = build("colony-freight-crate", {p.x - 110 + 36, p.y + 10})
+    storage.links[fault_id] = {id = fault_id,
+      a = {colony_id = A.id, un = crateA.unit_number, role = links.EXPORT},
+      b = {colony_id = A.id, un = orphan.unit_number, role = links.IMPORT}}
+    local forged = build("colony-freight-crate", {p.x - 110 + 40, p.y + 10})
+    colony.apply_tags(A, forged, tags.dictionary({crate = true, filters = {},
+      link = {id = fault_id, role = links.EXPORT}}))
+    local rf = A.crates[forged.unit_number]
+    ctx.check("blueprint rebind refuses a same-colony pair", rf and rf.link == nil and rf.role == nil
+      and storage.links[fault_id].b.un == orphan.unit_number)
+    storage.links[fault_id] = nil
+    forged.destroy(); orphan.destroy()
 
     -- Trust boundary, checked at offer-build time before any colonist walks.
     colony.set_quota(A, "iron-plate", 40)
@@ -118,6 +142,33 @@ core.register("m2_link", {
       work.link_export_surplus(A, colony.link_crate_list(A))) == nil)
     hallA.insert{name = "iron-plate", count = 65}   -- 100 total again
     A.stock_cache, A.stock_tick = nil, nil
+
+    -- A sibling machine sink raises the reserve through the #90 demand graph: the same stock now has less
+    -- exportable surplus, and the row cap is the only ceiling once stock clears the raised reserve.
+    local sink = build("stone-furnace", {p.x - 110 + 18, p.y + 10})
+    local sm = colony.set_machine(A, sink, true)
+    if sm then sm.requests = {{item = "iron-plate", count = 30}} end
+    colony.invalidate_demand(A); A.stock_cache, A.stock_tick = nil, nil
+    local raised = colony.quota_target(A, "iron-plate")
+    local with_sink = work.link_export_surplus(A, colony.link_crate_list(A))
+    ctx.check("a machine sink raises the export reserve", raised == 70, tostring(raised))
+    ctx.check("the raised reserve shrinks export surplus", with_sink["iron-plate"] == 30,
+      tostring(with_sink["iron-plate"]))
+    ctx.check("the row cap still bounds a surplus above the raised reserve",
+      work.link_export_offer(ra, A, with_sink).demands[1].count == 10)
+    -- Drop the sink again so the physical hauling check below uses the plain quota-40 reserve.
+    colony.set_machine(A, sink, false); colony.invalidate_demand(A)
+    A.stock_cache, A.stock_tick = nil, nil
+
+    -- quota_target = 0 is the player's explicit "unlimited" opt-out: surplus is all stock and only the
+    -- per-row count caps a trip (#52 review finding 5).
+    colony.set_quota(A, "iron-plate", 0); A.stock_cache, A.stock_tick = nil, nil
+    local unlimited = work.link_export_surplus(A, colony.link_crate_list(A))
+    ctx.check("quota_target 0 makes surplus the whole stock", unlimited["iron-plate"] == 100,
+      tostring(unlimited["iron-plate"]))
+    ctx.check("quota_target 0 is capped by the row count only",
+      work.link_export_offer(ra, A, unlimited).demands[1].count == 10)
+    colony.set_quota(A, "iron-plate", 40); A.stock_cache, A.stock_tick = nil, nil
 
     -- A second export link shares the same surplus: neither link may count it twice.
     local hallC = build("colony-town-hall", {p.x, p.y + 150})
@@ -185,17 +236,32 @@ core.register("m2_link", {
 
       -- Destruction unlinks the peer through the existing crate-removal path. Factorio fires
       -- on_object_destroyed at the END of the current or next tick (engine docs), so the check lives in a
-      -- later deferred step rather than immediately after destroy().
+      -- later deferred step. Force the race: prune the crate record BEFORE the event fires, exactly what an
+      -- active colony's find_haul_task does (#52 review finding 2).
+      local doomed_un = crateA.unit_number
       crateA.destroy()
-      ctx.check("the destroyed crate is gone", not crateA.valid)
+      colony.crate_list(A)   -- opportunistic prune while the entity is already invalid
+      ctx.check("the destroyed crate is gone and its record was pruned",
+        not crateA.valid and A.crates[doomed_un] == nil)
     end)
     ctx.after(1510, function()
-      ctx.check("destroying one half deletes the link record", storage.links[id] == nil)
+      ctx.check("destruction unlinks even when the crate record was pruned first", storage.links[id] == nil)
       ctx.check("the peer is unpaired and inert", rb.link == nil and rb.role == nil
         and work.link_import_offer(rb) == nil)
-      local again = build("colony-freight-crate", {p.x - 110 + 28, p.y + 10})
-      local ra_again = A.crates[again.unit_number]
-      local ok_again, new_id = colony.bind_link(ra_again, rb)
+
+      -- Stale blueprint repro: the saved tag still carries the now-deleted id 1. A live paste must come back
+      -- fully unpaired, and Unlink must still clear a dangling id (#52 review finding 1).
+      local stale = build("colony-freight-crate", {p.x - 110 + 32, p.y + 10})
+      colony.apply_tags(A, stale, dict)
+      local rstale = A.crates[stale.unit_number]
+      ctx.check("a stale blueprint id leaves a live crate fully unpaired",
+        rstale ~= nil and rstale.link == nil and rstale.role == nil,
+        "link=" .. tostring(rstale and rstale.link))
+      rstale.link, rstale.role = 999, links.EXPORT   -- fault-inject a dangling id on an older save
+      local unlinked = colony.unbind_link(stale.unit_number)
+      ctx.check("unlink always clears a dangling id", unlinked == true
+        and rstale.link == nil and rstale.role == nil)
+      local ok_again, new_id = colony.bind_link(rstale, rb)
       ctx.check("the freed half can be re-linked", ok_again == true and new_id ~= id,
         "new id=" .. tostring(new_id))
       ctx.finish()

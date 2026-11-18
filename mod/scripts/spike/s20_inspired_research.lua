@@ -160,9 +160,13 @@ core.register("s20_inspired_research", {
         force.laboratory_speed_modifier = 1
         ctx.after(180, function()
           st.rate1 = force.research_progress
-          ctx.check("force lab modifier = 1 speeds research over modifier = 0",
-            st.rate0 == 0 and st.rate1 > 0 or st.rate1 > st.rate0 * 1.3,
-            string.format("rate0=%.6f rate1=%.6f", st.rate0, st.rate1))
+          -- Pin the claimed 2x: both windows must actually progress, and the ratio must be 2 (within a
+          -- small tolerance). The old `rate0 == 0 and rate1 > 0 or rate1 > rate0 * 1.3` passed any positive
+          -- rate1 when the first window happened to be empty, and never asserted 2x.
+          local ratio = st.rate0 > 0 and (st.rate1 / st.rate0) or 0
+          ctx.check("force lab modifier = 1 doubles research progress (ratio within 1.9..2.1)",
+            st.rate0 > 0 and st.rate1 > 0 and ratio >= 1.9 and ratio <= 2.1,
+            string.format("rate0=%.6f rate1=%.6f ratio=%.4f", st.rate0, st.rate1, ratio))
           ctx.finish()
         end)
       end)

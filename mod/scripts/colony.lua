@@ -352,8 +352,9 @@ function M.compute_inspiration(colony, split, houses)
   local night = work.is_sleep_time(colony.hall.surface)
   for _, un in ipairs(ids) do
     local st = storage.unit_state and storage.unit_state[un]
-    if st and st.job == "research" and st.hut and st.hut.entity and st.hut.entity.valid
-        and not night and st.state ~= "sleeping" and st.state ~= "to_bed" then
+    if st and st.job == "research" and st.hut and st.hut.entity and st.hut.entity.valid and not night
+        and st.state ~= "sleeping" and st.state ~= "to_bed"
+        and st.state ~= "to_shelter" and st.state ~= "sheltered" and st.state ~= "exposed" then
       total = total + 1
       local q = quality_of[un] or 0
       if q > 0 then
@@ -1221,7 +1222,13 @@ end
 function M.evaluate(data)
   local colony = storage.colonies[data.colony_id]
   if not colony then return end
-  if not colony.hall.valid then return end    -- hall gone; colony dormant
+  if not colony.hall.valid then
+    -- The colony is dormant, but its force may still be carrying the last Inspired research bonus. There is
+    -- no hall to read the force from here, so sweep the forces we have durable records for; target_for()
+    -- ignores invalid halls and drops the bonus to zero. Without this the modifier would never clear (M2).
+    research_speed.apply_all()
+    return
+  end
   scheduler.after(M.interval(), "colony.evaluate", data)
 
   -- Salt pans (#81): evaporation needs nobody. Each pan fills on its own clock, so this costs one comparison

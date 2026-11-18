@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 41
+local SCHEMA = 44
 
 local migrations = {
   [1] = function()
@@ -312,7 +312,20 @@ local migrations = {
     end
     storage.patrol_ui = storage.patrol_ui or {selection = {}}
   end,
+  [42] = function()
+    -- Reserved for the other in-flight M2 slice; this branch has no schema-42 layout of its own.
+  end,
+  [43] = function()
+    -- Reserved for the other in-flight M2 slice; this branch has no schema-43 layout of its own.
+  end,
+  [44] = function()
+    -- Inspired research (#48 slice A): durable per-force bookkeeping for the force-wide
+    -- `laboratory_speed_modifier`. [force_name] = {base = foreign modifier, applied = our last bonus}.
+    -- Saving `applied` is what makes a cold load safe when inspiration has changed since the save.
+    storage.research_speed = storage.research_speed or {}
+  end,
 }
+
 
 local function sanitize_functions(tbl, seen)
   if type(tbl) ~= "table" then return end

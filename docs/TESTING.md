@@ -55,6 +55,16 @@ Three headless gates cover the things the unit tests and the playable spike cann
   and integrated checks that a lease release returns a commanded hunter's kill and that a stale construction
   timer cannot overwrite a live order. Real mouse gestures cannot be raised from script — see the in-game
   checklist on #58.
+- `scripts/headless-spike.sh s20_inspired_research` - the #48 research-speed probe (13 checks): durable per-force
+  `laboratory_speed_modifier` survives a cold load with changed inspiration, preserves a foreign base by adding
+  to it, drops to zero when the last hall dies, and pins an exact 2.0000 research-rate ratio.
+- `scripts/headless-spike.sh m2_tourism` - the #51 Spa round trip (26 checks): the real player-driven
+  board/travel/alight/visit/return/payout flow, every anti-exploit guard, and a host with visitors still sending
+  its own homeless residents by rail. `scripts/tourism-save-load.sh` separately proves one payout per visitor
+  after a real save/load and none on later stops.
+- `scripts/headless-spike.sh m2_link` - the #52 freight-link probe (51 checks): pair creation, blueprint/tag
+  round-trip, stale-id and copy-paste half-unlink guards, export only above the demand-aware reserve, import
+  emptied by B's haulers, and deterministic cleanup after destruction.
 - `scripts/headless-spike.sh s19_defence` - the Stage 0 M3 defence engine probe (no gameplay changes): pins
   `LuaEntity:damage` return value / `on_entity_died` cause / resistance application, `is_military_target` being
   true but not runtime-writable, the `ai_settings.allow_destroy_when_commands_fail` readback (note the prototype

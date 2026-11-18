@@ -13,8 +13,9 @@ local M = {}
 
 M.COACH = "colony-passenger-coach"
 
-local colony_mod   -- injected by scripts.colony via M.bind
+local colony_mod, tourism   -- injected by scripts.colony via M.bind / M.bind_tourism
 function M.bind(c) colony_mod = c end
+function M.bind_tourism(t) tourism = t end
 
 local function dist2(a, b) local dx, dy = a.x - b.x, a.y - b.y; return dx * dx + dy * dy end
 
@@ -95,7 +96,8 @@ function M.depart(colony, leaving, homeless)
     local st = storage.unit_state[un]
     if c.valid and not (st and (st.state == "waiting_train" or st.state == "to_platform" or st.state == "driving"))
         and not (rec and rec.stage == "child")
-        and not commute.is_commuter(un) then
+        and not commute.is_commuter(un)
+        and not (tourism and tourism.is_visitor(un)) then   -- #51: host visitors are not the home's to lose
       ids[#ids + 1] = un
     end
   end
@@ -132,7 +134,7 @@ events.on(defines.events.on_train_changed_state, function(ev)
   local arrived = 0
   -- Riders off first: they free seats for the people waiting, and they need beds that boarders are leaving.
   -- Migrants need a free bed, commuters bound for work an open job slot (#50), commuters bound home nothing.
-  local arrived, commuters_in, home_again = 0, 0, 0
+  local arrived, commuters_in, home_again, tourists_in, tourists_home = 0, 0, 0, 0, 0
   for _, coach in ipairs(coaches) do
     local rec = storage.coaches[coach.unit_number]
     if rec then
@@ -145,7 +147,16 @@ events.on(defines.events.on_train_changed_state, function(ev)
           local e = colony_mod.spawn_colonist(colony, p.entity.position)
           if e then spawned[#spawned + 1] = e end
         end
-        if b.kind == "commute" and b.from ~= colony.id then
+        if b.kind == "tourist" and b.host == colony.id then
+          -- Arrival at the Spa: register the visit, but pay nothing. The held bed stays held at home.
+          if tourism then tourism.arrive_at_host(colony, b, spawned) end
+          tourists_in = tourists_in + #spawned
+        elseif b.kind == "tourist" or b.kind == "tourist_return" then
+          -- Home alight (or a diverted outbound group). tourism.arrive_home is the one and only payout
+          -- site; model/transit.alight has already consumed the group, so a second stop pays nothing.
+          if tourism then tourism.arrive_home(colony, b) end
+          tourists_home = tourists_home + #spawned
+        elseif b.kind == "commute" and b.from ~= colony.id then
           commute.arrived(colony, b.from, spawned)
           commuters_in = commuters_in + #spawned
           local lost = b.n - #spawned
@@ -165,6 +176,8 @@ events.on(defines.events.on_train_changed_state, function(ev)
   if arrived > 0 then colony.hall.force.print({"colony-message.train-arrived", arrived, at}) end
   if commuters_in > 0 then colony.hall.force.print({"colony-message.commuters-arrived", commuters_in, at}) end
   if home_again > 0 then colony.hall.force.print({"colony-message.commuters-home", home_again}) end
+  if tourists_in > 0 then colony.hall.force.print({"colony-message.tourists-arrived", tourists_in, at}) end
+  if tourists_home > 0 then colony.hall.force.print({"colony-message.tourists-home", tourists_home}) end
   -- Then board, coach by coach, until the seats or the queue run out.
   local queue, qi = waiting_at(colony, p), 1
   for _, coach in ipairs(coaches) do
@@ -183,13 +196,19 @@ events.on(defines.events.on_train_changed_state, function(ev)
       local c = colony.colonists[un]
       if c and c.valid then
         local st = storage.unit_state[un]
-        local kind, home = nil, nil
-        if st and st.commute then kind = "commute"
+        local kind, home, host, visited = nil, nil, nil, nil
+        if st and st.tourist and tourism and tourism.host_ok(colony.id, st.tourist_host) then
+          -- Outbound tourist: home is where we boarded; host is the Spa town. The bed is held at boarding.
+          kind, home, host = "tourist", colony.id, st.tourist_host
+        elseif st and st.tourist_return then
+          -- Returning visitor: the host is where we board, the bed is still held at `tourist_home`.
+          kind, home, host, visited = "tourist_return", st.tourist_home, colony.id, st.tourist_visited == true
+        elseif st and st.commute then kind = "commute"
         elseif st and st.home then kind, home = "return", st.home end
-        local k = (kind or "") .. ":" .. tostring(home)
+        local k = (kind or "") .. ":" .. tostring(home) .. ":" .. tostring(host)
         local b = batches[k]
         if not b then
-          b = {from = colony.id, n = 0, kind = kind, home = home}
+          b = {from = colony.id, n = 0, kind = kind, home = home, host = host, visited = visited}
           batches[k] = b
           batches[#batches + 1] = b
         end
@@ -197,12 +216,16 @@ events.on(defines.events.on_train_changed_state, function(ev)
         colony.colonists[un] = nil
         if colony.locks then colony.locks[un] = nil end
         if storage.commuters then storage.commuters[un] = nil end
+        if kind == "tourist" or kind == "tourist_return" then
+          if tourism then tourism.boarded(colony, un, kind) end
+        end
         c.destroy()     -- work's on_object_destroyed clears its state, label and anything it carried
         boarded, seats = boarded + 1, seats - 1
       end
     end
     for _, b in ipairs(batches) do
-      rec.groups[#rec.groups + 1] = {from = b.from, n = b.n, stops = 0, kind = b.kind, home = b.home}
+      rec.groups[#rec.groups + 1] = {from = b.from, n = b.n, stops = 0, kind = b.kind, home = b.home,
+        host = b.host, visited = b.visited}
       if b.kind == "commute" then commute.left_home(colony, b.n) end
     end
     if boarded > 0 then
@@ -220,10 +243,17 @@ end)
 local function each_origin(rec, fn)
   local by = {}
   for _, g in ipairs(rec.groups or {}) do
-    local id = g.kind == "return" and g.home or g.from
+    local tourist_group = g.kind == "tourist" or g.kind == "tourist_return"
+    local id = (g.kind == "return" or g.kind == "tourist_return") and g.home or g.from
     by[id] = (by[id] or 0) + g.n
-    local home = g.kind and storage.colonies[id]
-    if home then commute.back_home(home, g.n) end
+    if tourist_group then
+      -- #51: a lost coach returns the held bed but pays no insight. This is the only bed release for
+      -- tourist groups here, so a returning commuter's `back_home` below cannot double-release theirs.
+      if tourism then tourism.coach_lost(g) end
+    else
+      local home = g.kind and storage.colonies[id]
+      if home then commute.back_home(home, g.n) end
+    end
   end
   local ids = {}
   for id in pairs(by) do ids[#ids + 1] = id end

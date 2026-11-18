@@ -867,6 +867,12 @@ local function update_info(body, colony)
     if (st.away or 0) > 0 or (st.commuters_here or 0) > 0 then
       comm_parts[#comm_parts + 1] = tostring(st.away or 0) .. " away, " .. tostring(st.commuters_here or 0) .. " commuters"
     end
+    if (st.visitors or 0) > 0 then
+      comm_parts[#comm_parts + 1] = tostring(st.visitors) .. " visitors"
+    end
+    if (st.insights_total or 0) > 0 then
+      comm_parts[#comm_parts + 1] = string.format("%d insights (%.1f current)", st.insights_total, st.insights or 0)
+    end
     if #comm_parts == 0 then
       body.status_community.caption = {"colony-gui-info.healthy"}
     else
@@ -886,7 +892,8 @@ local function update_info(body, colony)
       string.format("%.2f", parts.pollution or 0), string.format("%.2f", parts.deaths or 0),
       string.format("%.2f", parts.recreation or 0), string.format("%.2f", parts.sickness or 0),
       string.format("%.2f", parts.tents or 0), string.format("%.2f", parts.jobs or 0),
-      string.format("%.2f", parts.privacy or 0)}
+      string.format("%.2f", parts.privacy or 0), string.format("%.2f", parts.tourism or 0),
+      string.format("%.2f", parts.hospitality or 0)}
   end
   if body.status_desirability_inputs then
     body.status_desirability_inputs.caption = {"colony-gui-info.desirability-inputs",

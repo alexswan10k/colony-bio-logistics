@@ -5,6 +5,7 @@
 local events = require("scripts.events")
 local mortality = require("scripts.model.mortality")
 local commute = require("scripts.commute")
+local tourism_mod = require("scripts.tourism")   -- #51: a visitor dies as its home town's colonist
 local M = {}
 
 M.COLONIST = "colony-colonist"
@@ -74,8 +75,9 @@ events.on(defines.events.on_entity_died, function(ev)
   colony.colonists[un] = nil
   if colony.locks then colony.locks[un] = nil end
   colony.pop_cache, colony.pop_tick = nil, nil
-  -- A commuter (#50) dies as its home town's colonist: the death, the grave and the freed bed are the home's.
-  colony = commute.died(un) or colony
+  -- A commuter (#50) or a visiting tourist (#51) dies as its home town's colonist: the death, the grave
+  -- and the freed bed are the home's.
+  colony = commute.died(un) or tourism_mod.died(un) or colony
   local killer = ev.cause and ev.cause.valid and ev.cause
   local cause = mortality.cause{
     cause_type = killer and killer.type,

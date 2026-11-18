@@ -184,5 +184,6 @@ data:extend({
       unlock("colony-passenger-platform"),
       unlock("colony-passenger-coach"),
       unlock("colony-canteen"),
+      unlock("colony-spa"),   -- #51: tourism rides the same rail network, no new tech node
     }),
 })

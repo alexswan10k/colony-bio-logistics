@@ -85,6 +85,8 @@ core.register("m1_persist", {
         crate_un = crate.unit_number, lock_un = lock_un, next_colony_id = storage.next_colony_id,
         hall_fish = hall.get_item_count("raw-fish"), scheduled = count(storage.scheduled), schema = storage.schema,
         labels = count(storage.unit_labels), unit_state = count(storage.unit_state),
+        links = (storage.links ~= nil) and count(storage.links) or -1,
+        next_link_id = storage.next_link_id,
       }
       storage.persist_expected = exp
       ctx.log(string.format("pre-save: pop=%d houses=%d huts=%d plots=%d crates=%d ghosts=%d repairs=%d chunks=%d",
@@ -95,6 +97,7 @@ core.register("m1_persist", {
       ctx.check("damage registered before the save", exp.repairs > 0, exp.repairs)
       ctx.check("scheduler has pending work before the save", exp.scheduled > 0, exp.scheduled)
       ctx.check("colonists have state before the save", exp.unit_state > 0, exp.unit_state)
+      ctx.check("freight link registry exists before the save", exp.links >= 0, exp.links)
       -- server_save only writes in multiplayer, so scripts/save-load.sh runs phase 1 as a headless server.
       game.server_save("colony-persist")
       ctx.log("save requested; is_multiplayer=" .. tostring(game.is_multiplayer()))
@@ -116,6 +119,9 @@ core.register("m1_persist_load", {
     ctx.check("schema unchanged", storage.schema == exp.schema, storage.schema)
     ctx.check("no colony was created twice", count(storage.colonies) == 1, count(storage.colonies))
     ctx.check("next colony id unchanged", storage.next_colony_id == exp.next_colony_id, storage.next_colony_id)
+    ctx.check("freight link registry survived the round-trip", storage.links ~= nil
+      and count(storage.links) == exp.links and storage.next_link_id == exp.next_link_id,
+      tostring(storage.next_link_id))
     ctx.check("colonists survived", colony.live_colonists(c) == exp.colonists,
       colony.live_colonists(c) .. "/" .. exp.colonists)
     ctx.check("houses survived", #colony.house_list(c) == exp.houses)

@@ -17,6 +17,7 @@ local farm = require("scripts.model.farm")
 local forest = require("scripts.model.forest")
 local mine_plan = require("scripts.model.mine_plan")
 local crates = require("scripts.model.crates")
+local links = require("scripts.model.links")
 local compost = require("scripts.model.compost")
 local turret_model = require("scripts.model.turret")
 local garrison = require("scripts.model.garrison")
@@ -1454,6 +1455,54 @@ local function crate_demand_offer(c)
     demands = demands}
 end
 
+-- Freight links (#52). The exporter is an ordinary requester: the haul planner fills its crate from A's
+-- stock, but links.export_wants clamps every row to the surplus above A's own quota_target (minus what is
+-- already claimed by other export crates), so the source colony never ships what it still needs. The importer
+-- is an ordinary provider at the collect band: B's own haulers empty it into B's stock through the normal
+-- cycle. Both wrappers are thin - all rules are in model/links.lua - and neither adds an event or a scan.
+function M.link_export_offer(c, colony, surplus)
+  if c.logistics_enabled == false or not colony_mod.link_peer(c) then return nil end
+  local demands = links.export_wants(c.filters, crate_contents(c), c.inflight, surplus)
+  if #demands == 0 then return nil end
+  return {kind = "supply", crate = c, entity = c.entity, pos = c.entity.position,
+    priority = haul_plan.PRIORITY.request, building_priority = c.priority or 3,
+    key = c.entity.unit_number, demands = demands}
+end
+
+function M.link_import_offer(c)
+  if c.logistics_enabled == false or not colony_mod.link_peer(c) then return nil end
+  local contents = crate_contents(c) or {}
+  local demands, available = links.import_wants(c.filters, contents)
+  if #demands == 0 then return nil end
+  return {kind = "collect", crate = c, entity = c.entity, pos = c.entity.position,
+    priority = haul_plan.PRIORITY.collect, building_priority = c.priority or 3,
+    key = c.entity.unit_number, demands = demands, available = available}
+end
+
+-- Surplus available to every export crate of this colony, keyed by item. Computed once per assignment from
+-- the same stock snapshot and quota_target the #90 demand system uses; `claimed` is the inflight total over
+-- all export crates, so two links cannot both count the same surplus.
+function M.link_export_surplus(colony, exports)
+  local stock, items, surplus = colony_mod.stock_table(colony), {}, {}
+  for _, c in ipairs(exports) do
+    if c.role == links.EXPORT then
+      for i = 1, crates.FILTER_ROWS do
+        local f = c.filters and c.filters[i]
+        if f and f.item then items[f.item] = true end
+      end
+    end
+  end
+  for item in pairs(items) do
+    local claimed = 0
+    for _, c in ipairs(exports) do
+      if c.role == links.EXPORT then claimed = claimed + ((c.inflight and c.inflight[item]) or 0) end
+    end
+    local reserve = colony_mod.quota_target(colony, item)
+    surplus[item] = math.max(0, (stock[item] or 0) - reserve - claimed)
+  end
+  return surplus
+end
+
 local function machine_demands(m)
   local out = {}
   for _, req in pairs(m.requests or {}) do
@@ -1685,6 +1734,20 @@ local function find_haul_task(colony, cap, hauler_pos)
   end
   for _, c in ipairs(colony_mod.crate_list(colony, crates.DEMAND)) do
     local o = crate_demand_offer(c); if o then requesters[#requesters + 1] = o end
+  end
+  -- Freight links (#52): exporters ask for surplus above the source's own reserve, importers push what the
+  -- train delivered into B's stock. Both emit ordinary offers, so haul_plan.match/take_load/inflight need no
+  -- changes and there is no extra scheduler chain or per-tick scan.
+  local link_crates = colony_mod.crate_list(colony, crates.LINK)
+  if #link_crates > 0 then
+    local surplus = M.link_export_surplus(colony, link_crates)
+    for _, c in ipairs(link_crates) do
+      if c.role == links.EXPORT then
+        local o = M.link_export_offer(c, colony, surplus); if o then requesters[#requesters + 1] = o end
+      else
+        local o = M.link_import_offer(c); if o then providers[#providers + 1] = o end
+      end
+    end
   end
   for _, p in ipairs(colony_mod.salt_pan_list(colony)) do
     local o = salt_offer(p, colony); if o then providers[#providers + 1] = o end

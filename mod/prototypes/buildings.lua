@@ -186,6 +186,10 @@ local university = make_lab("colony-university", "icon-university.png", "univers
 -- over the same request.
 local supply_crate = chest_clone("iron-chest", "colony-supply-crate", "supply-crate", 16, 1)
 local demand_crate = chest_clone("iron-chest", "colony-demand-crate", "demand-crate", 16, 1)
+-- Freight Crate (#52): one half of a colony-to-colony link. The same plain container as the other crates, so
+-- inserters and belts still load/unload it; the player's train does the rail leg, our registry does the ends.
+-- TODO art: reuses the Demand Crate sprite/icon until a distinct freight sprite exists.
+local freight_crate = chest_clone("iron-chest", "colony-freight-crate", "demand-crate", 16, 1)
 local warehouse = chest_clone("steel-chest", "colony-warehouse", "warehouse", 48, 1.5)
 -- Haul Station (#94): a 2x2 distributed-storage depot with a Wooden Trailer rack. It counts as colony storage
 -- (like a Warehouse); a hauler checks a trailer out of the nearest station in reach (like a car from a Motor
@@ -337,7 +341,7 @@ ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while wal
 
 data:extend({
   hall, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
-  smokehouse, kitchen, toolsmith, tavern, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, warehouse, haul_station, compost_bin,
+  smokehouse, kitchen, toolsmith, tavern, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, freight_crate, warehouse, haul_station, compost_bin,
   cannery, refrigerated_warehouse, refrigerated_wagon, tower, ledger_entity,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
@@ -377,6 +381,7 @@ data:extend({
   item_of(clinic, "clinic", "z[colony]-l6[clinic]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
+  item_of(freight_crate, "demand-crate", "z[colony]-k1[freight-crate]"),
   item_of(warehouse, "warehouse", "z[colony]-l[warehouse]"),
   item_of(haul_station, "haul-station", "z[colony]-l1[haul-station]"),
   item_of(compost_bin, "compost-bin", "z[colony]-m[compost-bin]"),
@@ -586,6 +591,7 @@ data:extend({
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4, false),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1, 1, false),
   recipe("colony-demand-crate", {wood = 10, ["iron-plate"] = 10}, 1, 1, false),
+  recipe("colony-freight-crate", {wood = 10, ["iron-plate"] = 10, ["steel-plate"] = 2}, 2, 1, false),
   recipe("colony-warehouse", {wood = 40, ["stone-brick"] = 20, ["iron-plate"] = 20}, 3, 1, false),
   recipe("colony-haul-station", {wood = 20, stone = 10}, 2, 1, false),
   recipe("colony-wooden-trailer", {wood = 10, ["iron-plate"] = 2}, 1, 1, false),

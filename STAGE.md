@@ -1,0 +1,160 @@
+# STAGE — #52 M2 freight-link slice (crate pair)
+
+Branch `agent/m2-freight`, base `master 1fe97bc`. Worker owner decisions followed verbatim: crate-pair link,
+Rail Transit gate, `kind = "link"`, tags round-trip, player-built train, destination import crate is a
+**provider in the collect band** whose filters seed B's demand graph and whose contents B's haulers empty.
+No new vehicle, AI, per-tick scan or ledger.
+
+## File-by-file changes
+
+**New pure model — `mod/scripts/model/links.lua`** (no `game`/`storage`/`script`/`defines`/surface, only
+`require("scripts.model.crates")`): `EXPORT/IMPORT`, `MAX_LINKS = 32`, `validate_id`, `validate_role`,
+`peer`, `slot`, `valid_pair`, `export_wants`, `import_wants`, `mirror`, `candidates`. Every list is sorted by
+item name (or colony id + un for GUI candidates) so offers and panels are deterministic. `export_wants`
+applies the `crates.demands` 50%/10 hysteresis to the surplus table and clamps a row to
+`min(target − contents − inflight, surplus[item])`. `import_wants` offers only filtered items actually in the
+crate and returns `(demands, available)` like `crates.supply`.
+
+**`mod/scripts/model/crates.lua`** — added `M.LINK = "link"`.
+
+**`mod/scripts/model/tags.lua`** — `tags.crate` emits `link = {id, role}` only for a link crate, through the
+validators; `tags.decode` validates/rejects the payload (positive integer id, exact role word) and always
+returns `crate.link` (nil for ordinary crates). Dense filter rows unchanged.
+
+**`mod/scripts/model/types.lua`** — `LinkSlot`, `LinkRecord`, `CrateLinkFields` annotations for strict
+missing-fields checking.
+
+**`mod/scripts/store.lua`** — schema 41 → **42**; `migrations[42]` creates `storage.links = {}` and
+`storage.next_link_id = 1`. All plain data; no schema field is added to existing crate records (link/role are
+nil-safe).
+
+**`mod/scripts/colony.lua`** (thin adapter):
+- `M.LINK_CRATE = "colony-freight-crate"` added to `M.CRATES`.
+- `link_crate_list(colony, role)`; `link_record`, `link_slot_live`, `link_peer` (the trust boundary:
+  cross-checks both slots against live registry records, roles, force, surface, kind); `link_candidates`.
+- `bind_link(a, b, player)` — refuses self-link, already-paired, wrong force/surface, outside territory and
+  >32 links; assigns a monotonic id, writes both slots and both `role`s, invalidates B's demand, wakes both
+  workforces, returns `(false, reason_key)` for flying text. `unbind_link(un)` finds the pair by unit number,
+  clears the peer, deletes the record; called from the existing `on_object_destroyed` crate branch.
+- `mirror_link_filters(c)` copies filter rows to the peer on panel edits.
+- `restore_link_fields` — the blueprint/copy rebind rule: a duplicate paste of an intact pair gets a fresh
+  id and stays unpaired; a free slot is rebound into; ghosts carry id/role in tags until revived.
+- `demand_table` seeds import LINK crates (export crates deliberately do not seed A's demand).
+- `apply_tags`, `copy_settings`, `find_record`, `entity_tags` plumbing extended; crate destruction unlinks.
+
+**`mod/scripts/work.lua`** — `link_export_surplus(colony, exports)` computes
+`stock − quota_target − claimed` once per assignment (same `stock_table`/`quota_target` as `supply_capped`);
+`link_export_offer` is an ordinary `kind="supply"` requester at `PRIORITY.request` and `link_import_offer` an
+ordinary `kind="collect"` provider at `PRIORITY.collect`, both with `crate = c` and `key = unit_number`, so
+`haul_plan.match`, `take_load`, `inflight` and the material-priority tie-break need no changes.
+`find_haul_task` adds one bounded loop over LINK crates; no new event, timer or world scan. Both builders are
+exported for the spike.
+
+**`mod/scripts/gui.lua`** — the crate panel now opens for freight crates; a `crates.LINK` branch shows the
+filter rows, role, peer, a `colony_link_target` drop-down of unpaired crates in other colonies on the same
+force/surface, and Link/Unlink buttons. Filter edits mirror to the peer. All captions are locale keys.
+
+**Prototypes/locale** — `colony-freight-crate` chest clone (16 slots, reuses demand-crate art with a TODO),
+item and recipe (wood 10 + iron-plate 10 + steel-plate 2), unlocked by `colony-rail-transit` alongside
+passenger rail and canteens; entity/item/description/technology/GUI/message locale keys added.
+
+**Tests** — new `tests/links_test.lua` (23 checks: id/role validation, peer resolution, valid_pair
+rejections, surplus clamp, claimed/inflight, contents, hysteresis, sort, import filtering, mirror, GUI
+candidates), extended `tests/model_test.lua` tag cases (link round-trip, forged values, dense rows),
+`tests/glue_test.lua` schema 42 + registry checks. `tests/locale_test.lua` unchanged and green.
+
+**Spikes** — new `mod/scripts/spike/m2_link.lua` (34 checks), added to `spike/loader.lua`; `m1_persist`
+records and re-checks `storage.links`/`next_link_id` across the save/load round-trip.
+
+## Engine facts verified against https://lua-api.factorio.com/latest/
+
+- `LuaEntity.tags` — "The tags associated with this entity ghost. **nil if this is not an entity ghost** or
+  when the ghost has no tags." Live pair state must live in `storage`; ghosts carry the payload.
+  https://lua-api.factorio.com/latest/classes/LuaEntity.html
+- `Tags :: dictionary[string → AnyBasic]`, modifications must be written back wholesale, and non-sequence
+  numeric keys are stringified — hence the single namespaced key and dense `{row,item,count}` lists.
+  https://lua-api.factorio.com/latest/concepts/Tags.html
+- `LuaItemCommon.get_blueprint_entity_tags(index)` / `set_blueprint_entity_tags(index, tags)` are the
+  blueprint write channel used by `M.tag_blueprint`.
+  https://lua-api.factorio.com/latest/classes/LuaItemCommon.html
+- Events used (all already registered at load time): `on_built_entity`, `on_robot_built_entity`,
+  `script_raised_revive`, `on_player_setup_blueprint`, `on_blueprint_settings_pasted`,
+  `on_entity_settings_pasted`, `on_entity_cloned`, `on_object_destroyed`. No new train handler is needed:
+  `on_train_changed_state` was already proven by `s16_links`.
+  https://lua-api.factorio.com/latest/events.html
+- **`on_object_destroyed` is deferred**: "Depending on when a given object is destroyed, this event will be
+  fired at the end of the current tick or at the end of the next tick. The event's timing is independent of
+  the in-world object being destroyed." `useful_id` is the second value returned by
+  `register_on_object_destroyed` (the unit number for entities). This is why the spike asserts unlink in a
+  later deferred step, not immediately after `destroy()`.
+  https://lua-api.factorio.com/latest/events.html#on_object_destroyed
+- In-repo engine evidence reused, not re-derived: `s16_links` (rail + inserters carry cargo with zero
+  colonists, `wait_station` fires at both stops) and `m1_blueprint` (tag/copy/revive plumbing).
+
+## Trust-boundary proof
+
+Physical flow: `A hall --A haulers--> A export crate --player inserters/train--> B import crate --B haulers-->
+B hall`. Only the explicitly bound peer is consulted (`storage.links[id]`), never proximity. `bind_link`
+rejects same-colony, cross-force, cross-surface, already-paired and >32 cases; `link_peer` re-validates both
+live slots on every offer, so a stale/replaced crate emits nothing. Export surplus =
+`stock − quota_target − claimed`, where `quota_target` is the same #90 demand-aware reserve used by
+`work.supply_capped`; `claimed` is summed over *all* of A's export crates, so two links cannot count the same
+surplus; `contents + inflight` in the crate prevent overfilling. Priority is the normal `request` band
+(4). Import-crate contents are a `collect`-band provider (5), filtered-only, at B with no ration ledger.
+The `m2_link` spike proves reserve behaviour at offer time (surplus 5 → offer 5, below reserve → no offer),
+real hauling (export crate got 10, A stock stayed 90 ≥ 40; B hall got 20 coal, crate 0, unfiltered junk
+untouched), self-link rejection, duplicate paste, and destruction cleanup/re-link.
+
+## Gate outputs (exact)
+
+- `scripts/test.sh` → `531 passed, 0 failed`
+- `scripts/lint-determinism.sh` → `determinism lint ok`
+- `luajit -bl` on every changed Lua file → no output except `bytecode check done` (all compiled)
+- `scripts/typecheck.sh` → `Diagnosis completed, no problems found`
+- `TICKS=3600 scripts/headless-spike.sh m2_link` → `SUMMARY pass=34 fail=0 unknown=0 errors=0`
+- `TICKS=19500 scripts/headless-spike.sh m1_colony` → `SUMMARY pass=116 fail=0 unknown=0 errors=0`
+- `TICKS=400 scripts/headless-spike.sh m1_blueprint` → `SUMMARY pass=34 fail=0 unknown=0 errors=0`
+- `TICKS=400 scripts/headless-spike.sh m1_tech` → `SUMMARY pass=13 fail=0 unknown=0 errors=0`
+- `TICKS=19500 scripts/headless-spike.sh s16_links` → `SUMMARY pass=18 fail=0 unknown=0 errors=0`
+- `scripts/determinism.sh` (m1_colony, two runs, executed twice) → `final checksum: 1885879558`,
+  `DETERMINISM: PASS` both times.
+- `scripts/save-load.sh` → `SAVE/LOAD: PASS`, `schema unchanged - 42`,
+  `freight link registry survived the round-trip - 1`.
+- `scripts/bench-colony.sh` (500 colonists, 2000 machines, 3600 ticks) → PASS:
+  `vanilla, mod disabled: 0.098 total`, `mod on, no colony: 0.099 total 0.002 script`,
+  `inert control: 0.273 total 0.058 script`, `colony, working town: 8.257 total 0.643 script`,
+  `colony, working town, ore demand: 5.580 total 0.631 script`,
+  `worst colony Lua: 0.643 ms/tick for 500 colonists (1286 us/colonist), budget <1.00`, `budget (#22): -> PASS`.
+
+## New checksum
+
+`1550186985` → **`1885879558`** (new freight-crate entity/item/recipe prototypes change Factorio's
+prototype-table hash). Existing-town behaviour is otherwise unchanged: `m1_colony` still 116/116 and its
+report is byte-identical between the two determinism runs.
+
+## Deviations from PLAN.md
+
+1. Spike is named **`m2_link`** (the task's explicit gate name), not `m2_freight`.
+2. The spike seeds B's import crate directly instead of running a full train leg. `s16_links` is run as a
+   separate gate and already proves the engine rail leg; this keeps `m2_link` focused on the crate-pair
+   rules and avoids a second 19500-tick rail simulation.
+3. The single-link "claimed" guard is conservative: `take_load` already removes in-flight items from stock
+   and invalidates the stock cache, so subtracting `claimed` as well can only *reduce* exports, never leak.
+4. `restore_link_fields` rebinds into a free slot adopting that slot's role (the peer is fixed); a paste whose
+   original pair is both live gets a fresh unpaired half with the tag's role.
+
+## Reviewer scrutiny points
+
+- **Is the export reserve really the #90 target?** Yes: `link_export_surplus` calls
+  `colony_mod.quota_target`, the same function `work.supply_capped` uses; the spike pins `surplus = 5` for
+  stock 45 / quota 40.
+- **Can two links drain the same surplus?** `claimed` sums in-flight over all export crates before any
+  offer is emitted; unit tests pin the arithmetic and the spike checks `link-taken` on a second partner.
+- **Does the import crate strand goods?** No: it is a `collect` provider and B's own haul cycle empties it;
+  the spike shows B hall coal 20, crate 0.
+- **Can a forged tag bind a pair?** `tags.decode` validates id/role; `restore_link_fields` re-checks the link
+  record and live slots; a duplicate paste is unpaired and emits no offer (spike check).
+- **Destruction cleanup timing** relies on the engine's deferred `on_object_destroyed`; the spike checks at
+  tick +10 and proves both peer unpaired and re-link with a new id.
+- **UPS:** one extra `crate_list` pass per assignment, skipped behaviourally when no link crates exist; no
+  new scheduler entry, no world scan, no per-tick work. Bench result below.

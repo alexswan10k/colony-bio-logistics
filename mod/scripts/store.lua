@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 41
+local SCHEMA = 42
 
 local migrations = {
   [1] = function()
@@ -311,6 +311,14 @@ local migrations = {
       c.patrols = c.patrols or {}
     end
     storage.patrol_ui = storage.patrol_ui or {selection = {}}
+  end,
+  [42] = function()
+    -- Freight links (#52): one global plain-data registry keyed by a stable link id, plus its monotonic id
+    -- source. Each slot holds a colony id + crate unit number; the LuaEntity itself stays in colony.crates
+    -- (re-resolved by the engine on load). Existing crates gain no new fields - `link`/`role` are nil-safe
+    -- until the player links one, and both ride blueprint tags rather than storage layout.
+    storage.links = storage.links or {}
+    storage.next_link_id = storage.next_link_id or 1
   end,
 }
 

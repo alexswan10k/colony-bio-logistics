@@ -27,6 +27,22 @@
 ---@field keep string[]|nil
 ---@field inputs HaulDemand[]|nil
 
+-- Freight links (#52): both halves store the same stable link id and their own role. Plain data only;
+-- the LuaEntity stays in the existing colony.crates record, which the engine re-resolves on load.
+---@class LinkSlot
+---@field colony_id integer
+---@field un integer
+---@field role string|nil
+
+---@class LinkRecord
+---@field id integer
+---@field a LinkSlot
+---@field b LinkSlot
+
+---@class CrateLinkFields
+---@field link integer|nil
+---@field role string|nil
+
 ---@class HaulOffer
 ---@field priority integer
 ---@field building_priority integer|nil

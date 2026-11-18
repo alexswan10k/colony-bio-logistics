@@ -7,6 +7,7 @@ local territory = require("scripts.territory")
 local farm = require("scripts.model.farm")
 local specialization = require("scripts.model.specialization")
 local crates = require("scripts.model.crates")
+local links = require("scripts.model.links")
 local construct = require("scripts.model.construct")
 local desirability = require("scripts.model.desirability")
 local colony_model = require("scripts.model.colony_model")
@@ -82,12 +83,14 @@ M.DEMAND_CRATE = "colony-demand-crate"
 M.WAREHOUSE = "colony-warehouse"
 M.HAUL_STATION = "colony-haul-station"
 M.REFRIGERATED_WAREHOUSE = "colony-refrigerated-warehouse"
+M.LINK_CRATE = "colony-freight-crate"   -- #52: one half of a colony-to-colony freight pair
 M.CRATES = {
   [M.SUPPLY_CRATE] = crates.SUPPLY,
   [M.DEMAND_CRATE] = crates.DEMAND,
   [M.WAREHOUSE] = crates.WAREHOUSE,
   [M.HAUL_STATION] = crates.HAUL_STATION,
   [M.REFRIGERATED_WAREHOUSE] = crates.REFRIGERATOR,
+  [M.LINK_CRATE] = crates.LINK,
 }
 -- Compost Bin (#78, design §3.2): spoilage is removed from houses and stock by colonists and converted here.
 M.COMPOST_BIN = "colony-compost-bin"
@@ -372,6 +375,176 @@ function M.crate_list(colony, kind)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.crates[un] end
   return out
+end
+
+function M.link_crate_list(colony, role)
+  local out = {}
+  for _, c in ipairs(M.crate_list(colony, crates.LINK)) do
+    if not role or c.role == role then out[#out + 1] = c end
+  end
+  return out
+end
+
+-- ---------- freight links (#52) ----------------------------------------------------------------------------
+-- The registry is plain data in storage.links; the only live references are the LuaEntity fields already in
+-- colony.crates. Everything below is O(1) lookups plus one bounded pass over the two slots - no world scan.
+
+function M.link_record(c) return (c and storage.links and storage.links[c.link]) or nil end
+
+function M.link_slot_live(slot)
+  if not slot then return false end
+  local col = storage.colonies and storage.colonies[slot.colony_id]
+  local rec = col and col.crates and col.crates[slot.un]
+  local e = rec and rec.entity
+  return rec ~= nil and e ~= nil and e.valid and e.type ~= "entity-ghost"
+    and rec.kind == crates.LINK and rec.colony_id == slot.colony_id and rec.link ~= nil
+end
+
+local function slot_summary(slot)
+  local col = slot and storage.colonies and storage.colonies[slot.colony_id]
+  local rec = col and col.crates and col.crates[slot.un]
+  local e = rec and rec.entity
+  return {colony_id = slot and slot.colony_id, un = slot and slot.un, role = slot and slot.role,
+    kind = rec and rec.kind, alive = M.link_slot_live(slot),
+    force = (e and e.valid) and e.force and e.force.name or nil,
+    surface = (e and e.valid) and e.surface and e.surface.index or nil, rec = rec}
+end
+
+-- The peer slot of a linked crate, or nil. This is the trust boundary: both slots are cross-checked against
+-- the live registry, the pair must be export -> import in different colonies on one force and one surface,
+-- and the caller's role must agree with its slot. A mined/replaced/stale half yields no peer (and thus no
+-- offer) instead of draining anything.
+function M.link_peer(c)
+  local link = M.link_record(c)
+  local e = c and c.entity
+  if not (link and e and e.valid) then return nil end
+  local un = e.unit_number
+  local self_slot
+  if link.a and link.a.un == un then self_slot = link.a
+  elseif link.b and link.b.un == un then self_slot = link.b
+  else return nil end
+  local a, b = slot_summary(link.a), slot_summary(link.b)
+  local force_ok = a.force ~= nil and a.force == b.force
+  local surface_ok = a.surface ~= nil and a.surface == b.surface
+  local kind_ok = a.kind == crates.LINK and b.kind == crates.LINK
+  if not links.valid_pair(a, b, force_ok, surface_ok, kind_ok) then return nil end
+  if c.role ~= self_slot.role then return nil end
+  return (self_slot == link.a) and link.b or link.a, link
+end
+
+local function link_label(col, un)
+  return "Colony " .. tostring(col.id) .. " (crate " .. tostring(un) .. ")"
+end
+
+-- Drop-down data for the crate panel: unpaired freight crates in other colonies of the same force/surface.
+function M.link_candidates(c)
+  if not (c and c.kind == crates.LINK and c.entity and c.entity.valid) then return {} end
+  local e = c.entity
+  local force, surface = e.force and e.force.name, e.surface.index
+  local entries = {}
+  for _, col in pairs(storage.colonies or {}) do
+    for _, r in ipairs(M.link_crate_list(col)) do
+      local ce = r.entity
+      if ce and ce.valid then
+        entries[#entries + 1] = {colony_id = col.id, un = ce.unit_number, force = ce.force and ce.force.name,
+          surface = ce.surface.index, kind = r.kind, link = r.link, label = link_label(col, ce.unit_number)}
+      end
+    end
+  end
+  return links.candidates(entries, c.colony_id, force, surface)
+end
+
+local function link_notify(player, rec, key)
+  if not (player and player.valid) then return end
+  local e = rec and rec.entity
+  player.create_local_flying_text{text = {"colony-message." .. key},
+    position = (e and e.valid) and e.position or player.position}
+end
+
+-- Bind two unpaired freight crates. a = export (source), b = import (destination). Returns true, link_id on
+-- success or false, reason_key on refusal; the GUI turns the key into a flying text via link_notify.
+function M.bind_link(a, b, player)
+  if not (a and b and a.kind == crates.LINK and b.kind == crates.LINK) then
+    link_notify(player, a, "link-invalid"); return false, "link-invalid" end
+  local ea, eb = a.entity, b.entity
+  if not (ea and ea.valid and ea.type ~= "entity-ghost" and eb and eb.valid and eb.type ~= "entity-ghost") then
+    link_notify(player, a, "link-invalid"); return false, "link-invalid" end
+  local ca, cb = M.colony_of(ea), M.colony_of(eb)
+  if not (ca and cb) then link_notify(player, a, "link-outside"); return false, "link-outside" end
+  if ca.id == cb.id then link_notify(player, a, "link-self"); return false, "link-self" end
+  if ea.force ~= eb.force or ea.surface.index ~= eb.surface.index then
+    link_notify(player, a, "link-invalid"); return false, "link-invalid" end
+  if a.link or b.link then link_notify(player, a, "link-taken"); return false, "link-taken" end
+  storage.links = storage.links or {}; storage.next_link_id = storage.next_link_id or 1
+  local n = 0
+  for _ in pairs(storage.links) do n = n + 1 end
+  if n >= links.MAX_LINKS then link_notify(player, a, "link-full"); return false, "link-full" end
+  local id = storage.next_link_id; storage.next_link_id = id + 1
+  storage.links[id] = {id = id,
+    a = {colony_id = ca.id, un = ea.unit_number, role = links.EXPORT},
+    b = {colony_id = cb.id, un = eb.unit_number, role = links.IMPORT}}
+  a.link, a.role, b.link, b.role = id, links.EXPORT, id, links.IMPORT
+  M.invalidate_demand(cb)
+  work.wake_idle_colonists(ca); work.wake_idle_colonists(cb)
+  link_notify(player, a, "link-made")
+  return true, id
+end
+
+-- Clear a pair by either half's unit number. Destruction calls this from on_object_destroyed (where the
+-- caller's own registry record is already gone), so the lookup walks the bounded link registry, not crates.
+function M.unbind_link(un)
+  if not un or not storage.links then return false end
+  local id, peer_slot
+  for lid, l in pairs(storage.links) do
+    if l.a and l.a.un == un then id, peer_slot = lid, l.b; break end
+    if l.b and l.b.un == un then id, peer_slot = lid, l.a; break end
+  end
+  if not id then return false end
+  local col = storage.colonies and storage.colonies[peer_slot.colony_id]
+  local peer = col and col.crates and col.crates[peer_slot.un]
+  if peer then peer.link, peer.role = nil, nil; M.invalidate_demand(col) end
+  storage.links[id] = nil
+  -- The self half may still be in its registry (a GUI unlink) or already removed (destruction).
+  for _, c in pairs(storage.colonies or {}) do
+    local rec = c.crates and c.crates[un]
+    if rec then rec.link, rec.role = nil, nil; M.invalidate_demand(c) end
+  end
+  return true
+end
+
+-- Mirrored filter edits travel to the peer's registry through the same pair, never to a proximity neighbour.
+function M.mirror_link_filters(c)
+  local peer = M.link_peer(c)
+  if not peer then return false end
+  local col = storage.colonies[peer.colony_id]
+  local rec = col and col.crates and col.crates[peer.un]
+  if not rec then return false end
+  rec.filters = links.mirror(c.filters)
+  M.invalidate_demand(col)
+  local own = storage.colonies and storage.colonies[c.colony_id]
+  if own then M.invalidate_demand(own) end
+  return true
+end
+
+-- Restore a tag-carried pair identity. When a pasted duplicate would make the original pair have two live
+-- halves, the paste gets a fresh id and stays unpaired; a free slot is rebound into instead. Ghosts carry the
+-- id/role in their tags but are not bound until revived (when a real unit number exists).
+function M.restore_link_fields(colony, c, un, payload)
+  c.link, c.role = nil, nil
+  local id = links.validate_id(payload and payload.id)
+  local role = links.validate_role(payload and payload.role)
+  if not (id and role) then return end
+  local link = storage.links and storage.links[id]
+  if not un or not link then c.link, c.role = id, role; return end
+  local a_live, b_live = M.link_slot_live(link.a), M.link_slot_live(link.b)
+  if a_live and b_live then c.role = role; return end   -- duplicate paste: fresh unpaired half
+  local free = a_live and link.b or (b_live and link.a or nil)
+  if not free then c.role = role; return end            -- both halves dead: inert unpaired half
+  free.colony_id, free.un = colony.id, un
+  c.link, c.role = id, free.role or role
+  local peer_slot = (free == link.a) and link.b or link.a
+  local peer_col = storage.colonies and storage.colonies[peer_slot.colony_id]
+  if peer_col then M.invalidate_demand(peer_col) end
 end
 
 -- Compost bins in deterministic (unit_number) order; prunes dead ones. Same shape as crate_list.
@@ -739,6 +912,14 @@ function M.demand_table(colony)
     end
   end
   for _, crate in ipairs(M.crate_list(colony, crates.DEMAND)) do
+    for i = 1, crates.FILTER_ROWS do
+      local f = crate.filters and crate.filters[i]
+      if f and f.item then seeds[f.item] = (seeds[f.item] or 0) + (f.count or crates.DEFAULT_COUNT) end
+    end
+  end
+  -- #52: an import freight crate's filters are B's want list, so B's #90 demand graph and quotas know the
+  -- town wants those items. The export half deliberately does NOT seed A's demand: it ships surplus only.
+  for _, crate in ipairs(M.link_crate_list(colony, links.IMPORT)) do
     for i = 1, crates.FILTER_ROWS do
       local f = crate.filters and crate.filters[i]
       if f and f.item then seeds[f.item] = (seeds[f.item] or 0) + (f.count or crates.DEFAULT_COUNT) end
@@ -2061,6 +2242,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
       return
     end
     if colony.crates and colony.crates[un] then
+      if colony.crates[un].kind == crates.LINK then M.unbind_link(un) end   -- #52: free the peer half
       colony.crates[un] = nil
       return
     end
@@ -2286,6 +2468,7 @@ function M.apply_tags(colony, e, dict)
         local c = {kind = kind, filters = copy_rows(payload.crate.filters),
                    accept_all = payload.crate.accept_all, priority = payload.crate.priority or 3,
                    logistics_enabled = true}
+        if kind == crates.LINK then M.restore_link_fields(colony, c, nil, payload.crate.link) end
         e.tags = tags.dictionary(tags.crate(c))
         return true
       end
@@ -2296,6 +2479,7 @@ function M.apply_tags(colony, e, dict)
     c.filters = copy_rows(payload.crate.filters)
     if payload.crate.accept_all ~= nil then c.accept_all = payload.crate.accept_all end
     if payload.crate.priority then c.priority = payload.crate.priority end
+    if c.kind == crates.LINK then M.restore_link_fields(colony, c, e.unit_number, payload.crate.link) end
     return true
   elseif payload.ledger then
     if e.type == "entity-ghost" then
@@ -2363,10 +2547,13 @@ function M.copy_settings(src, dst)
   end
   local is_crate = (dst.type == "entity-ghost") and M.CRATES[dst_name] or (colony.crates and colony.crates[dst.unit_number])
   if is_crate then
+    local src_link = (kind == "crate" and rec and rec.kind == crates.LINK)
+      and {id = rec.link, role = rec.role} or nil
     if dst.type == "entity-ghost" then
       if kind == "crate" and rec then
         local c = {kind = M.CRATES[dst_name], filters = copy_rows(rec.filters),
                    accept_all = rec.accept_all, priority = rec.priority or 3, logistics_enabled = true}
+        if M.CRATES[dst_name] == crates.LINK then M.restore_link_fields(colony, c, nil, src_link) end
         dst.tags = tags.dictionary(tags.crate(c))
       else
         dst.tags = nil
@@ -2380,6 +2567,7 @@ function M.copy_settings(src, dst)
         if rec.accept_all ~= nil then c.accept_all = rec.accept_all end
         if rec.priority ~= nil then c.priority = rec.priority end
       end
+      if c.kind == crates.LINK then M.restore_link_fields(colony, c, dst.unit_number, src_link) end
       return true
     end
   end

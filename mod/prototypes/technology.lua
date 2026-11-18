@@ -184,5 +184,6 @@ data:extend({
       unlock("colony-passenger-platform"),
       unlock("colony-passenger-coach"),
       unlock("colony-canteen"),
+      unlock("colony-freight-crate"),   -- #52: freight links ride the same rail age as passenger rail
     }),
 })

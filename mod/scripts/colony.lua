@@ -461,14 +461,28 @@ local function link_notify(player, rec, key)
     position = (e and e.valid) and e.position or player.position}
 end
 
+-- A unit number belongs to at most one slot in the whole registry. Without this guard a half-unlinked crate
+-- can be bound again while its old record still claims the same un, after which destruction cleans only one
+-- of the two records (#52 re-review finding: double-claim). Read-only, O(MAX_LINKS).
+local function unit_number_claimed(un)
+  if not un then return false end
+  for _, l in pairs(storage.links or {}) do
+    if (l.a and l.a.un == un) or (l.b and l.b.un == un) then return true end
+  end
+  return false
+end
+
 -- The ONE validity gate for a pair, shared by the GUI bind path and the blueprint rebind path (#52 review
 -- finding 3). Neither path may skip self-link, territory, force or surface checks by mutating slots directly.
+-- `a` is the half being (re)bound and must not already be claimed by any link; `b` is the peer, whose un is
+-- legitimately claimed by the record being rebound into, so only bind_link checks `b` itself.
 -- Returns (colony_a, colony_b) on success or (nil, nil, reason_key) on refusal.
 local function validate_link_pair(a, b)
   if not (a and b and a.kind == crates.LINK and b.kind == crates.LINK) then return nil, nil, "link-invalid" end
   local ea, eb = a.entity, b.entity
   if not (ea and ea.valid and ea.type ~= "entity-ghost" and eb and eb.valid and eb.type ~= "entity-ghost") then
     return nil, nil, "link-invalid" end
+  if unit_number_claimed(ea.unit_number) then return nil, nil, "link-taken" end
   local ca, cb = M.colony_of(ea), M.colony_of(eb)
   if not (ca and cb) then return nil, nil, "link-outside" end
   if ca.id == cb.id then return nil, nil, "link-self" end
@@ -481,7 +495,8 @@ end
 function M.bind_link(a, b, player)
   local ca, cb, why = validate_link_pair(a, b)
   if why then link_notify(player, a, why); return false, why end
-  if a.link or b.link then link_notify(player, a, "link-taken"); return false, "link-taken" end
+  if a.link or b.link or unit_number_claimed(b.entity.unit_number) then
+    link_notify(player, a, "link-taken"); return false, "link-taken" end
   storage.links = storage.links or {}; storage.next_link_id = storage.next_link_id or 1
   local n = 0
   for _ in pairs(storage.links) do n = n + 1 end
@@ -513,18 +528,28 @@ function M.unbind_link(un)
       cleared = true
     end
   end
-  local id, peer_slot
+  -- Remove EVERY record that claims this un, in numeric id order. A stale double-claim must not leave one
+  -- record behind (and pairs() would pick an arbitrary one), which would strand a peer and desync MP peers.
+  local matches = {}
   if storage.links then
     for lid, l in pairs(storage.links) do
-      if l.a and l.a.un == un then id, peer_slot = lid, l.b; break end
-      if l.b and l.b.un == un then id, peer_slot = lid, l.a; break end
+      if (l.a and l.a.un == un) or (l.b and l.b.un == un) then matches[#matches + 1] = lid end
     end
   end
-  if not id then return cleared end
-  local col = storage.colonies and storage.colonies[peer_slot.colony_id]
-  local peer = col and col.crates and col.crates[peer_slot.un]
-  if peer then peer.link, peer.role = nil, nil; M.invalidate_demand(col) end
-  storage.links[id] = nil
+  if #matches == 0 then return cleared end
+  table.sort(matches)
+  for _, lid in ipairs(matches) do
+    local l = storage.links[lid]
+    if l then
+      local peer_slot = (l.a and l.a.un == un) and l.b or l.a
+      if peer_slot then
+        local col = storage.colonies and storage.colonies[peer_slot.colony_id]
+        local peer = col and col.crates and col.crates[peer_slot.un]
+        if peer then peer.link, peer.role = nil, nil; M.invalidate_demand(col) end
+      end
+      storage.links[lid] = nil
+    end
+  end
   return true
 end
 
@@ -548,22 +573,26 @@ end
 -- bind_link refuses a "taken" half and there would be no record for Unlink to clear (#52 review finding 1).
 -- Rebinding into a free slot goes through validate_link_pair, the same gate as bind_link (#52 finding 3).
 function M.restore_link_fields(colony, c, un, payload)
-  c.link, c.role = nil, nil
+  -- Copy-paste calls this on an EXISTING, already-bound crate with no (or a stale/duplicate) link payload.
+  -- Hold the old identity and restore it on EVERY refusal path: copy-paste must never half-unlink a pair
+  -- (#52 re-review finding). A fresh crate has nil old fields, so the same refusals leave it unpaired.
+  local old_link, old_role = c.link, c.role
+  local function keep() c.link, c.role = old_link, old_role end
   local id = links.validate_id(payload and payload.id)
   local role = links.validate_role(payload and payload.role)
-  if not (id and role) then return end
+  if not (id and role) then keep(); return end
   if not un then c.link, c.role = id, role; return end   -- ghost: carry the tag, bind on revival
   local link = storage.links and storage.links[id]
-  if not link then return end                            -- stale id: leave the live crate unpaired
+  if not link then keep(); return end                    -- stale id: leave the live crate as it was
   local a_live, b_live = M.link_slot_live(link.a), M.link_slot_live(link.b)
-  if a_live and b_live then return end                   -- duplicate paste: fresh unpaired half
+  if a_live and b_live then keep(); return end           -- duplicate paste: no new pair, keep the old one
   local free = a_live and link.b or (b_live and link.a or nil)
-  if not free then return end                            -- both halves dead: inert unpaired half
+  if not free then keep(); return end                    -- both halves dead: inert
   local peer_slot = (free == link.a) and link.b or link.a
   local peer_col = storage.colonies and storage.colonies[peer_slot.colony_id]
   local peer = peer_col and peer_col.crates and peer_col.crates[peer_slot.un]
   local own_col, validated_peer_col = validate_link_pair(c, peer)
-  if not own_col then return end                         -- no self / cross-force / cross-surface / outside link
+  if not own_col then keep(); return end                 -- no self / double-claim / cross-force / cross-surface
   free.colony_id, free.un = own_col.id, un
   c.link, c.role = id, free.role or role
   M.invalidate_demand(own_col)

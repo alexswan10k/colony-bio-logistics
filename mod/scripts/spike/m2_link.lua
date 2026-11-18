@@ -68,6 +68,36 @@ core.register("m2_link", {
     ctx.check("the peer resolves in both directions",
       colony.link_peer(ra) == rec.b and colony.link_peer(rb) == rec.a)
 
+    -- Copy-paste onto a bound half must not disturb its identity (#52 re-review finding).
+    local src_supply = build("colony-supply-crate", {p.x - 110 + 44, p.y + 10})
+    colony.copy_settings(src_supply, crateA)
+    ctx.check("copy-paste from another crate leaves the pair intact",
+      ra.link == id and ra.role == links.EXPORT and rb.link == id and rb.role == links.IMPORT
+        and colony.link_peer(ra) == rec.b)
+    local src_unpaired = build("colony-freight-crate", {p.x - 110 + 28, p.y + 10})
+    local rsu = A.crates[src_unpaired.unit_number]
+    colony.copy_settings(src_unpaired, crateA)
+    ctx.check("copy-paste from an unpaired freight crate leaves the pair intact",
+      ra.link == id and ra.role == links.EXPORT and colony.link_peer(ra) == rec.b
+        and storage.links[id] ~= nil)
+    -- The same payload the crate already carries must also be a no-op.
+    colony.apply_tags(A, crateA, colony.entity_tags(crateA))
+    ctx.check("apply_tags round-trip on a linked crate leaves the pair intact",
+      ra.link == id and ra.role == links.EXPORT and colony.link_peer(ra) == rec.b)
+    colony.apply_tags(A, crateA, tags.dictionary({crate = true, filters = {}}))
+    ctx.check("a tag payload with no link leaves a linked crate intact",
+      ra.link == id and rb.link == id and colony.link_peer(rb) == rec.a)
+    -- A crate whose un is already claimed by a record must not be bindable again, even if its own fields
+    -- were cleared (the half-unlink state that used to allow a double-claim).
+    local saved_link, saved_role = ra.link, ra.role
+    ra.link, ra.role = nil, nil
+    local ok_claimed, why_claimed = colony.bind_link(ra, rsu)
+    ra.link, ra.role = saved_link, saved_role
+    ctx.check("a unit number already claimed by a link cannot be bound again",
+      ok_claimed == false and why_claimed == "link-taken" and storage.links[id] ~= nil,
+      tostring(why_claimed))
+    src_supply.destroy(); src_unpaired.destroy()
+
     -- Tag round-trip: the pair identity rides the one namespaced key alongside dense filter rows.
     crates.set_filter(ra.filters, 1, "iron-plate"); crates.set_count(ra.filters, 1, 10)
     crates.set_filter(rb.filters, 1, "coal"); crates.set_count(rb.filters, 1, 20)
@@ -177,6 +207,7 @@ core.register("m2_link", {
       if c.hall and c.hall.valid and c.hall.position.y > p.y + 100 then C = c end
     end
     local ok2 = false
+    local double_peer = nil
     if C then
       local crateC = build("colony-freight-crate", {p.x + 10, p.y + 150})
       local rc = C.crates[crateC.unit_number]
@@ -184,11 +215,12 @@ core.register("m2_link", {
         crates.set_filter(rc.filters, 1, "iron-plate"); crates.set_count(rc.filters, 1, 10)
         ok2 = colony.bind_link(rc, rb) == false   -- B's import crate is taken; must fail cleanly
         local crateC2 = build("colony-freight-crate", {p.x + 14, p.y + 150})
-        local rc2 = C.crates[crateC2.unit_number]
-        if rc2 then
-          crates.set_filter(rc2.filters, 1, "iron-plate"); crates.set_count(rc2.filters, 1, 10)
+        double_peer = C.crates[crateC2.unit_number]
+        if double_peer then
+          crates.set_filter(double_peer.filters, 1, "iron-plate")
+          crates.set_count(double_peer.filters, 1, 10)
           crateC.destroy(); rc = nil
-          local ok3, id3 = colony.bind_link(rc2, rb)
+          local ok3, id3 = colony.bind_link(double_peer, rb)
           ctx.check("an already-paired destination refuses a second partner", ok2 and ok3 == false,
             "reason=" .. tostring(id3))
         end
@@ -239,6 +271,15 @@ core.register("m2_link", {
       -- later deferred step. Force the race: prune the crate record BEFORE the event fires, exactly what an
       -- active colony's find_haul_task does (#52 review finding 2).
       local doomed_un = crateA.unit_number
+      -- Fault-inject a stale double-claim: a second record claims the same export unit number with a peer
+      -- in colony C. Mining the crate must clean BOTH records deterministically, stranding neither peer.
+      local twin_id = 7777
+      if double_peer then
+        double_peer.link, double_peer.role = twin_id, links.IMPORT
+        storage.links[twin_id] = {id = twin_id,
+          a = {colony_id = A.id, un = doomed_un, role = links.EXPORT},
+          b = {colony_id = C.id, un = double_peer.entity.unit_number, role = links.IMPORT}}
+      end
       crateA.destroy()
       colony.crate_list(A)   -- opportunistic prune while the entity is already invalid
       ctx.check("the destroyed crate is gone and its record was pruned",
@@ -246,8 +287,11 @@ core.register("m2_link", {
     end)
     ctx.after(1510, function()
       ctx.check("destruction unlinks even when the crate record was pruned first", storage.links[id] == nil)
+      ctx.check("a stale double-claim is cleaned from every record", storage.links[7777] == nil)
       ctx.check("the peer is unpaired and inert", rb.link == nil and rb.role == nil
         and work.link_import_offer(rb) == nil)
+      ctx.check("the double-claimed peer is also freed",
+        double_peer == nil or (double_peer.link == nil and double_peer.role == nil))
 
       -- Stale blueprint repro: the saved tag still carries the now-deleted id 1. A live paste must come back
       -- fully unpaired, and Unlink must still clear a dangling id (#52 review finding 1).

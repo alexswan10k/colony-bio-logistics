@@ -72,7 +72,7 @@ candidates), extended `tests/model_test.lua` tag cases (link round-trip, forged 
 `tests/glue_test.lua` schema 43 + registry checks (its schema-6 → 43 migration also exercises the skipped
 slot 42). `tests/locale_test.lua` unchanged and green.
 
-**Spikes** — new `mod/scripts/spike/m2_link.lua` (**44 checks**), added to `spike/loader.lua`; `m1_persist`
+**Spikes** — new `mod/scripts/spike/m2_link.lua` (**51 checks**), added to `spike/loader.lua`; `m1_persist`
 records and re-checks `storage.links`/`next_link_id` across the save/load round-trip.
 
 ## Engine facts verified against https://lua-api.factorio.com/latest/
@@ -131,8 +131,9 @@ untouched), self-link rejection, duplicate paste, and destruction cleanup/re-lin
    `restore_link_fields`; a fault-injected stale record whose free slot is in the same colony is refused by
    the rebind path (spike check "blueprint rebind refuses a same-colony pair").
 4. **MINOR — schema collision.** Freight links migrate at **43**, not 42; slot 42 is left for tourism and
-   `M.migrate()` skips absent slots. `AGENTS.md` was deliberately **not** edited in this follow-up per the
-   reviewer's instruction (it still mentions schema 42 from the previous commit).
+   `M.migrate()` skips absent slots. `AGENTS.md` and `docs/TESTING.md` were deliberately **not** edited in
+   either follow-up pass: the current task explicitly forbids it. The tracked AGENTS.md Status line therefore
+   still advertises schema 42 / 34 checks; whoever merges must reconcile that documentation.
 5. **MINOR — untested corners.** `m2_link` now checks a machine sink raising the reserve from 40 to 70 and
    shrinking surplus from 60 to 30 (with the row cap still bounding the offer), a paired import crate seeding
    B's demand by 20, and `quota_target = 0` exposing all 100 stock with only the row count as ceiling.
@@ -149,13 +150,32 @@ Residual (not requested by the follow-up): save/load proves the new registry sur
 links, since `m1_persist` intentionally keeps one colony; an active-pair round-trip is exercised by the tag
 checks in `m2_link` rather than by `m1_persist`.
 
+## Re-review fix (REVIEW.md "NEW MAJOR" — copy-paste half-unlink / double-claim)
+
+1. **Non-destructive identity restore.** `restore_link_fields` captures the destination's existing
+   `link`/`role` and calls `keep()` before **every** early return (missing/invalid payload, stale id, both
+   halves live, both halves dead, guard refusal). Identity is overwritten only when a rebind is actually
+   committed. Copy-paste (`copy_settings` from `on_entity_settings_pasted`/`on_entity_cloned`) and
+   `apply_tags` (`on_blueprint_settings_pasted`) onto a bound crate are now no-ops for the pair.
+2. **Dedupe guard.** `unit_number_claimed(un)` checks all link slots. `validate_link_pair` refuses a half
+   whose unit number is already claimed by ANY record (`link-taken`); `bind_link` applies the same check to
+   the destination half. A half-unlinked crate can no longer create a second record claiming the same un.
+3. **Deterministic cleanup.** `unbind_link` collects ALL records claiming the unit number, `table.sort`s the
+   ids numerically, then deletes each one and clears its peer. `pairs()` iteration order can no longer pick
+   which peer survives; a stale double-claim is fully removed.
+4. **Spikes (7 new checks, 51 total).** `m2_link` now covers: copy-paste from a supply crate and from an
+   unpaired freight crate onto a bound half; `apply_tags` with the crate's own tags and with a tag payload
+   that has no link; a re-link attempt on a crate whose unit number is already claimed (must return
+   `link-taken`); and a fault-injected double-claim record that is cleaned from both records on mining, with
+   both peers freed. Each of these fails against the pre-fix code.
+
 ## Gate outputs (exact)
 
 - `scripts/test.sh` → `531 passed, 0 failed`
 - `scripts/lint-determinism.sh` → `determinism lint ok`
 - `luajit -bl` on every changed Lua file → no output except `bytecode check done` (all compiled)
 - `scripts/typecheck.sh` → `Diagnosis completed, no problems found`
-- `TICKS=3600 scripts/headless-spike.sh m2_link` → `SUMMARY pass=44 fail=0 unknown=0 errors=0`
+- `TICKS=3600 scripts/headless-spike.sh m2_link` → `SUMMARY pass=51 fail=0 unknown=0 errors=0`
 - `TICKS=19500 scripts/headless-spike.sh m1_colony` → `SUMMARY pass=116 fail=0 unknown=0 errors=0`
 - `TICKS=400 scripts/headless-spike.sh m1_blueprint` → `SUMMARY pass=34 fail=0 unknown=0 errors=0`
 - `TICKS=400 scripts/headless-spike.sh m1_tech` → `SUMMARY pass=13 fail=0 unknown=0 errors=0`

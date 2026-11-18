@@ -9,6 +9,7 @@
 --   * tags read off a built entity are untrusted input (another mod, a stale blueprint, a hand-edited save),
 --     so decode validates and clamps instead of trusting.
 local crates = require("scripts.model.crates")
+local links = require("scripts.model.links")
 local M = {}
 
 M.TAG = "colony-bio-logistics"   -- namespace inside the entity's tag dictionary; other mods may add their own
@@ -52,11 +53,16 @@ function M.machine(m)
     requests = encode_rows(m.requests, M.MAX_REQUESTS), priority = m.priority}
 end
 
--- colony.crates[un] -> payload. Only a demand crate uses filters, and an empty filter list still travels so
--- a copied crate is cleared rather than inheriting the pasted-over crate's demands.
+-- colony.crates[un] -> payload. Only a demand crate (or a freight link, #52) uses filters, and an empty filter
+-- list still travels so a copied crate is cleared rather than inheriting the pasted-over crate's demands.
+-- A freight crate also carries its pair identity: one stable link id + this half's role, validated on decode.
 function M.crate(c)
-  return {crate = true, filters = encode_rows(c.filters, crates.FILTER_ROWS),
+  local payload = {crate = true, filters = encode_rows(c.filters, crates.FILTER_ROWS),
     accept_all = c.accept_all ~= false, priority = c.priority}
+  if c.kind == crates.LINK then
+    payload.link = {id = links.validate_id(c.link), role = links.validate_role(c.role)}
+  end
+  return payload
 end
 
 -- colony.ledgers[un] -> payload (#92). The Colony Ledger's only setting is which number it publishes, and a
@@ -87,10 +93,16 @@ function M.decode(dict)
     }}
   elseif t.crate then
     local p = t.priority and tonumber(t.priority)
+    -- #52: the link payload is untrusted input too. A forged id/role is dropped, never used to bind a pair.
+    local link = nil
+    if type(t.link) == "table" then
+      link = {id = links.validate_id(t.link.id), role = links.validate_role(t.link.role)}
+    end
     return {crate = {
       filters = decode_rows(t.filters, crates.FILTER_ROWS),
       accept_all = t.accept_all ~= false,
       priority = p and math.max(1, math.min(5, math.floor(p))) or nil,
+      link = link,
     }}
   elseif t.ledger then
     -- Untrusted input: anything but the exact word "want" is the default mode.

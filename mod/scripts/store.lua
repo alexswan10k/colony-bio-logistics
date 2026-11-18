@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 42
+local SCHEMA = 43
 
 local migrations = {
   [1] = function()
@@ -328,6 +328,14 @@ local migrations = {
       c.last_insight_tick = c.last_insight_tick or 0
     end
   end,
+  [43] = function()
+    -- Freight links (#52): one global plain-data registry keyed by a stable link id, plus its monotonic id
+    -- source. Each slot holds a colony id + crate unit number; the LuaEntity itself stays in colony.crates
+    -- (re-resolved by the engine on load). Existing crates gain no new fields - `link`/`role` are nil-safe
+    -- until the player links one, and both ride blueprint tags rather than storage layout.
+    storage.links = storage.links or {}
+    storage.next_link_id = storage.next_link_id or 1
+  end,
 }
 
 local function sanitize_functions(tbl, seen)
@@ -349,7 +357,9 @@ function M.migrate()
   storage.schema = storage.schema or 0
   while storage.schema < SCHEMA do
     local n = storage.schema + 1
-    migrations[n]()
+    -- A slot owned by a parallel branch (42 = tourism) can be absent here; skip it so an old save still
+    -- upgrades cleanly on this branch alone. The merge keeps both bodies.
+    if migrations[n] then migrations[n]() end
     storage.schema = n
   end
 end

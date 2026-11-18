@@ -185,5 +185,6 @@ data:extend({
       unlock("colony-passenger-coach"),
       unlock("colony-canteen"),
       unlock("colony-spa"),   -- #51: tourism rides the same rail network, no new tech node
+      unlock("colony-freight-crate"),   -- #52: freight links ride the same rail age as passenger rail
     }),
 })

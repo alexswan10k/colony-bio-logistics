@@ -1114,6 +1114,25 @@ end)
 
 events.on(defines.events.on_gui_click, function(ev)
   local name = ev.element.name
+  if name == "colony_link_apply" or name == "colony_link_unlink" then
+    local player = game.get_player(ev.player_index)
+    local _, c, _, body, e = crate_ctx(ev)
+    if not (c and e and e.valid and e.type ~= "entity-ghost") then return end
+    if name == "colony_link_unlink" then
+      colony_mod.unbind_link(e.unit_number)
+    else
+      local frame = player and player.gui.relative[CRATE_FRAME]
+      local dd = frame and frame.body and frame.body.colony_link_target
+      if dd then
+        local pick = colony_mod.link_candidates(c)[dd.selected_index]
+        local dst_col = pick and storage.colonies[pick.colony_id]
+        local dst = dst_col and dst_col.crates and dst_col.crates[pick.un]
+        if dst then colony_mod.bind_link(c, dst, player) end
+      end
+    end
+    if body then fill_crate(body, c) end
+    return
+  end
   local q_item, q_dir = name:match("^colony_quota_(.-)_(%a+)$")
   if q_item and (q_dir == "more" or q_dir == "less") then
     local player = game.get_player(ev.player_index)
@@ -1204,6 +1223,7 @@ events.on(defines.events.on_gui_click, function(ev)
     local _, c, _, body = crate_ctx(ev)
     if c then
       c.filters[clear_row] = nil
+      if c.kind == crates.LINK then colony_mod.mirror_link_filters(c) end
       if body then fill_crate(body, c) end
     end
     return
@@ -1417,7 +1437,8 @@ function fill_crate(frame, c)
   p_more.style.width = 24
   frame.add{type = "line"}
   local contents, map = crate_contents(c)
-  if c.kind == crates.DEMAND then
+  local is_link = c.kind == crates.LINK
+  if c.kind == crates.DEMAND or is_link then
     frame.add{type = "label", caption = {"colony-gui-crate.filters"}}
     for i = 1, crates.FILTER_ROWS do
       local f = c.filters[i]
@@ -1435,6 +1456,32 @@ function fill_crate(frame, c)
     end
     local n, target = crates.filled(c.filters, map)
     frame.add{type = "label", caption = {"colony-gui-crate.filled", n, target}}
+    if is_link then
+      local role_key = (c.role == "export" and "colony-gui-crate.role-export")
+        or (c.role == "import" and "colony-gui-crate.role-import") or "colony-gui-crate.role-none"
+      frame.add{type = "label", caption = {"", {"colony-gui-crate.link-role"}, {role_key}}}
+      local peer = colony_mod.link_peer(c)
+      if peer then
+        frame.add{type = "label", caption = {"colony-gui-crate.link-peer", peer.colony_id, peer.un}}
+      else
+        frame.add{type = "label", caption = {"colony-gui-crate.link-peer-none"}}
+      end
+      local candidates = colony_mod.link_candidates(c)
+      if #candidates > 0 then
+        local items = {}
+        for _, e in ipairs(candidates) do items[#items + 1] = e.label end
+        frame.add{type = "drop-down", name = "colony_link_target", items = items}
+      else
+        frame.add{type = "label", caption = {"colony-gui-crate.link-none"}}
+      end
+      local apply = frame.add{type = "button", name = "colony_link_apply",
+        caption = {"colony-gui-crate.link-apply"}, tooltip = {"colony-gui-crate.link-apply-tt"}}
+      apply.style.height = 24
+      local unlink = frame.add{type = "button", name = "colony_link_unlink",
+        caption = {"colony-gui-crate.link-unlink"}, tooltip = {"colony-gui-crate.link-unlink-tt"}}
+      unlink.style.height = 24
+      frame.add{type = "label", caption = {"colony-gui-crate.link-hint"}}
+    end
   elseif is_wh then
     frame.add{type = "label", caption = is_station and {"colony-gui-crate.station-hint"} or {"colony-gui-crate.warehouse-hint"}}
     if is_station then
@@ -1489,9 +1536,11 @@ end
 local function open_crate(player, e)
   local old = player.gui.relative[CRATE_FRAME]; if old then old.destroy() end
   local name = (e.type == "entity-ghost") and e.ghost_name or e.name
-  local names = {colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE, colony_mod.HAUL_STATION, colony_mod.REFRIGERATED_WAREHOUSE}
+  local names = {colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE, colony_mod.HAUL_STATION,
+    colony_mod.REFRIGERATED_WAREHOUSE, colony_mod.LINK_CRATE}
   if e.type == "entity-ghost" then
-    names = {"entity-ghost", colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE, colony_mod.HAUL_STATION, colony_mod.REFRIGERATED_WAREHOUSE}
+    names = {"entity-ghost", colony_mod.SUPPLY_CRATE, colony_mod.DEMAND_CRATE, colony_mod.WAREHOUSE,
+      colony_mod.HAUL_STATION, colony_mod.REFRIGERATED_WAREHOUSE, colony_mod.LINK_CRATE}
   end
   local frame = player.gui.relative.add{type = "frame", name = CRATE_FRAME, direction = "vertical",
     caption = e.localised_name, anchor = {gui = defines.relative_gui_type.container_gui,
@@ -1509,7 +1558,9 @@ local function open_crate(player, e)
         filters = copy_rows(payload.crate.filters),
         accept_all = payload.crate.accept_all,
         priority = payload.crate.priority or 3,
-        logistics_enabled = true}
+        logistics_enabled = true,
+        link = payload.crate.link and payload.crate.link.id or nil,
+        role = payload.crate.link and payload.crate.link.role or nil}
     else
       c = {entity = e, kind = kind, colony_id = colony.id,
         filters = {},
@@ -1540,7 +1591,9 @@ function crate_ctx(ev)
         filters = copy_rows(payload.crate.filters),
         accept_all = payload.crate.accept_all,
         priority = payload.crate.priority or 3,
-        logistics_enabled = true}
+        logistics_enabled = true,
+        link = payload.crate.link and payload.crate.link.id or nil,
+        role = payload.crate.link and payload.crate.link.role or nil}
     else
       c = {entity = e, kind = kind, colony_id = colony.id,
         filters = {},
@@ -1909,6 +1962,7 @@ events.on(defines.events.on_gui_elem_changed, function(ev)
     local _, c, _, body, e = crate_ctx(ev)
     if c then
       crates.set_filter(c.filters, row, ev.element.elem_value)
+      if c.kind == crates.LINK then colony_mod.mirror_link_filters(c) end
       if body then fill_crate(body, c) end
       if e and e.type == "entity-ghost" then e.tags = tags.dictionary(tags.crate(c)) end
     end
@@ -1937,6 +1991,7 @@ events.on(defines.events.on_gui_text_changed, function(ev)
     local _, c, _, _, e = crate_ctx(ev)
     if c then
       crates.set_count(c.filters, row, ev.element.text)
+      if c.kind == crates.LINK then colony_mod.mirror_link_filters(c) end
       if e and e.type == "entity-ghost" then e.tags = tags.dictionary(tags.crate(c)) end
     end
     return

@@ -18,6 +18,8 @@ local fishing = require("scripts.model.fishing")
 local salt = require("scripts.model.salt")
 local well = require("scripts.model.well")
 local recreation = require("scripts.model.recreation")
+local inspiration = require("scripts.model.inspiration")
+local research_speed = require("scripts.research_speed")
 local forest = require("scripts.model.forest")
 local tower_model = require("scripts.model.tower")
 local turret_model = require("scripts.model.turret")
@@ -326,7 +328,7 @@ end
 function M.serve_taverns(colony, houses, occ)
   local taverns = M.tavern_list(colony)
   if #taverns == 0 then
-    for _, h in ipairs(houses) do h.inspired = nil end
+    for _, h in ipairs(houses) do h.inspired, h.inspiration_quality = nil, 0 end
     return 0
   end
   local tl, hl = {}, {}
@@ -342,6 +344,7 @@ function M.serve_taverns(colony, houses, occ)
   for i, h in ipairs(houses) do
     local ti = served[i]
     h.inspired = ti ~= nil or nil
+    h.inspiration_quality = ti and inspiration.TAVERN or 0
     if ti then
       taverns[ti].houses = taverns[ti].houses + 1
       taverns[ti].inspired = taverns[ti].inspired + (occ[i] or 0)
@@ -350,16 +353,58 @@ function M.serve_taverns(colony, houses, occ)
   return coverage
 end
 
+-- Inspired research cache (#48 slice A): how many scholars on duty are Inspired, and at what quality.
+-- `split[i]` is this evaluation's sorted roster of colonist unit numbers living in `houses[i]`, and
+-- `h.inspiration_quality` was just written by serve_taverns - so this needs no house-index lookup and no
+-- second sort of the town beyond the scholar id list. Unit numbers are sorted before the float division so
+-- two runs of the same save produce exactly the same share (MP determinism).
+function M.compute_inspiration(colony, split, houses)
+  local quality_of = {}
+  for i, h in ipairs(houses) do
+    local q = h.inspiration_quality or 0
+    if q > 0 then
+      for _, un in ipairs(split[i] or {}) do
+        if q > (quality_of[un] or 0) then quality_of[un] = q end
+      end
+    end
+  end
+  local ids, total, inspired, best = {}, 0, 0, 0
+  for un, c in pairs(colony.colonists or {}) do if c.valid then ids[#ids + 1] = un end end
+  table.sort(ids)
+  local night = work.is_sleep_time(colony.hall.surface)
+  for _, un in ipairs(ids) do
+    local st = storage.unit_state and storage.unit_state[un]
+    if st and st.job == "research" and st.hut and st.hut.entity and st.hut.entity.valid and not night
+        and st.state ~= "sleeping" and st.state ~= "to_bed"
+        and st.state ~= "to_shelter" and st.state ~= "sheltered" and st.state ~= "exposed" then
+      total = total + 1
+      local q = quality_of[un] or 0
+      if q > 0 then
+        inspired = inspired + 1
+        if q > best then best = q end
+      end
+    end
+  end
+  colony.inspiration = {share = total > 0 and inspired / total or 0, quality = best}
+  return colony.inspiration
+end
+
 -- The town's specialisation from the last sample, and its parts, so the work loop can add exactly +1 item to a
 -- matching job's trip (#46). nil while the first sample hasn't landed (no bonus yet, no failure either).
 function M.spec_of(colony) return colony and colony.spec or nil end
 function M.spec_parts(colony) return colony and colony.spec_parts or nil end
 
--- Is this colonist Inspired (+25% work speed)? True when its house was served by a Tavern last evaluation.
-function M.is_inspired(colony, un)
+-- Inspiration quality for one colonist (0 = none); the work buff still reads this as a boolean below.
+function M.inspiration_quality(colony, un)
   local e = M.house_of_colonist(colony, un)
   local h = e and colony.houses[e.unit_number]
-  return h ~= nil and h.inspired == true
+  if not h then return 0 end
+  return h.inspiration_quality or (h.inspired == true and inspiration.TAVERN or 0)
+end
+
+-- Is this colonist Inspired (+25% work speed)? True when its house was served by a Tavern last evaluation.
+function M.is_inspired(colony, un)
+  return M.inspiration_quality(colony, un) > 0
 end
 
 function M.house_of_colonist(colony, un)
@@ -1433,7 +1478,13 @@ end
 function M.evaluate(data)
   local colony = storage.colonies[data.colony_id]
   if not colony then return end
-  if not colony.hall.valid then return end    -- hall gone; colony dormant
+  if not colony.hall.valid then
+    -- The colony is dormant, but its force may still be carrying the last Inspired research bonus. There is
+    -- no hall to read the force from here, so sweep the forces we have durable records for; target_for()
+    -- ignores invalid halls and drops the bonus to zero. Without this the modifier would never clear (M2).
+    research_speed.apply_all()
+    return
+  end
   scheduler.after(M.interval(), "colony.evaluate", data)
 
   -- Cultural Insights (#51): the stat itself decays once per evaluation (12-evaluation half-life). The
@@ -1648,6 +1699,7 @@ function M.evaluate(data)
     end
   end
   colony.recreation = M.serve_taverns(colony, houses, occ)
+  M.compute_inspiration(colony, split, houses)
   illness.evaluate(colony, rotten)
   local kept = {}
   for _, a in ipairs(colony.deaths) do if a < 40 then kept[#kept + 1] = a + 1 end end
@@ -1768,6 +1820,9 @@ function M.evaluate(data)
     end
     work.wake_idle_colonists(colony, nil, work.WAKE_LIMIT_EVAL)
   end
+  -- Inspired research (#48 slice A): one idempotent pass over the force's colonies per evaluation. Uses the
+  -- `colony.inspiration` cache computed above; no per-tick scan and no new storage schema.
+  research_speed.apply(colony.hall.force)
 end
 scheduler.register("colony.evaluate", M.evaluate)
 

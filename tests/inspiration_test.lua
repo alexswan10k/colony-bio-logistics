@@ -1,0 +1,48 @@
+describe("inspiration / research speed rule (#48 slice A)", function()
+  local ins = require("scripts.model.inspiration")
+
+  it("quality table carries the Tavern now and the Theatre for slice B", function()
+    eq(ins.TAVERN, 1.25)
+    eq(ins.THEATRE, 1.5)
+    eq(ins.QUALITY.tavern, 1.25)
+    eq(ins.QUALITY.theatre, 1.5)
+    eq(ins.RESEARCH_MAX, 0.5)
+  end)
+
+  it("research_bonus is zero without inspiration or without scholars", function()
+    eq(ins.research_bonus(0, 1.25), 0)
+    eq(ins.research_bonus(0, 1.5), 0)
+    eq(ins.research_bonus(1, 0), 0)
+    eq(ins.research_bonus(0.5, 0), 0)
+    eq(ins.research_bonus(nil, 1.25), 0)
+    eq(ins.research_bonus(1, nil), 0)
+  end)
+
+  it("research_bonus is the same fraction-faster number the work buff uses", function()
+    near(ins.research_bonus(1, 1.25), 0.25, 1e-12)
+    near(ins.research_bonus(1, 1.5), 0.5, 1e-12)
+    near(ins.research_bonus(0.5, 1.25), 0.125, 1e-12)
+    near(ins.research_bonus(0.25, 1.5), 0.125, 1e-12)
+  end)
+
+  it("research_bonus is capped at 0.5 so stacked venues cannot outrun the design", function()
+    near(ins.research_bonus(1, 3), 0.5, 1e-12)
+    near(ins.research_bonus(1, math.huge), 0.5, 1e-12)
+    eq(ins.research_bonus(-1, 1.25), 0)   -- bad derived share clamps down, never cancels a bonus
+  end)
+
+  it("NaN share and quality read as no inspiration", function()
+    local nan = 0 / 0
+    eq(ins.research_bonus(nan, 1.25), 0)
+    eq(ins.research_bonus(1, nan), 0)
+  end)
+
+  it("work_ticks generalises the boolean work buff at Tavern and Theatre quality", function()
+    eq(ins.work_ticks(100, 0), 100)
+    eq(ins.work_ticks(100, 1.0), 100)
+    eq(ins.work_ticks(100, 1.25), 80)
+    eq(ins.work_ticks(100, 1.5), 67)
+    eq(ins.work_ticks(480, 1.25), 384)   -- exactly recreation.work_ticks(480, true)
+    eq(ins.work_ticks(100, nil), 100)
+  end)
+end)

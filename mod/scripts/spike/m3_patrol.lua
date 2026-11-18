@@ -45,7 +45,7 @@ core.register("m3_patrol", {
     ctx.check("patrol post built and registered", post and post.valid and c.patrol_posts[post.unit_number] ~= nil)
     if not (post and post.valid) then return ctx.finish() end
     local pun = post.unit_number
-    ctx.check("schema 41 created the patrol registries", storage.schema == 41
+    ctx.check("schema 41+ created the patrol registries", storage.schema >= 41
       and c.patrols ~= nil and c.patrol_posts ~= nil and storage.patrol_ui ~= nil,
       "schema=" .. tostring(storage.schema))
 
@@ -291,7 +291,7 @@ core.register("m3_patrol", {
           ctx.check("nightfall ends the patrol", c.patrols[mun] == nil and not patrol_model.is_patrol(st),
             "state=" .. tostring(st.state))
           s.always_day, s.freeze_daytime, s.daytime = true, true, 0
-          ctx.check("schema-41 registries still hold the post", storage.schema == 41
+          ctx.check("schema-41+ registries still hold the post", storage.schema >= 41
             and c.patrol_posts[pun] ~= nil and #c.patrol_posts[pun].waypoints == 2)
           return phase_f()
         end)

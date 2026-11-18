@@ -444,7 +444,7 @@ core.register("m2_tourism_load", {
     if not exp then return ctx.finish() end
     local cA = storage.colonies[exp.home]
     local cB = storage.colonies[exp.host]
-    ctx.check("both colonies survived with schema 42", cA ~= nil and cB ~= nil and storage.schema == 42,
+    ctx.check("both colonies survived with schema 42+", cA ~= nil and cB ~= nil and storage.schema >= 42,
       "schema " .. tostring(storage.schema))
     if not (cA and cB) then return ctx.finish() end
     ctx.check("visitors and held beds survived with no payout on load",

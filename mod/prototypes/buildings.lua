@@ -112,6 +112,12 @@ local canteen = chest_clone("iron-chest", "colony-canteen", "canteen", 8, 1)
 -- Spa (#51): a worker-free 2x2 amenity that hosts tourists from another rail-linked colony. Reuses the
 -- Tavern art/icon so the minimal slice adds no new graphics; its only state is registry + desirability.
 local spa = chest_clone("iron-chest", "colony-spa", "tavern", 4, 1)
+-- Theatre (#48 slice B): worker-free Inspiration for houses within 16 tiles (quality 1.5, +50% work
+-- speed). The trade against a Tavern is no ale upkeep but a smaller radius; the adapter draws the circle.
+local theatre = chest_clone("iron-chest", "colony-theatre", "theatre", 8, 1.5)
+-- Scenic Plaza (#48 slice B): worker-free decoration. Each plaza within 40 tiles of the hall adds +0.2
+-- scenic desirability, capped at +0.4; no worker, no upkeep, and a one-slot (unused) inventory.
+local plaza = chest_clone("iron-chest", "colony-scenic-plaza", "plaza", 1, 0.5)
 
 -- Colony Ledger (#92): a constant combinator the colony writes itself. Every 60 ticks it republishes the
 -- colony ledger (stock, or the shortfall against quotas) as item signals, so a factory can react to what the
@@ -344,7 +350,7 @@ ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while wal
 
 data:extend({
   hall, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
-  smokehouse, kitchen, toolsmith, tavern, spa, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, freight_crate, warehouse, haul_station, compost_bin,
+  smokehouse, kitchen, toolsmith, tavern, theatre, plaza, spa, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, freight_crate, warehouse, haul_station, compost_bin,
   cannery, refrigerated_warehouse, refrigerated_wagon, tower, ledger_entity,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
@@ -378,10 +384,12 @@ data:extend({
    localised_description = {"item-description.colony-refrigerated-wagon"}},
   item_of(tower, "water-tower", "z[colony]-k4[water-tower]"),
   item_of(tavern, "tavern", "z[colony]-l1[tavern]"),
+  item_of(theatre, "theatre", "z[colony]-l2[theatre]"),
   item_of(motorpool, "motor-pool", "z[colony]-l2[motor-pool]"),
   item_of(platform, "passenger-platform", "z[colony]-l3[passenger-platform]"),
   item_of(canteen, "canteen", "z[colony]-l5[canteen]"),
   item_of(spa, "tavern", "z[colony]-l4[spa]"),
+  item_of(plaza, "plaza", "z[colony]-l5[plaza]"),
   item_of(clinic, "clinic", "z[colony]-l6[clinic]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
@@ -587,6 +595,12 @@ data:extend({
   -- Hand-craftable from raw wood and stone; the first milestone unlocks it (technology.lua).
   recipe("colony-toolsmith", {wood = 20, stone = 10}, 2, 1, false),
   recipe("colony-tavern", {wood = 40, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
+  -- #48 slice B: the Theatre is deliberately expensive (no upkeep, but a bigger capital cost than a Tavern).
+  -- No steel here: colony-recreation has no steel-processing prerequisite, and tech_audit rule 6 would
+  -- flag an unmakeable ingredient. Stone brick + iron + cable keeps the Theatre genuinely expensive
+  -- without gating the early Tavern behind steel.
+  recipe("colony-theatre", {["stone-brick"] = 60, ["iron-plate"] = 40, ["copper-cable"] = 20}, 8, 1, false),
+  recipe("colony-scenic-plaza", {stone = 30, ["stone-brick"] = 20, wood = 10}, 3, 1, false),
   recipe("colony-motor-pool", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 20, ["iron-gear-wheel"] = 10}, 3, 1, false),
   recipe("colony-passenger-platform", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-canteen", {wood = 30, ["stone-brick"] = 10, ["iron-plate"] = 10}, 3, 1, false),

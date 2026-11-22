@@ -127,6 +127,23 @@ function M.tavern(f)
   return {level = "green", key = "tavern-serving", args = {f.houses, f.inspired or 0, f.ale}}
 end
 
+-- A Theatre's tooltip (#48 slice B). facts: houses (occupied houses inspired at the last evaluation),
+-- inspired (residents inspired). Worker-free with no consumable, so there is no "dry" state: a Theatre
+-- either inspires houses or stands idle. Amber, never red. Args are {houses, inspired} for both states.
+function M.theatre(f)
+  if (f.houses or 0) == 0 then return {level = "amber", key = "theatre-idle", args = {0, f.inspired or 0}} end
+  return {level = "green", key = "theatre-serving", args = {f.houses, f.inspired or 0}}
+end
+
+-- Scenic Plazas' contribution to the hall's sample (#48 slice B). facts: count (plazas in the 40-tile
+-- radius), bonus (plaza.bonus(count), already capped at +0.40). Free decoration, so only the amount of
+-- scenery it adds is interesting; never a problem state. Args are {count, bonus}.
+function M.plaza(f)
+  local count, bonus = f.count or 0, f.bonus or 0
+  if count == 0 then return {level = "amber", key = "plaza-scenic", args = {count, bonus}} end
+  return {level = "green", key = "plaza-scenic", args = {count, bonus}}
+end
+
 -- A Passenger Platform's tooltip (#49). facts: stop (a train stop is in reach), waiting (colonists queued).
 function M.platform(f)
   if not f.stop then return {level = "amber", key = "platform-no-stop", args = {}} end

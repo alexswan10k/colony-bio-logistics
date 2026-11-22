@@ -184,6 +184,24 @@ describe("research_speed adapter (#48 slice A)", function()
     eq(insp.share, 0); eq(insp.quality, 0)
   end)
 
+  it("mixed tavern and theatre scholars average their quality, not take the max", function()
+    local env = mock.install(); env = env.reset()
+    local colony_mod = require("scripts.colony")
+    local inspiration = require("scripts.model.inspiration")
+    local c = {hall = {valid = true, surface = {daytime = 0.1, freeze_daytime = false}},
+      colonists = {[1] = {valid = true}, [2] = {valid = true}, [3] = {valid = true}, [4] = {valid = true}}}
+    -- Two scholars in Tavern houses (1.25) and two in Theatre houses (1.5).
+    local houses = {{inspiration_quality = 1.25}, {inspiration_quality = 1.5}}
+    local split = {{1, 2}, {3, 4}}
+    storage.unit_state = {}
+    for i = 1, 4 do storage.unit_state[i] = {job = "research", hut = {entity = {valid = true}}, state = "working"} end
+    local insp = colony_mod.compute_inspiration(c, split, houses)
+    near(insp.share, 1, 1e-12)
+    near(insp.quality, 1.375, 1e-12)
+    -- research_bonus(share, quality) must equal the mean of the four scholars' individual bonuses.
+    near(inspiration.research_bonus(insp.share, insp.quality), 0.375, 1e-12)
+  end)
+
   it("a town with no inspiration writes 0 and leaves a foreign modifier alone", function()
     local _, rs, force = setup()
     storage.colonies[1].inspiration = {share = 0, quality = 0}

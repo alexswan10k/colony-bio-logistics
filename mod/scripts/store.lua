@@ -1,7 +1,7 @@
 -- Versioned `storage` schema. Add a function to `migrations[n]` and bump SCHEMA when changing layout.
 -- Rules: only plain data in storage (no functions); no math.random (use game.create_random_generator).
 local M = {}
-local SCHEMA = 44
+local SCHEMA = 45
 
 local migrations = {
   [1] = function()
@@ -341,6 +341,16 @@ local migrations = {
     -- `laboratory_speed_modifier`. [force_name] = {base = foreign modifier, applied = our last bonus}.
     -- Saving `applied` is what makes a cold load safe when inspiration has changed since the save.
     storage.research_speed = storage.research_speed or {}
+  end,
+  [45] = function()
+    -- Theatres and Scenic Plazas (#48 slice B). Both registries are keyed by unit number like Taverns; the
+    -- LuaEntity handles re-resolve on load. `plaza_count` is just the last scenic sample's cached count and
+    -- is refreshed on the next sample, so old saves can start at zero.
+    for _, c in pairs(storage.colonies or {}) do
+      c.theatres = c.theatres or {}
+      c.plazas = c.plazas or {}
+      c.plaza_count = c.plaza_count or 0
+    end
   end,
 }
 

@@ -162,6 +162,9 @@ data:extend({
     {"colony-advanced-agriculture", "colony-water-infrastructure"}, {
       unlock("colony-tavern"),
       unlock("colony-ale"),
+      -- #48 slice B: both ride the existing tech node, so lab coverage and the pack gates are unchanged.
+      unlock("colony-theatre"),
+      unlock("colony-scenic-plaza"),
     }),
   tech("colony-medicine", "icon-clinic.png", 30, {"colony-frontier-pack"}, 15,
     {"colony-advanced-agriculture"}, {

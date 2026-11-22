@@ -111,6 +111,11 @@ Three headless gates cover the things the unit tests and the playable spike cann
   between 0 and 1 and shows in desirability, ale is consumed, the tooltip says `tavern-serving`, and once all ale is
   gone the buff clears. It clears one evaluation *after* the last ale is poured (evaluations read stock before
   consuming), so the spike waits for in-flight ale to land before stripping it.
+- `scripts/headless-spike.sh m2_recreation` - the #48 slice-B Theatre + Scenic Plaza spike (25 checks,
+  `TICKS=4800`): a house inside 16 tiles is Inspired at quality 1.5 while one 36 tiles away is not, scholars beat
+  the Tavern research rate for the same cohort, work ticks go 480→320, recreation is union coverage, four Plazas
+  raise scenic to the +0.4 cap, and demolishing the buildings removes both effects. It also reads the *real*
+  `custom_status` lines (`theatre-serving`, `plaza-scenic`) so a silently-wrapped advice fact cannot pass.
 - `scripts/headless-spike.sh m1_motor` - the #60 Motor Pool spike (26 checks, `TICKS=6000`): a pool checks a car
   out for a full hand-load with more wanted, the `colony-truck` carries 100 in one trip at 2.5x colonist speed,
   the driver waits under its stop order, the truck parks when its fuel is spent, the car goes back to the pool,

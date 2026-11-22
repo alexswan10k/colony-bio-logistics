@@ -160,6 +160,16 @@ def em_mug(a, cx, cy):
     a.arc(cx + 6, cy + 2, 4, 4, 270, 90, 2, (236, 180, 70))
 
 
+def em_theatre(a, cx, cy):
+    """a pair of comedy/tragedy masks: the playhouse mark on the Theatre's hanging billboard"""
+    for s, col in ((-1, (236, 210, 142)), (1, (198, 92, 84))):
+        mx = cx + s * 5
+        a.ell(mx - 4.5, cy - 6, mx + 4.5, cy + 6, col, shade=.25, edge=.4)
+        for ex in (mx - 2.4, mx + 0.6):
+            a.ell(ex - .9, cy - 3.2, ex + .9, cy - 1.4, (42, 32, 26), edge=0, hi=0)
+        a.arc(mx, cy + 1.5, 2.4, 2.2, 200, 340, 1, (42, 32, 26))
+
+
 def em_sapling(a, cx, cy):
     """Forester's Hut (#97): a young tree, stem and three leaves."""
     a.line([(cx, cy + 9), (cx, cy - 3)], 2.2, (124, 88, 52))
@@ -1198,6 +1208,93 @@ def tavern():
     chimney(b, x0 + 10, y0 + 16, 12, 10, wh - .3, wh + pitch + .55, STONE)
     smoke(a, b.sx(x0 + 10, y0 + 16), b.sy(y0 + 16, wh + pitch + .6), 3, .4)
     finish(a, b, "tavern", 2, 2)
+
+
+@asset
+def theatre():
+    """#48 slice B: a stone playhouse with a columned portico, a sunburst pediment and a lit marquee.
+    Culture without ale: it Inspires houses within 16 tiles, but asks no worker and no upkeep."""
+    a, b = building(3, 3, top=205, persp=.16)
+    x0, y0, x1, y1 = site(b, .10, .32)
+    b.ground(x0 - 6, y0 - 6, x1 + 6, b.base + 4, (20, 14, 8), .4)
+    wh, pitch = 3.1, 1.1
+    wall, roof = STONE_L, (118, 72, 58)
+    plinth(b, x0, y0, x1, y1, z1=.24)
+    walls(b, x0, y0, x1, y1, wh, wall, stone(14), z0=.24)
+    front_gable(b, x0, y0, x1, y1, wh + .04, wh + pitch, 8, roof, shingle_p(9, 5), PLASTER)
+    eave_shadow(a, b, x0, x1, y1, wh, .18)
+    # a shallow stone stage in front of the columns, with one step down to the street
+    b.box(x0 + 4, y1 + 2, x1 - 4, y1 + 15, .18, .34, STONE,
+          top=mul(STONE_L, .98), top_tex=stone(7))
+    b.box(x0 + 14, y1 + 15, x1 - 14, y1 + 21, 0, .18, STONE, top=STONE_L, top_tex=stone(7))
+    # the portico: an entablature on four columns, the middle left open for the doors
+    b.box(x0 + 4, y1 - 4, x1 - 4, y1 + 3, wh - .12, wh + .22, PLASTER,
+          top=mul(PLASTER, 1.03), top_tex=stone(8))
+    for cx in (x0 + 13, x0 + 37, x1 - 37, x1 - 13):
+        column(a, b, cx, y1 + 3, .34, wh - .12)
+    door(a, b, x0 + 30, y1, 26, 1.25, z0=.24)
+    door(a, b, x1 - 56, y1, 26, 1.25, z0=.24)
+    window(a, b, x0 + 8, y1, 12, .5, 1.0, lit=True)
+    window(a, b, x1 - 20, y1, 12, .5, 1.0, lit=True)
+    # a gold sunburst in the pediment, and a playbill hanging off the right column
+    px, py = b.sx((x0 + x1) / 2, y1), b.sy(y1, wh + pitch * .42)
+    a.ell(px - 7, py - 5, px + 7, py + 5, (226, 190, 92), shade=.25, edge=.45)
+    for ang in range(0, 360, 45):
+        c, s = math.cos(ang * math.pi / 180), math.sin(ang * math.pi / 180)
+        a.line([(px + c * 9, py + s * 6), (px + c * 13, py + s * 9)], 1.4, (226, 190, 92), hi=.6)
+    sign(a, b, x1 - 6, y1, wh - .5, em_theatre, 22, 20)
+    # striped marquee over the doors, with a row of footlights along its front edge
+    awning(a, b, x0 + 20, x1 - 20, y1 + 4, 1.42, .35, ((150, 62, 58), (240, 226, 196)))
+    for k in range(7):
+        lx = x0 + 24 + k * (x1 - x0 - 48) / 6
+        ex, ey = b.sx(lx, y1 + 14), b.sy(y1 + 14, 1.42)
+        a.ell(ex - 2, ey - 2, ex + 2, ey + 2, GLASS_LIT, shade=.2, edge=.3, hi=.9)
+    finish(a, b, "theatre", 3, 3)
+
+
+@asset
+def plaza():
+    """#48 slice B: a small park plaza - a fountain on a paved circle, two benches and a pair of saplings.
+    Pure decoration: a scenic desirability bonus for the hall within 40 tiles."""
+    a, b = building(1, 1, top=95, persp=.12)
+    x0, y0, x1, y1 = site(b, .08, .10)
+    b.ground(x0 - 4, y0 - 4, x1 + 4, b.base + 4, (20, 14, 8), .4)
+    # a stone kerb around a grassy square, with a worn paved ring around the fountain
+    b.box(x0, y0, x1, y1, 0, .08, STONE, top=STONE_L, top_tex=stone(7))
+    b.ell(x0 + 3, y0 + 3, x1 - 3, y1 - 3, .09, mul(GREEN, .92), shade=.15, grain=8)
+    b.ell(x0 + 9, y0 + 9, x1 - 9, y1 - 9, .10, mul(STONE_L, .90), shade=.12, grain=6)
+    b.ell(x0 + 12, y0 + 12, x1 - 12, y1 - 12, .11, mul(GREEN, .96), shade=.15, grain=8)
+    # the fountain: a low stone basin, blue water, a pedestal and a little jet
+    b.ell(x0 + 18, y0 + 18, x1 - 18, y1 - 18, .12, STONE, shade=.3, grain=5)
+    b.ell(x0 + 20, y0 + 20, x1 - 20, y1 - 20, .34, STONE_L, shade=.25, grain=4)
+    b.ell(x0 + 22, y0 + 22, x1 - 22, y1 - 22, .35, (64, 136, 200), shade=.25, grain=4)
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+    b.box(mx - 3, my - 3, mx + 3, my + 3, .34, .78, STONE_L, top=STONE)
+    fx, fy = b.sx(mx, my), b.sy(my, .8)
+    a.ell(fx - 4, fy - 8, fx + 4, fy + 2, (122, 194, 236), shade=.25, edge=.35, hi=.7)
+    for dx, dy in ((-7, -11), (6, -12), (1, -17)):
+        a.ell(fx + dx - 1.5, fy + dy - 1.5, fx + dx + 1.5, fy + dy + 1.5,
+              (170, 216, 242), shade=.2, edge=.3, hi=.8)
+    # two benches facing the water, with little iron legs
+    def bench(bx, by):
+        b.box(bx - 9, by - 2, bx + 9, by + 3, .06, .32, WOOD_L,
+              top=mul(WOOD_L, 1.12), top_tex=planks_h(3))
+        b.box(bx - 9, by - 5, bx + 9, by - 2, .32, .62, WOOD,
+              top=mul(WOOD, 1.1), top_tex=planks_h(3))
+        for lx in (bx - 8, bx + 8):
+            b.box(lx - 1, by - 1, lx + 1, by + 2, 0, .06, IRON_D)
+
+    bench(x0 + 12, y1 - 13)
+    bench(x1 - 12, y0 + 13)
+    # saplings in opposite corners and a few flower beds
+    sapling(a, b, x0 + 6, y0 + 7, .55)
+    sapling(a, b, x1 - 6, y1 - 7, .6)
+    for fx0, fy0, col in ((x0 + 8, y1 - 6, (232, 122, 138)),
+                          (x1 - 8, y0 + 6, (236, 196, 92)),
+                          (x0 + 7, (y0 + y1) / 2, (206, 140, 196))):
+        ex, ey = b.sx(fx0, fy0), b.sy(fy0, .11)
+        a.ell(ex - 2, ey - 2, ex + 2, ey + 2, col, shade=.25, edge=.35)
+    finish(a, b, "plaza", 1, 1)
 
 
 @asset

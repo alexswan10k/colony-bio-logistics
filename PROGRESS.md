@@ -65,9 +65,23 @@ per tree; planted tree is worth 4 wood to the next woodcutter. `m1_forest` 38/38
 `m1_tech` 13/13, save/load round-trip schema 37, determinism checksum 2304208958 (m1_colony,
 19500 ticks), `lint-determinism` ok.
 
+## 2026-11-22 — #48 complete: Theatres and Scenic Plazas (schema 45)
+
+The research-speed half landed earlier; this closes the last two buildings on the issue. A worker-free,
+consumable-free 3x3 Theatre inspires houses within 16 tiles at quality 1.5 (work 480→320, research beats
+Tavern rate for the same scholar cohort); a 1x1 Scenic Plaza adds +0.2 scenic each inside the hall's
+40-tile sample, capped at +0.4. Both unlock on the existing Recreation tech, with new art. The plaza term
+is added after the existing scenic sum so untouched towns are bit-identical.
+
+581 unit tests, 25-check `m2_recreation`, 19-check `m1_tavern`, 13-check `s20_inspired_research`,
+19-check `m1_desirability`, 116-check `m1_colony`, save/load PASS on schema 45, determinism checksum
+4237111034 (moved from 3759486083 on the new prototypes; existing-town behaviour unchanged),
+bench 0.612 ms/tick PASS, typecheck clean. An adversarial review caught two defects the green gates
+missed — a wrapper around the advice facts (all new tooltips said "idle") and max-instead-of-average
+quality in mixed Tavern/Theatre research — both fixed and pinned.
+
 ## Next
 
-- #48 remainder: Scenic Appeal score + Theatres + Inspired buff research-speed half.
-- #52 install: crate-pair Freight Link — blocked on design choice recorded on the issue.
-- #54 M2 gate, blocked on quiet re-baseline of #22 UPS bench; in-game checklist lives on #85.
-- #51 tourism economy, blocked on decision needed on #21.
+- #54 M2 gate: playtest/balance and UPS/MP regression; in-game checklist lives on #85.
+- #85 onboarding: tooltips, alerts, carry sprites, hall workshop.
+- M4 per-planet slices (#63-#70) and tech tier 3/4 (#69).

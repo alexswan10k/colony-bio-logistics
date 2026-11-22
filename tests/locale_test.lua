@@ -86,6 +86,7 @@ describe("locale", function()
       "station-ready", "station-out", "station-worn", "station-no-trailers",
       "collector-filling", "collector-producing", "collector-full",
       "tavern-serving", "tavern-idle", "tavern-dry",
+      "theatre-serving", "theatre-idle", "plaza-scenic",
       "canteen-serving", "canteen-idle", "canteen-full", "canteen-empty",
       "cemetery-room", "cemetery-full",
       "clinic-treating", "clinic-no-medicine", "clinic-idle", "clinic-no-doctor",

@@ -18,6 +18,8 @@ local fishing = require("scripts.model.fishing")
 local salt = require("scripts.model.salt")
 local well = require("scripts.model.well")
 local recreation = require("scripts.model.recreation")
+local theatre = require("scripts.model.theatre")
+local plaza = require("scripts.model.plaza")
 local inspiration = require("scripts.model.inspiration")
 local research_speed = require("scripts.research_speed")
 local forest = require("scripts.model.forest")
@@ -61,6 +63,8 @@ M.WATER_TOWER = "colony-water-tower"
 M.LEDGER = "colony-ledger"
 M.MOTOR_POOL = "colony-motor-pool"
 M.TAVERN = "colony-tavern"
+M.THEATRE = "colony-theatre"        -- #48 slice B: worker-free Inspiration, shorter range than a Tavern
+M.PLAZA = "colony-scenic-plaza"     -- #48 slice B: free decorative scenic bonus around the hall
 M.PLATFORM = "colony-passenger-platform"
 M.CEMETERY = "colony-cemetery"
 M.CANTEEN = "colony-canteen"
@@ -181,6 +185,32 @@ function M.tavern_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.taverns[un] end
+  return out
+end
+
+-- Theatres (#48 slice B), in a stable order: [unit_number] = {entity, colony_id, houses, inspired}.
+-- `houses`/`inspired` are recomputed at every evaluation by serve_theatres and are only used by tooltips.
+function M.theatre_list(colony)
+  local ids = {}
+  for un, t in pairs(colony.theatres or {}) do
+    if t.entity.valid then ids[#ids + 1] = un else colony.theatres[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.theatres[un] end
+  return out
+end
+
+-- Scenic Plazas (#48 slice B), in a stable order: [unit_number] = {entity, colony_id}. Pure decoration; the
+-- only state they contribute is the count inside the hall's scenic radius, refreshed on the scenic cadence.
+function M.plaza_list(colony)
+  local ids = {}
+  for un, p in pairs(colony.plazas or {}) do
+    if p.entity.valid then ids[#ids + 1] = un else colony.plazas[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.plazas[un] end
   return out
 end
 
@@ -353,6 +383,46 @@ function M.serve_taverns(colony, houses, occ)
   return coverage
 end
 
+-- Theatres (#48 slice B): worker-free and consumable-free, they Inspire every occupied house within 16 tiles
+-- at quality 1.5 (overriding a Tavern's 1.25). Runs straight after serve_taverns, so the flags and qualities
+-- the evaluation uses are the UNION of both amenities. Residents are counted once even where the radii overlap.
+function M.serve_theatres(colony, houses, occ)
+  local theatres = M.theatre_list(colony)
+  if #theatres == 0 then return end   -- no Theatre: the Tavern coverage just computed stands unchanged
+  local tl, hl = {}, {}
+  for i, t in ipairs(theatres) do tl[i] = {position = t.entity.position} end
+  for i, h in ipairs(houses) do hl[i] = {position = h.entity.position, occupants = occ[i] or 0} end
+  local served = theatre.serve(tl, hl)
+  for _, t in ipairs(theatres) do t.houses, t.inspired = 0, 0 end
+  for i, h in ipairs(houses) do
+    if served[i] then
+      h.inspired = true
+      h.inspiration_quality = math.max(h.inspiration_quality or 0, theatre.QUALITY)
+      -- Tooltip attribution: nearest Theatre wins, ties go to the lower unit number (stable order).
+      local hp, best, best_d = h.entity.position, nil, nil
+      for ti, t in ipairs(theatres) do
+        local tp = t.entity.position
+        local dx, dy = hp.x - tp.x, hp.y - tp.y
+        local d = dx * dx + dy * dy
+        if not best_d or d < best_d then best, best_d = ti, d end
+      end
+      local t = theatres[best]
+      if t then
+        t.houses = t.houses + 1
+        t.inspired = t.inspired + (occ[i] or 0)
+      end
+    end
+  end
+  local total, happy = 0, 0
+  for i, h in ipairs(houses) do
+    local n = occ[i] or 0
+    total = total + n
+    if h.inspired and n > 0 then happy = happy + n end
+  end
+  colony.recreation = total > 0 and happy / total or 0
+  return colony.recreation
+end
+
 -- Inspired research cache (#48 slice A): how many scholars on duty are Inspired, and at what quality.
 -- `split[i]` is this evaluation's sorted roster of colonist unit numbers living in `houses[i]`, and
 -- `h.inspiration_quality` was just written by serve_taverns - so this needs no house-index lookup and no
@@ -368,7 +438,7 @@ function M.compute_inspiration(colony, split, houses)
       end
     end
   end
-  local ids, total, inspired, best = {}, 0, 0, 0
+  local ids, total, inspired, weight = {}, 0, 0, 0
   for un, c in pairs(colony.colonists or {}) do if c.valid then ids[#ids + 1] = un end end
   table.sort(ids)
   local night = work.is_sleep_time(colony.hall.surface)
@@ -381,10 +451,14 @@ function M.compute_inspiration(colony, split, houses)
       local q = quality_of[un] or 0
       if q > 0 then
         inspired = inspired + 1
-        if q > best then best = q end
+        weight = weight + (q - 1)   -- a Theatre scholar (0.5) must not lend its quality to every Tavern scholar
       end
     end
   end
+  -- research_bonus(share, quality) = (quality-1)*share, so an AVERAGE inspired quality makes that product the
+  -- sum of each scholar's bonus over all scholars. Taking the MAX quality instead would let one Theatre among
+  -- a hundred Taverns hand the whole force +50% lab speed.
+  local best = inspired > 0 and 1 + weight / inspired or 0
   colony.inspiration = {share = total > 0 and inspired / total or 0, quality = best}
   return colony.inspiration
 end
@@ -1435,11 +1509,22 @@ local function sample_scenic(colony)
   end
   if tiles == 0 then return end
   local side = 2 * r + 1
-  colony.scenic, colony.scenic_parts = scenic.score{
+  local base, parts = scenic.score{
     tree_cover = trees / (side * side),
     water_cover = water / tiles,
     built_cover = built / tiles,
   }
+  -- Scenic Plazas (#48 slice B): a separate, capped term added AFTER the terrain score, so a town with no
+  -- Plaza keeps exactly the old scenic number. Counted on the same four-evaluation cadence as the tile scan.
+  local count = 0
+  for _, pz in ipairs(M.plaza_list(colony)) do
+    if plaza.in_radius(pz.entity.position, p, r) then count = count + 1 end
+  end
+  local pb = plaza.bonus(count)
+  colony.plaza_count = count
+  colony.scenic = math.min(1, base + pb)   -- with no Plaza pb == 0, so this is the old number bit-for-bit
+  parts.plaza = pb
+  colony.scenic_parts = parts
 end
 
 -- Specialization (#46): the town's land-shaped specialty from the huts the player built there. A town builds
@@ -1699,6 +1784,7 @@ function M.evaluate(data)
     end
   end
   colony.recreation = M.serve_taverns(colony, houses, occ)
+  M.serve_theatres(colony, houses, occ)   -- #48 slice B: may raise recreation and inspiration quality in place
   M.compute_inspiration(colony, split, houses)
   illness.evaluate(colony, rotten)
   local kept = {}
@@ -1940,7 +2026,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or M.HOUSES[name] or labour.HUTS[name] then
+    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or M.HOUSES[name] or labour.HUTS[name] then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -1981,7 +2067,7 @@ local function on_built(ev)
     local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
       towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, armories = {},
       patrol_posts = {}, patrols = {},   -- M3 Stage 3 (#57): waypoint records and active patrol leases (schema 41)
-      pools = {}, taverns = {}, platforms = {}, spas = {}, insights = 0, insights_total = 0, last_insight_tick = 0,
+      pools = {}, taverns = {}, theatres = {}, plazas = {}, plaza_count = 0, platforms = {}, spas = {}, insights = 0, insights_total = 0, last_insight_tick = 0,
       cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, overflow = {}, ratings = {},
       colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, storage_priority = 3}
     storage.colonies[id] = colony
@@ -2170,6 +2256,24 @@ local function on_built(ev)
     rendering.draw_circle{color = {0.9, 0.6, 0.2, 0.5}, width = 2, filled = false, radius = recreation.RADIUS,
       target = e, surface = e.surface, only_in_alt_mode = true}
     script.register_on_object_destroyed(e)
+  elseif name == M.THEATRE then
+    -- Theatre (#48 slice B): no workers, no ale, no hauling - its 16-tile ring Inspires houses at quality 1.5.
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.theatres = colony.theatres or {}
+    colony.theatres[e.unit_number] = {entity = e, colony_id = colony.id, houses = 0, inspired = 0}
+    rendering.draw_circle{color = {0.95, 0.45, 0.75, 0.5}, width = 2, filled = false, radius = theatre.RADIUS,
+      target = e, surface = e.surface, only_in_alt_mode = true}
+    script.register_on_object_destroyed(e)
+  elseif name == M.PLAZA then
+    -- Scenic Plaza (#48 slice B): free decoration. It only joins the hall's four-evaluation scenic sample.
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.plazas = colony.plazas or {}
+    colony.plazas[e.unit_number] = {entity = e, colony_id = colony.id}
+    script.register_on_object_destroyed(e)
   elseif (M.HOUSES[name] or labour.HUTS[name]) then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -2246,7 +2350,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or item_name == M.HALL or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -2371,6 +2475,14 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.taverns and colony.taverns[un] then
       colony.taverns[un] = nil
+      return
+    end
+    if colony.theatres and colony.theatres[un] then
+      colony.theatres[un] = nil
+      return
+    end
+    if colony.plazas and colony.plazas[un] then
+      colony.plazas[un] = nil
       return
     end
     if colony.canteens and colony.canteens[un] then

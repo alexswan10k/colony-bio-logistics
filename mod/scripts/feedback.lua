@@ -12,6 +12,7 @@ local trailer = require("scripts.model.trailer")
 local salt = require("scripts.model.salt")
 local well = require("scripts.model.well")
 local recreation = require("scripts.model.recreation")
+local plaza = require("scripts.model.plaza")
 local mortality = require("scripts.model.mortality")
 local illness = require("scripts.model.illness")
 local tower_model = require("scripts.model.tower")
@@ -212,6 +213,18 @@ function M.update(colony)
     local ale = t.entity.get_item_count(recreation.ITEM)
     local r = advice.tavern{ale = ale, houses = t.houses or 0, inspired = t.inspired or 0}
     report(t.entity, r, {"colony-status." .. r.key, r.args[1], r.args[2], r.args[3]})
+  end
+  -- Theatres (#48 slice B): no ale to report, only the houses/residents Inspired at the last evaluation.
+  for _, t in ipairs(colony_mod.theatre_list(colony)) do
+    local r = advice.theatre{houses = t.houses or 0, inspired = t.inspired or 0}
+    report(t.entity, r, {"colony-status." .. r.key, r.args[1], r.args[2]})
+  end
+  -- Scenic Plazas (#48 slice B): one line on the first Plaza so the hall keeps its growth/attack status.
+  local plazas = colony_mod.plaza_list(colony)
+  if #plazas > 0 then
+    local count = colony.plaza_count or 0
+    local r = advice.plaza{count = count, bonus = plaza.bonus(count)}
+    report(plazas[1].entity, r, {"colony-status." .. r.key, r.args[1], r.args[2]})
   end
   for _, p in ipairs(colony_mod.platform_list(colony)) do
     local r = advice.platform{stop = transit.stop_of(p) ~= nil, waiting = transit.waiting_count(colony, p)}

@@ -41,6 +41,7 @@ local quota = require("scripts.model.quota")
 local motor = require("scripts.model.motor")
 local trailer = require("scripts.model.trailer")
 local recreation = require("scripts.model.recreation")
+local inspiration = require("scripts.model.inspiration")
 local jobs = require("scripts.model.jobs")
 local material_priority = require("scripts.model.material_priority")
 local needs = require("scripts.model.needs")
@@ -3386,7 +3387,8 @@ events.on(defines.events.on_ai_command_completed, function(ev)
       local def = labour.HUTS[st.hut.entity.name]
       update_lab_status(st.hut.entity, worker_count(st.hut), def and def.capacity or 2)
     end
-    -- Inspired colonists (served by a Tavern, #48) finish each job sooner.
+    -- Inspired colonists (a Tavern at 1.25 or a Theatre at 1.5, #48) finish each job sooner. The shared
+    -- quality-based rule keeps work and research in step; a Tavern still gives the old 480 -> 384 ticks.
     -- Steel tools (#95): a steel axe/pickaxe/hoe works its spell 20% faster (480 -> 384 ticks).
     local base = M.WORK_TICKS
     if st.hut and st.hut.entity.valid and st.hut.entity.name == toolsmith.NAME then base = toolsmith.work_ticks(base)
@@ -3397,7 +3399,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
         base = labour.work_ticks(base, best)
       end
     end
-    local ticks = recreation.work_ticks(base, colony_mod.is_inspired(colony, ev.unit_number))
+    local ticks = inspiration.work_ticks(base, colony_mod.inspiration_quality(colony, ev.unit_number))
     ticks = illness.work_ticks(ticks, colony_mod.is_sick(ev.unit_number))   -- the sick work at half speed (#47)
     scheduler.after(ticks + (ev.unit_number * 23) % 240, "work.finish", {un = ev.unit_number})
   elseif st.state == "to_hut" then

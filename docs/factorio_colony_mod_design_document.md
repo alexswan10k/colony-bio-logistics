@@ -65,7 +65,7 @@ $$D = (W_{\text{food}} \cdot S_{\text{food}}) + (W_{\text{housing}} \cdot S_{\te
   * Living or working in high-pollution chunks causes **Smoker's Lung**; eating near-spoiled food causes **Food Poisoning**; working on Gleba causes **Swamp Fever**.
   * Sick colonists work at $50\%$ speed and eventually die unless treated by a Doctor colonist at a **Clinic / Hospital** stocked with Herbal Medicine or Pharmaceuticals.
   * **Implemented (#47, decided on #20):**
-    * **Diseases.** Smoker's Lung is caught from the colony's pollution (2% per colonist per evaluation at full pollution, linear below that). It never passes on its own and kills after 40 untreated evaluations. Food Poisoning is caught when a house eats food at least 75% spoiled (30% per occupant). It passes by itself after 4 evaluations. Swamp Fever waits for Gleba (#70).
+    * **Diseases.** Smoker's Lung is caught from the colony's pollution (2% per colonist per evaluation at full pollution, linear below that). It never passes on its own and kills after 40 untreated evaluations. Food Poisoning is caught when a house eats food at least 75% spoiled (30% per occupant). It passes by itself after 4 evaluations. **Swamp Fever (built, #70 M4 slice):** an on-duty colonist on a Gleba/spore surface catches it at 4% per evaluation at full exposure (a deliberate 0.5 baseline even in clean air, rising with local spore pollution), and it kills after 24 untreated evaluations. Children, idle, sleeping, sheltered and travelling colonists are explicitly excluded by an on-duty state whitelist; spore pollution can never be mistaken for Smoker's Lung, and mining on a spore surface emits no unmodelled pollution. It is cured at the Clinic like any other illness.
     * **No contagion.** Rolls are a hash of unit number, tick and purpose, once per colony evaluation, so runs are deterministic with no stored generator.
     * **Effects.** A sick colonist works at half speed. The sick share of the town is a desirability penalty (`w_sickness` 0.3).
     * **Treatment.** A **Clinic** (2x2, Medicine tech) is a labour hut with the new **heal** job. Doctors go on duty while it holds Herbal Medicine (2 forage + 1 wood) and someone is sick. Each doctor on duty cures 2 patients per evaluation, longest-sick first, at 1 medicine each. Patients do not walk to the Clinic yet. Haulers keep 10 medicine there.
@@ -100,7 +100,11 @@ Lua Smokehouse never runs an engine recipe, it also reads the source stack's rea
 any fruit at or above `model/gleba.lua.MAX_INPUT_SPOIL` (0.5); such a hut closes its slots and reports missing
 inputs until the fruit rots into `spoilage`. Its waste is `spoilage` -> compost -> fertilizer, and a
 refrigerated warehouse/wagon restamps jam exactly as it does every other perishable. Bioflux stays an
-industrial-only intermediate; Swamp Fever and spore emissions stay open under #70.
+industrial-only intermediate. **Swamp Fever and spore emissions are now built (M4 first slice, #70):** an on-duty
+colonist on a Gleba/spore surface can catch the fatal disease, and a real Smokehouse trip that consumes raw Gleba
+fruit emits 15 spores (matching the vanilla yumako harvest burst) via two-arg `surface.pollute`. Scripted
+harvests do not emit on their own and `pollute`'s third argument is an *entity prototype for statistics*, not a
+pollutant type, so the adapter owns the emission; Vulcanus/Fulgora/Aquilo remain open under #70.
 
 **M1 hunting slice (implemented, #79):** hunting is **real engine combat** - a hunter is given an `attack`
 command and the engine does the chasing, the shooting and the kill - but the colony stays a non-combat faction

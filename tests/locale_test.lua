@@ -92,6 +92,9 @@ describe("locale", function()
       "clinic-treating", "clinic-no-medicine", "clinic-idle", "clinic-no-doctor",
       "platform-waiting", "platform-idle", "platform-no-stop",
     }
+    -- illness.lua emits {"colony-illness." .. kind} at runtime for each disease a colonist catches or dies
+    -- from, so those keys are built dynamically and the literal-caption scan above cannot see them.
+    local illness_keys = {"lung", "poison", "swamp_fever"}
     local missing = {}
     for _, k in ipairs(advice_keys) do
       if not exists("colony-advice." .. k) then missing[#missing + 1] = "colony-advice." .. k end
@@ -99,7 +102,10 @@ describe("locale", function()
     for _, k in ipairs(status_keys) do
       if not exists("colony-status." .. k) then missing[#missing + 1] = "colony-status." .. k end
     end
-    eq(table.concat(missing, ", "), "", "advice/status keys missing from " .. LOCALE)
+    for _, k in ipairs(illness_keys) do
+      if not exists("colony-illness." .. k) then missing[#missing + 1] = "colony-illness." .. k end
+    end
+    eq(table.concat(missing, ", "), "", "advice/status/illness keys missing from " .. LOCALE)
   end)
 
   it("status lines keep their placeholders in step with the arguments passed", function()

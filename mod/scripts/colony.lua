@@ -2980,7 +2980,8 @@ function M.stats(colony)
     fallen = colony.fallen or 0, buried = colony.buried or 0,
     away = colony.away or 0, commuters_here = #commute.here(colony),
     insights = colony.insights or 0, insights_total = colony.insights_total or 0, visitors = #tourism.here(colony),
-    sick = colony.sick_count or 0, sick_lung = colony.sick_lung or 0, sick_poison = colony.sick_poison or 0}
+    sick = colony.sick_count or 0, sick_lung = colony.sick_lung or 0, sick_poison = colony.sick_poison or 0,
+    sick_swamp_fever = colony.sick_swamp_fever or 0}
 end
 
 return M

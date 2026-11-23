@@ -33,6 +33,31 @@ M.RAW = {
 -- asserted by s17_gleba; do not use this constant to drive engine timers.
 M.SHELF_TICKS = 45 * 60 * 60
 
+-- Spore exposure and Swamp Fever (#70). A scripted harvest on a spore surface emits SPORE_PER_HARVEST "spores"
+-- into local pollution via surface.pollute(pos, count), and a Smokehouse preserving raw Gleba fruit emits the
+-- same burst at the point the fruit enters the colony's food chain -- the adapter owns both surface checks.
+-- A colonist on duty there catches swamp fever at illness.SWAMP_RATE * exposure per evaluation.
+M.SPORE_PER_HARVEST = 15   -- wiki: one yumako harvest yields 15 spores (mirrors vanilla)
+M.SPORE_SCALE = 300        -- local pollution that raises exposure by 1; the formula actually saturates at 150
+
+-- Risk multiplier in [0.5, 1]. The 0.5 baseline is an intentional, constant risk even in perfectly clean air:
+-- Gleba is a spore world, so merely working there carries half the fever chance; pollution only scales it up.
+-- Plain floats, no rounding; nil/negative pollution is treated as none.
+function M.exposure(local_pollution)
+  return math.min(1, 0.5 + math.max(0, local_pollution or 0) / M.SPORE_SCALE)
+end
+
+-- Only real harvests kick up spores; hauling, building and processing do not. The Smokehouse burst is keyed on
+-- the raw item instead (M.is_raw), because the colonist's job there is "preserve", not a harvest job.
+function M.emits_spores(job) return job == "chop" or job == "forage" end
+
+-- True for any raw Gleba fruit/pulp the Smokehouse can cure (the same list as M.RAW, single source of truth).
+function M.is_raw(item)
+  if item == nil then return false end
+  for _, r in ipairs(M.RAW) do if r.item == item then return true end end
+  return false
+end
+
 -- What can be cured from this stock? {raw=, product=, count=} or nil. Returning a `count` is what lets the
 -- generic Smokehouse branch in work.lua remove 2 fruit for fruit recipes and 1 for pulp recipes.
 -- `freshness` is an optional item -> spoil_percent map from the real stacks (nil/absent means fresh); a raw

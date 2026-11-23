@@ -55,6 +55,14 @@ Three headless gates cover the things the unit tests and the playable spike cann
   and integrated checks that a lease release returns a commanded hunter's kill and that a stale construction
   timer cannot overwrite a live order. Real mouse gestures cannot be raised from script — see the in-game
   checklist on #58.
+- `scripts/headless-spike.sh s21_gleba_spores` - the #70 spore engine probe (15 checks): a planet-associated Gleba
+  surface has `pollutant_type = spores`; 2-arg `pollute(pos, 15)` adds exactly 15, while the 3-arg `"spores"`
+  form errors (the third argument is an entity prototype for statistics, not a pollutant type); scripted
+  `tree.destroy()` emits nothing, so the adapter must emit spores itself.
+- `scripts/headless-spike.sh m4_swamp_fever` - the #70 M4 integration spike (34 checks): a real associated Gleba
+  surface, natural Swamp Fever catches only for on-duty colonists, Clinic cure and untreated death with the
+  illness death cause, and a real `scheduler → work.finish` Smokehouse trip that turns raw Gleba fruit into jam
+  while emitting exactly 15 spores (with a Nauvis zero control).
 - `scripts/headless-spike.sh s20_inspired_research` - the #48 research-speed probe (13 checks): durable per-force
   `laboratory_speed_modifier` survives a cold load with changed inspiration, preserves a foreign base by adding
   to it, drops to zero when the last hall dies, and pins an exact 2.0000 research-rate ratio.

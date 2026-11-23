@@ -1,6 +1,8 @@
 -- Illness adapter (#47). Rules are in model/illness.lua. storage.sick[unit_number] = {kind, age}. Everything runs
 -- once per colony evaluation: exposure rolls, the Clinic's cures, and untreated illness running its course.
 local illness = require("scripts.model.illness")
+local gleba = require("scripts.model.gleba")
+local planet = require("scripts.planet")
 local mortality = require("scripts.mortality")
 local commute = require("scripts.commute")
 local M = {}
@@ -80,9 +82,12 @@ function M.evaluate(colony, rotten)
   for un, c in pairs(colony.colonists) do if c.valid then ids[#ids + 1] = un end end
   table.sort(ids)
 
-  -- Exposure. Everyone breathes the colony's air (commuters at an outpost breathe the outpost's); the occupants
-  -- of a house that ate rotten food may get poisoned.
-  local fell = {lung = 0, poison = 0}
+  -- Exposure. Colonists breathe the air of the surface they are actually standing on: on a spore surface an
+  -- on-duty colonist catches Swamp Fever (#70) from the local spore pollution. An ordinary (non-spore) surface
+  -- still has Smoker's Lung from the colony's pollution, and a house that ate rotten food may poison its occupants
+  -- on ANY surface -- so spore pollution can never fall through the elseif chain into a lung case.
+  -- Every colonist gets at most one disease per evaluation (the if/elseif chain).
+  local fell = {lung = 0, poison = 0, swamp_fever = 0}
   local pollution = colony.pollution or 0
   local home_of
   if next(rotten) then
@@ -93,8 +98,15 @@ function M.evaluate(colony, rotten)
   end
   for _, un in ipairs(ids) do
     if not storage.sick[un] then
+      local e = colony.colonists[un]
+      local st = storage.unit_state[un]
+      local es = e and e.valid and e.surface
       local kind
-      if pollution > 0 and illness.catches("lung", pollution, illness.roll(un, tick, 1)) then kind = "lung"
+      if planet.is_gleba(es) and illness.on_duty(st)
+          and illness.catches("swamp_fever", gleba.exposure(es.get_pollution(e.position)), illness.roll(un, tick, 3)) then
+        kind = "swamp_fever"
+      elseif not planet.is_spore(es) and pollution > 0
+          and illness.catches("lung", pollution, illness.roll(un, tick, 1)) then kind = "lung"
       elseif home_of and home_of[un] and illness.catches("poison", 1, illness.roll(un, tick, 2)) then kind = "poison" end
       if kind then
         storage.sick[un] = {kind = kind, age = 0}
@@ -102,7 +114,7 @@ function M.evaluate(colony, rotten)
       end
     end
   end
-  for _, kind in ipairs({"lung", "poison"}) do
+  for _, kind in ipairs({"lung", "poison", "swamp_fever"}) do
     if fell[kind] > 0 then colony.hall.force.print({"colony-message.fell-ill", fell[kind], {"colony-illness." .. kind}}) end
   end
 
@@ -125,17 +137,20 @@ function M.evaluate(colony, rotten)
   end
 
   -- Untreated illness runs its course.
-  local lung, poison = 0, 0
+  local lung, poison, swamp = 0, 0, 0
   for _, un in ipairs(ids) do
     local rec = storage.sick[un]
     if rec then
       local outcome = illness.step(rec)
       if outcome == "dies" then kill(colony, un, rec.kind)
       elseif outcome == "recovers" then storage.sick[un] = nil
-      elseif rec.kind == "lung" then lung = lung + 1 else poison = poison + 1 end
+      elseif rec.kind == "lung" then lung = lung + 1
+      elseif rec.kind == "poison" then poison = poison + 1
+      elseif rec.kind == "swamp_fever" then swamp = swamp + 1 end
     end
   end
-  colony.sick_lung, colony.sick_poison, colony.sick_count = lung, poison, lung + poison
+  colony.sick_lung, colony.sick_poison, colony.sick_swamp_fever = lung, poison, swamp
+  colony.sick_count = lung + poison + swamp
 end
 
 return M

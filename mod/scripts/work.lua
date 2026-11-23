@@ -26,6 +26,7 @@ local wildlife = require("scripts.wildlife")
 local fishing = require("scripts.model.fishing")
 local preserve = require("scripts.model.preserve")
 local gleba = require("scripts.model.gleba")
+local planet = require("scripts.planet")
 local cans = require("scripts.model.cans")
 local kitchen = require("scripts.model.kitchen")
 local toolsmith = require("scripts.model.toolsmith")
@@ -2850,6 +2851,7 @@ scheduler.register("work.finish", function(d)
   end
   use_tool(hut)   -- one completed trip = one use of the hut's tool
   local pos, k, item, n = site.position, key(site), site.name, 0
+  local spore_surface = e.surface   -- capture before the site is destroyed; the colonist is still on its own surface
   if st.job == "chop" then
     colony.claimed[k] = nil; site.destroy()
     item, n = M.YIELD.chop.item, M.YIELD.chop.count + (colony_mod.spec_of and colony_mod.spec_of(colony) == "forest" and 1 or 0)
@@ -2927,6 +2929,13 @@ scheduler.register("work.finish", function(d)
         stats.consumed(colony, preserve.SALT, preserve.SALT_PER_BATCH)
         stats.consumed(colony, recipe.raw, raw_count)
         item, n = recipe.product, preserve.PRODUCT_PER_BATCH
+        -- A raw Gleba fruit arrived from a harvest that kicked up spores (#70 review: Gleba has no vanilla
+        -- trees or Nauvis forage patches, so chop/forage alone never fired on that surface). Model that
+        -- upstream burst when the fruit enters the colony's food chain, and only on a real spore surface.
+        -- Two args: pollute's 3rd argument is an entity prototype for statistics, not a pollutant type.
+        if gleba.is_raw(recipe.raw) and planet.is_spore(hut.entity.surface) then
+          hut.entity.surface.pollute(hut.entity.position, gleba.SPORE_PER_HARVEST)
+        end
       end
     end
   elseif st.job == "fish" then
@@ -2943,7 +2952,9 @@ scheduler.register("work.finish", function(d)
     end
     if n > 0 then
       site.destroy()
-      e.surface.pollute(pos, M.MINE_POLLUTION)
+      -- Mining on a spore surface emits spores, not the normal pollution this constant models (#70 review).
+      -- Gleba has no mining spore rule, so do not silently invent one here.
+      if not planet.is_spore(e.surface) then e.surface.pollute(pos, M.MINE_POLLUTION) end
     end
   elseif st.job == "mine" then
     n = math.min(M.MINE_PER_TRIP + (colony_mod.spec_of and colony_mod.spec_of(colony) == "industrial" and 1 or 0), site.amount or 0)
@@ -2955,7 +2966,11 @@ scheduler.register("work.finish", function(d)
       else
         site.destroy()
       end   -- 0 is not a legal amount (#10, #54)
-      e.surface.pollute(pos, M.MINE_POLLUTION)       -- 1:1 depletion, zero electricity, but not zero pollution
+      -- As above: no unmodelled spore burst from mining on Gleba (1:1 depletion, zero electricity, but not
+      -- zero pollution on an ordinary surface).
+      if not planet.is_spore(e.surface) then
+        e.surface.pollute(pos, M.MINE_POLLUTION)
+      end
     end
   elseif st.job == "heal" then
     -- Doctors (#47) stay on duty while there is medicine and someone to treat; the cures themselves happen in
@@ -3004,6 +3019,12 @@ scheduler.register("work.finish", function(d)
     M.release(st)
     M.assign(colony, d.un)
     return
+  end
+  -- A real Gleba harvest kicks up spores (#70). Only chop/forage emit, and ONLY on a spore surface: the guard
+  -- keeps a Nauvis harvest from gaining ordinary pollution from a Gleba rule. Two args: pollute's 3rd argument
+  -- is an entity prototype for statistics, not a pollutant type.
+  if gleba.emits_spores(st.job) and planet.is_spore(spore_surface) then
+    spore_surface.pollute(pos, gleba.SPORE_PER_HARVEST)
   end
   popup(e.surface, pos, {"", "+" .. n .. " ", item_name(item)})
   stats.produced(colony, item, n)

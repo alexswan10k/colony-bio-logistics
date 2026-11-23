@@ -2382,6 +2382,19 @@ end)
 
 describe("illness (#47)", function()
   local il = require("scripts.model.illness")
+  it("only on-duty colonists can catch an occupational disease (#70 review)", function()
+    for _, state in ipairs({"working", "to_site", "to_hut", "hunting", "guarding", "militia-fight",
+      "militia-hold", "patrolling", "to_construct", "to_tower", "to_bin", "to_hall", "driving", "to_pool", "to_park"}) do
+      eq(il.on_duty{job = "chop", state = state}, true, state)
+    end
+    for _, state in ipairs({"child", "idle", "sleeping", "to_bed", "sheltered", "to_shelter", "exposed",
+      "waiting_train", "to_platform", "to_house", "visiting", "starved", "ok", "wait", "commanded"}) do
+      eq(il.on_duty{job = "chop", state = state}, false, state)
+    end
+    eq(il.on_duty{job = "child", state = "working"}, false)
+    eq(il.on_duty{state = "working"}, false)
+    eq(il.on_duty(nil), false)
+  end)
   it("rolls are deterministic and spread over [0,1)", function()
     eq(il.roll(123, 600, 1), il.roll(123, 600, 1))
     local lo, hi, sum = 1, 0, 0
@@ -2425,6 +2438,19 @@ describe("illness (#47)", function()
     eq(advice.clinic{sick = 2, medicine = 3, doctors = 0}.key, "clinic-no-doctor")
     eq(advice.clinic{sick = 2, medicine = 3, doctors = 1}.key, "clinic-treating")
     eq(advice.clinic{sick = 0, medicine = 3}.key, "clinic-idle")
+  end)
+  it("swamp fever (#70): caught via exposure, fatal if untreated, never self-recovers", function()
+    eq(il.SWAMP_RATE, 0.04)
+    eq(il.DISEASES.swamp_fever.fatal_after, 24)
+    eq(il.catches("swamp_fever", 1, 0.039), true)
+    eq(il.catches("swamp_fever", 1, 0.041), false)
+    eq(il.catches("swamp_fever", 0.5, 0.019), true)   -- half exposure halves the threshold (0.04 * 0.5 = 0.02)
+    eq(il.catches("swamp_fever", 0.5, 0.021), false)
+    eq(il.catches("unknown_kind", 1, 0), false)       -- unknown kinds have no rate (old POISON_RATE fallback)
+    local f = {kind = "swamp_fever", age = 0}
+    for _ = 1, il.DISEASES.swamp_fever.fatal_after - 1 do eq(il.step(f), nil) end
+    eq(f.age, 23)                                    -- age 23 (recorded) never self-recovers
+    eq(il.step(f), "dies")                           -- age 24 kills, like the lung but sooner
   end)
 end)
 

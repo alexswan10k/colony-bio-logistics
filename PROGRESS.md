@@ -80,8 +80,23 @@ bench 0.612 ms/tick PASS, typecheck clean. An adversarial review caught two defe
 missed — a wrapper around the advice facts (all new tooltips said "idle") and max-instead-of-average
 quality in mixed Tavern/Theatre research — both fixed and pinned.
 
+## 2026-11-23 — M4 first slice: Swamp Fever and spore emissions (#70 remainder)
+
+On a Gleba/spore surface, on-duty colonists can catch Swamp Fever (4% at full exposure, fatal after
+24 untreated evaluations, Clinic-curable). Spore pollution no longer masquerades as Smoker's Lung,
+children/idle/sheltered/travelers are explicitly excluded, and mining no longer emits unmodelled spores
+on spore surfaces. A real Gleba-fruit Smokehouse trip emits 15 spores (2-arg `surface.pollute`) — the
+mod has no yumako trees or Nauvis forage patches on Gleba, so the chop/forage emission path alone was dead.
+
+No prototypes, no schema bump: schema stays 45 and the determinism checksum stays 4237111034.
+589 unit tests, 15-check `s21_gleba_spores` engine probe, 34-check `m4_swamp_fever` (natural catch and
+natural emission with a Nauvis control), 12-check `m1_illness`, 27-check `s17_gleba`, 17-check `m2_gleba`,
+116-check `m1_colony`, save/load PASS, bench 0.636 ms/tick PASS, typecheck clean.
+
 ## Next
 
+- M4 continues: #63 Habitat Domes (the keystone for hostile worlds), then #65/#66/#64/#67/#68.
+- #70 stays open for Vulcanus / Fulgora / Aquilo integration.
 - #54 M2 gate: playtest/balance and UPS/MP regression; in-game checklist lives on #85.
 - #85 onboarding: tooltips, alerts, carry sprites, hall workshop.
 - M4 per-planet slices (#63-#70) and tech tier 3/4 (#69).

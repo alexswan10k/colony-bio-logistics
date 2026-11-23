@@ -3,12 +3,14 @@
 -- kept per colonist, but everything is rolled once per colony evaluation, never per tick.
 --   * Smoker's Lung: breathing the colony's pollution. Never passes on its own and kills if untreated.
 --   * Food Poisoning: a house eating food that is nearly spoiled. Passes on its own after a few evaluations.
+--   * Swamp Fever (#70): working on a spore surface (Gleba). Never passes on its own, kills if untreated.
 -- No contagion (yet). A sick colonist works at half speed. A Clinic's doctors cure patients, one Herbal Medicine
 -- each. Rolls are a hash of (unit number, tick, salt) so a run is deterministic and needs no stored generator.
 local M = {}
 
 M.LUNG_RATE = 0.02        -- chance per evaluation at full pollution (scales linearly with the pollution ratio)
 M.POISON_RATE = 0.3       -- chance per occupant when the house eats nearly spoiled food
+M.SWAMP_RATE = 0.04       -- chance per evaluation at full spore exposure (Gleba; #70)
 M.ROTTEN = 0.75           -- spoil fraction at which food counts as nearly spoiled
 M.CURES_PER_DOCTOR = 2    -- patients one doctor on duty cures per evaluation
 M.MEDICINE = "colony-herbal-medicine"
@@ -17,7 +19,18 @@ M.STOCK = 10              -- medicine a Clinic keeps on hand
 M.DISEASES = {
   lung = {fatal_after = 40},           -- evaluations untreated before it kills
   poison = {recovers_after = 4},       -- evaluations before it passes by itself
+  swamp_fever = {fatal_after = 24},    -- evaluations untreated before it kills (Gleba; #70)
 }
+
+-- Only a colonist actually on a job breathes spores at work (#70 review). This is the full on-duty state
+-- vocabulary of work.lua (plus the M3 patrol/militia states); children, idle, sleeping, sheltering, travelling
+-- and waiting passengers are deliberately excluded, so they cannot catch a fatal occupational disease.
+M.ON_DUTY = {working = true, to_site = true, to_hut = true, hunting = true, guarding = true,
+  ["militia-fight"] = true, ["militia-hold"] = true, patrolling = true, to_construct = true,
+  to_tower = true, to_bin = true, to_hall = true, driving = true, to_pool = true, to_park = true}
+function M.on_duty(st)
+  return st ~= nil and st.job ~= nil and st.job ~= "child" and M.ON_DUTY[st.state] == true
+end
 
 -- A deterministic number in [0, 1) for this colonist, tick and purpose.
 function M.roll(un, tick, salt)
@@ -26,9 +39,12 @@ function M.roll(un, tick, salt)
   return h / 2147483648
 end
 
--- Does a colonist catch `kind` this evaluation? `exposure` is 0..1 (pollution ratio, or 1 for a rotten meal).
+-- Does a colonist catch `kind` this evaluation? `exposure` is 0..1 (pollution ratio, spore exposure,
+-- or 1 for a rotten meal). Unknown kinds have no rate: the old fallback handed them POISON_RATE, the
+-- most lethal rate in the game, which was a bug.
+local RATES = {lung = M.LUNG_RATE, poison = M.POISON_RATE, swamp_fever = M.SWAMP_RATE}
 function M.catches(kind, exposure, r)
-  local rate = kind == "lung" and M.LUNG_RATE or M.POISON_RATE
+  local rate = RATES[kind] or 0
   return r < rate * math.max(0, math.min(exposure or 0, 1))
 end
 

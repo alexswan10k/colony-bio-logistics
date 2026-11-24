@@ -39,6 +39,7 @@ Implemented tiers (`model/housing.lua`; each need is met by its first workable o
   * **Upkeep:** Food + Water + mandatory electricity + Comfort (`colony-furniture`, 0.1 per colonist per interval).
 * **Tier 5: Interplanetary Arcologies / Habitat Domes** (planned, #63): **capacity 32+**, required on hostile planets and orbital platforms; acts as both Housing and Territory Emitter.
   * **Upkeep:** Pressurized Air/Water + Multi-Planet Luxury Goods + Bioflux/Advanced Medicine.
+  * **Engine constraint (`s22_dome`, #63):** every chest-cloned colony building inherits `surface_conditions = {property="gravity", min=0.1}`, while a space platform has gravity 0, so nothing can currently be built on platform foundation. A Habitat Dome needs an explicit `surface_conditions` override or a platform-native prototype; `surface.platform` is the runtime platform test, and there is no script-readable breathability/temperature API (only `get_property("pressure")`).
 
 ### 2.3 Desirability, Migration & Natural Reproduction
 Population grows through two mechanisms depending on the environment:
@@ -405,7 +406,7 @@ Rather than treating Space Platforms as purely unmanned robot ships, late-game p
 
 ## 10. Technical Architecture & UPS Optimization (Factorio 2.0 API)
 
-1. **$O(1)$ Territory Grid Indexing:** Town Halls, Outposts, Watchtowers, and Habitat Domes register covered $32 \times 32$ Map Chunks into `storage.colony_chunks[surface_index][chunk_x][chunk_y] = colony_id`.
+1. **$O(1)$ Territory Grid Indexing (not built; stale requirement):** `storage.colony_chunks` was created in schema 1 and **deleted in schema 19** ("territory is derived from the live hall/towers now"). Live `territory.owner_at` is a radius scan (hall 64, towers 48). Habitat Domes should extend that emitter scan unless the owner chooses to restore the index (`s22_dome`, #63).
 2. **Non-Destructive Opt-In Machine Registry:** Opting in a vanilla machine via `gui.relative` or the `selection-tool` registers `entity.unit_number` into `storage.colony_logistics_machines[colony_id]` and attaches a `LuaRendering` badge. The colony job dispatcher only scans registered machines and Colony Crates (processed in a staggered queue of $5\text{--}10$ buildings per tick).
 3. **Event-Driven Agents (`on_ai_command_completed`):** Colonists use C++ `unit` pathfinding and tick-bucketed task completion (`storage.scheduled_tasks[target_tick]`) for 1:1 mining depletion, pollution emission, and tool durability—avoiding per-tick Lua polling.
 4. **Commuter & Tourist Train Hook (`on_train_changed_state`):** Colonists only evaluate boarding or disembarking when a train containing a `Passenger Coach` fires `defines.train_state.wait_station` adjacent to a `Passenger Platform`, transferring colonist data cleanly in $O(1)$ time.

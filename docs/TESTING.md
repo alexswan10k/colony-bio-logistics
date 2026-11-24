@@ -55,6 +55,10 @@ Three headless gates cover the things the unit tests and the playable spike cann
   and integrated checks that a lease release returns a commanded hunter's kill and that a stale construction
   timer cannot overwrite a live order. Real mouse gestures cannot be raised from script — see the in-game
   checklist on #58.
+- `scripts/headless-spike.sh s22_dome` - the #63 Habitat Dome engine probe (23 checks, 91 probes): all four
+  planet surfaces and their properties, off-Gleba nil pollutant, `surface.platform` as the platform test,
+  and the blocker that inherited `gravity >= 0.1` surface conditions prevent ANY of our chest-cloned
+  buildings from being placed on a space platform (gravity 0). Run with `TICKS=1800` so the platform is created.
 - `scripts/headless-spike.sh s21_gleba_spores` - the #70 spore engine probe (15 checks): a planet-associated Gleba
   surface has `pollutant_type = spores`; 2-arg `pollute(pos, 15)` adds exactly 15, while the 3-arg `"spores"`
   form errors (the third argument is an entity prototype for statistics, not a pollutant type); scripted

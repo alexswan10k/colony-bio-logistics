@@ -93,8 +93,19 @@ No prototypes, no schema bump: schema stays 45 and the determinism checksum stay
 natural emission with a Nauvis control), 12-check `m1_illness`, 27-check `s17_gleba`, 17-check `m2_gleba`,
 116-check `m1_colony`, save/load PASS, bench 0.636 ms/tick PASS, typecheck clean.
 
+## 2026-11-24 — #63 spike-first: Habitat Dome engine facts
+
+`s22_dome` (23 checks, 91 probes) found a blocker: our housing clones inherit a vanilla chest surface
+condition `gravity >= 0.1`, while a space platform has gravity 0, so no colony building can currently be
+placed on platform foundation. Domes need an explicit `surface_conditions` override. All four planets
+create associated surfaces headlessly and have no build gate for our housing; `surface.platform` is the
+platform test, off-Gleba pollutant is nil, and there is no script-readable temperature/oxygen API.
+The O(1) chunk index in the design doc was deleted in schema 19, and the issue/design doc disagree on
+Tier 4 vs Tier 5. Outcome recorded on #63; no game code changed pending an owner decision on scope.
+
 ## Next
 
+- #63 decision needed: platform-buildable prototype, tier number, and radius scan vs restored chunk index.
 - M4 continues: #63 Habitat Domes (the keystone for hostile worlds), then #65/#66/#64/#67/#68.
 - #70 stays open for Vulcanus / Fulgora / Aquilo integration.
 - #54 M2 gate: playtest/balance and UPS/MP regression; in-game checklist lives on #85.

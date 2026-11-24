@@ -94,3 +94,45 @@ do
     probe_recipe("colony-test-gleba-jam", "colony-test-gleba-jam", false),
     probe_recipe("colony-test-gleba-jam-fresh", "colony-test-gleba-jam-fresh", true)})
 end
+
+-- Spike #63 (de-risking): a habitat-dome candidate that can actually be built on a space platform.
+-- s22_dome proved our housing clones inherit {property = gravity, min = 0.1} from the vanilla steel/iron
+-- chest, so gravity-0 platforms refuse them even with create_entity/forced/ignore_surface_conditions.
+-- This is a plain steel-chest clone with surface_conditions explicitly cleared, so s23_dome_build can
+-- prove that clearing the gate is sufficient before the full refactor. Art/icon reuse the existing
+-- "town-hall" manifest entry so no new graphics (or manifest key) are needed and packaging still loads.
+do
+  local ART = require("prototypes.art_manifest")
+  local G = "__colony-bio-logistics__/graphics/"
+  local function reuse_town_hall_picture()
+    local m = ART["town-hall"]
+    return {layers = {
+      {filename = G .. "town-hall.png", width = m.width, height = m.height, scale = m.scale,
+        shift = {m.shift[1], m.shift[2]}},
+      {filename = G .. "town-hall-shadow.png", width = m.width * 2, height = m.height, scale = m.scale,
+        shift = {m.shift[1], m.shift[2]}, draw_as_shadow = true},
+    }}
+  end
+  local dome = table.deepcopy(data.raw["container"]["steel-chest"])
+  dome.name = "colony-spike-dome"
+  dome.surface_conditions = nil   -- clear the inherited gravity >= 0.1 gate (the whole point of the spike)
+  dome.inventory_size = 8
+  dome.collision_box = {{-1.4, -1.4}, {1.4, 1.4}}
+  dome.selection_box = {{-1.5, -1.5}, {1.5, 1.5}}
+  dome.minable = {mining_time = 0.5, result = "colony-spike-dome"}
+  dome.picture = reuse_town_hall_picture()
+  dome.icon = G .. "icon-town-hall.png"
+  dome.icon_size = 64
+  dome.icons = nil
+  dome.circuit_connector = nil
+  dome.fast_replaceable_group = nil
+  dome.next_upgrade = nil
+
+  local dome_item = {
+    type = "item", name = "colony-spike-dome",
+    icon = G .. "icon-town-hall.png", icon_size = 64,
+    subgroup = "storage", order = "z[colony]-z[spike-dome]", stack_size = 10,
+    place_result = "colony-spike-dome",
+  }
+  data:extend({dome, dome_item})
+end

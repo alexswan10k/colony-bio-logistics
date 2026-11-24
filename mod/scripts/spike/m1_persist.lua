@@ -67,6 +67,33 @@ core.register("m1_persist", {
       ctx.check("ghost carries blueprint tags", ghost.tags[tags.TAG] ~= nil)
     end
 
+    -- #63 review: a SECOND colony founded by a Habitat Dome far outside the hall's 64-tile territory, on the
+    -- SAME surface. Its plain core identity (unit number, force string, dome registry) must survive a save
+    -- exactly like the hall-founded town's does - there is no schema bump for these fields.
+    local far = {x = p.x + 200, y = p.y}
+    s.request_to_generate_chunks(far, 2)
+    s.force_generate_chunk_requests()
+    do
+      local tiles = {}
+      for x = far.x - 6, far.x + 6 do
+        for y = far.y - 6, far.y + 6 do tiles[#tiles + 1] = {name = "grass-1", position = {x, y}} end
+      end
+      s.set_tiles(tiles)
+    end
+    ctx.check("the far-away spot is outside the first colony", territory.owner_at(s.index, far) == nil,
+      tostring(territory.owner_at(s.index, far)))
+    local dome = build("colony-habitat-dome", far)
+    local dome_cid = territory.owner_at(s.index, far)
+    local dome_c = dome_cid and storage.colonies[dome_cid]
+    ctx.check("a Habitat Dome founded a second colony", dome and dome.valid and dome_c ~= nil
+      and dome_c.id ~= c.id and dome_c.hall == dome,
+      "cid=" .. tostring(dome_cid) .. " hall=" .. tostring(dome_c and dome_c.hall and dome_c.hall.name))
+    if dome_c then
+      ctx.check("the dome colony has a plain core identity and one dome",
+        dome_c.hall_un == dome.unit_number and dome_c.hall_force == "player" and #colony.dome_list(dome_c) == 1,
+        "un=" .. tostring(dome_c.hall_un) .. " force=" .. tostring(dome_c.hall_force))
+    end
+
     local lock_un
     ctx.after(400, function()
       local ids = colony.colonist_ids(c)
@@ -87,10 +114,22 @@ core.register("m1_persist", {
         labels = count(storage.unit_labels), unit_state = count(storage.unit_state),
         links = (storage.links ~= nil) and count(storage.links) or -1,
         next_link_id = storage.next_link_id,
+        -- #63: plain core identity of both colonies (no LuaEntity / LuaForce may go into persist_expected).
+        hall_un = c.hall_un, hall_force = c.hall_force, hall_un_actual = c.hall and c.hall.unit_number or nil,
+        dome_un = dome and dome.valid and dome.unit_number or nil,
+        dome_colony_id = dome_c and dome_c.id or nil,
+        dome_hall_un = dome_c and dome_c.hall_un or nil,
+        dome_hall_force = dome_c and dome_c.hall_force or nil,
+        dome_count = dome_c and #colony.dome_list(dome_c) or nil,
       }
       storage.persist_expected = exp
       ctx.log(string.format("pre-save: pop=%d houses=%d huts=%d plots=%d crates=%d ghosts=%d repairs=%d chunks=%d",
         exp.colonists, exp.houses, exp.huts, exp.plots, exp.crates, exp.ghosts, exp.repairs, exp.chunks))
+      ctx.check("both colonies exist before the save", count(storage.colonies) == 2, count(storage.colonies))
+      ctx.check("core identities are plain, serialisable data",
+        type(exp.hall_un) == "number" and type(exp.hall_force) == "string"
+          and type(exp.dome_hall_un) == "number" and type(exp.dome_hall_force) == "string",
+        exp.hall_un .. "/" .. exp.hall_force .. " " .. tostring(exp.dome_hall_un) .. "/" .. tostring(exp.dome_hall_force))
       ctx.check("colonists exist before the save", exp.colonists > 0, exp.colonists)
       ctx.check("crate filter set before the save", exp.crates > 0 and c.crates[crate.unit_number].filters[1].item == "coal")
       ctx.check("ghost registered before the save", exp.ghosts > 0, exp.ghosts)
@@ -117,7 +156,24 @@ core.register("m1_persist_load", {
     if not c then return ctx.finish() end
     ctx.check("hall is valid after load", c.hall and c.hall.valid)
     ctx.check("schema unchanged", storage.schema == exp.schema, storage.schema)
-    ctx.check("no colony was created twice", count(storage.colonies) == 1, count(storage.colonies))
+    ctx.check("no colony was created twice", count(storage.colonies) == 2, count(storage.colonies))
+    ctx.check("hall-founded colony kept its plain core identity", c.hall_un == exp.hall_un
+      and c.hall_un == c.hall.unit_number and c.hall_force == exp.hall_force,
+      tostring(c.hall_un) .. "/" .. tostring(c.hall_force))
+
+    -- #63: the second colony's core is a Habitat Dome; its unit number, id, domes registry and plain force
+    -- string all came back from storage unchanged.
+    local dc = exp.dome_colony_id and storage.colonies[exp.dome_colony_id]
+    ctx.check("dome-founded colony survived the round-trip", dc ~= nil)
+    if dc then
+      ctx.check("dome colony's hall is still the same dome", dc.hall and dc.hall.valid
+        and dc.hall.unit_number == exp.dome_un, tostring(dc.hall and dc.hall.unit_number))
+      ctx.check("dome colony kept its plain core identity", dc.hall_un == exp.dome_hall_un
+        and dc.hall_un == dc.hall.unit_number and dc.hall_force == exp.dome_hall_force
+        and dc.hall_force == "player", tostring(dc.hall_un) .. "/" .. tostring(dc.hall_force))
+      ctx.check("dome registry survived", dc.domes and dc.domes[exp.dome_un] ~= nil
+        and #colony.dome_list(dc) == exp.dome_count, "#" .. tostring(dc.domes and #colony.dome_list(dc)))
+    end
     ctx.check("next colony id unchanged", storage.next_colony_id == exp.next_colony_id, storage.next_colony_id)
     ctx.check("freight link registry survived the round-trip", storage.links ~= nil
       and count(storage.links) == exp.links and storage.next_link_id == exp.next_link_id,

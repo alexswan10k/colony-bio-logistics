@@ -103,9 +103,26 @@ platform test, off-Gleba pollutant is nil, and there is no script-readable tempe
 The O(1) chunk index in the design doc was deleted in schema 19, and the issue/design doc disagree on
 Tier 4 vs Tier 5. Outcome recorded on #63; no game code changed pending an owner decision on scope.
 
+## 2026-11-24 — #63 complete: full Habitat Dome
+
+Owner decisions: Tier 5 (Apartment stays Tier 4), extend the radius scan (no O(1) chunk index), all in one pass.
+A 4x4 Habitat Dome is both a 32-bed house and a 64-tile territory emitter. `colony.hall` is now the colony's
+"core entity" alias: a dome can found a colony on Vulcanus/Fulgora/Aquilo or a platform where a Town Hall is
+refused, and all stock/force/surface/messaging paths keep working. The only platform-build fix needed is
+clearing the inherited `gravity >= 0.1` surface condition on the dome prototype; players must grow the starter
+platform deck with foundation tiles first. Second domes extend beds/territory; core death promotes the
+lowest-unit-number live dome on the same surface and force.
+
+605 unit tests, 25-check `s24_dome_platform`, 54-check `m4_dome`, 8-check `s23_dome_build`,
+23-check `s22_dome`, 13-check `m1_tech`, 34-check `m1_blueprint`, 116-check `m1_colony`, save/load with a
+persisted dome-founded colony, determinism 1398514768 (prototype hash move), bench 0.562 ms/tick,
+typecheck/lint/package all green. Adversarial review fixed three lifecycle bugs (missing `hall_un` on
+hall-founded towns, a sink-dependent force guard, and a clobbered housing tooltip).
+
 ## Next
 
-- #63 decision needed: platform-buildable prototype, tier number, and radius scan vs restored chunk index.
+- M4 follow-ups: #64 Enviro-Suits, #65 Nurseries, #66 cryo pods, #67 orbital domes, #68 EVA, #69 tech tiers, #70 other planets.
+- Residual #63 scope: other buildings on platforms, platform construction-robot/player-walk proof, luxury upkeep.
 - M4 continues: #63 Habitat Domes (the keystone for hostile worlds), then #65/#66/#64/#67/#68.
 - #70 stays open for Vulcanus / Fulgora / Aquilo integration.
 - #54 M2 gate: playtest/balance and UPS/MP regression; in-game checklist lives on #85.

@@ -190,4 +190,11 @@ data:extend({
       unlock("colony-spa"),   -- #51: tourism rides the same rail network, no new tech node
       unlock("colony-freight-crate"),   -- #52: freight links ride the same rail age as passenger rail
     }),
+  -- Habitat Domes (#63): Tier-5 housing that also emits a 64-tile territory, so a colony can be founded
+  -- on hostile planets and space platforms where a Town Hall cannot be built. Vanilla interlock: the
+  -- space-platform tech - the player has actually reached orbit. Paid for in colony packs only.
+  tech("colony-habitat-domes", "icon-town-hall.png", 30, {"colony-frontier-pack"}, 15,
+    {"colony-civic-governance", "space-platform"}, {
+      unlock("colony-habitat-dome"),
+    }),
 })

@@ -51,6 +51,12 @@ local function recipe(name, ingredients, time, amount, enabled)
 end
 
 local hall = chest_clone("steel-chest", "colony-town-hall", "town-hall", 48, 1.5)
+-- Habitat Dome (#63): Tier-5 housing for hostile planets and space platforms. It is both a house (32 beds)
+-- and a territory emitter (64 tiles, like the hall). Chest-cloned buildings inherit a gravity >= 0.1
+-- surface condition from vanilla containers, which BLOCKS placement on space platforms (gravity 0);
+-- the dome explicitly clears it (s23_dome_build). No other prototype's surface conditions are touched.
+local dome = chest_clone("steel-chest", "colony-habitat-dome", "town-hall", 48, 2)
+dome.surface_conditions = nil
 local tent = chest_clone("iron-chest", "colony-housing-tent", "tent", 4, 1)
 tent.fast_replaceable_group = "colony-housing"
 local cabin = chest_clone("steel-chest", "colony-housing-cabin", "cabin", 6, 1.5)
@@ -340,6 +346,7 @@ local function ring(entity, distance, colour)
   }
 end
 ring(hall, 64, "green")             -- territory.HALL_RADIUS
+ring(dome, 64, "green")             -- a dome emits the same territory as a hall (#63)
 ring(watchtower, 48, "green")       -- territory.TOWER_RADIUS
 ring(forager, 96, "yellow")           -- colony.FORAGE_RADIUS
 for _, hut in ipairs{woodcutter, miner, farmhut, huntinglodge, fishingdock, smokehouse, kitchen, toolsmith} do
@@ -349,11 +356,12 @@ ring(forester, 20, "yellow")        -- forest.RADIUS: it plants close to home, w
 ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while walking the route
 
 data:extend({
-  hall, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
+  hall, dome, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, theatre, plaza, spa, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, freight_crate, warehouse, haul_station, compost_bin,
   cannery, refrigerated_warehouse, refrigerated_wagon, tower, ledger_entity,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
+  item_of(dome, "town-hall", "z[colony]-l0[dome]"),
   item_of(tent, "tent", "z[colony]-b[housing-tent]"),
   item_of(cabin, "cabin", "z[colony]-c[housing-cabin]"),
   item_of(homestead, "homestead", "z[colony]-c1[housing-homestead]"),
@@ -430,6 +438,9 @@ data:extend({
   recipe("colony-housing-homestead", {wood = 60, ["stone-brick"] = 20, ["iron-plate"] = 20}, 5, 1, false),
   recipe("colony-housing-townhouse", {["stone-brick"] = 40, ["iron-plate"] = 20, ["steel-plate"] = 5}, 6, 1, false),
   recipe("colony-housing-apartment", {["stone-brick"] = 50, concrete = 20, ["iron-plate"] = 30, ["electronic-circuit"] = 10}, 8, 1, false),
+  -- Habitat Dome (#63): no concrete or colony items; every ingredient is a vanilla good an early
+  -- spacefaring colony can make, so tech_audit rule 6 stays happy. Unlocked by colony-habitat-domes.
+  recipe("colony-habitat-dome", {["steel-plate"] = 40, ["iron-plate"] = 40, ["copper-cable"] = 20, ["electronic-circuit"] = 10}, 8, 1, false),
   recipe("colony-water-tower", {["iron-plate"] = 30, ["steel-plate"] = 10, ["electronic-circuit"] = 2, ["copper-cable"] = 5}, 4, 1, false),
   recipe("colony-refrigerated-warehouse", {["steel-plate"] = 60, ["iron-plate"] = 40, ["electronic-circuit"] = 5}, 5, 1, false),
   recipe("colony-cannery", {["iron-plate"] = 30, ["steel-plate"] = 10, ["electronic-circuit"] = 2}, 4, 1, false),

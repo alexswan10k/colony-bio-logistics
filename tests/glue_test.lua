@@ -370,6 +370,7 @@ describe("scheduler", function()
 end)
 
 describe("territory index", function()
+  local core = require("scripts.model.core")
   local function setup()
     local env = mock.install(); env = env.reset()
     require("scripts.store").init()
@@ -412,6 +413,151 @@ describe("territory index", function()
     storage.colonies[1].towers[10] = nil
     eq(t.owner_at(1, {x = 70, y = 0}), nil)
     eq(t.owner_at(1, {x = 200, y = 0}), 2)
+  end)
+  it("core identities and radii are shared with the adapter (#63)", function()
+    eq(core.HALL, "colony-town-hall")
+    eq(core.DOME, "colony-habitat-dome")
+    eq(core.is_core(core.HALL), true); eq(core.is_core(core.DOME), true)
+    eq(core.is_core("colony-housing-tent"), false); eq(core.is_core(nil), false)
+    eq(core.is_dome(core.DOME), true); eq(core.is_dome(core.HALL), false); eq(core.is_dome(nil), false)
+    local t = setup()
+    eq(t.core_radius(core.HALL), 64)
+    eq(t.core_radius(core.DOME), 64)
+    eq(t.core_radius("colony-watchtower"), nil)
+    eq(t.core_radius(nil), nil)
+  end)
+  it("a Habitat Dome owns positions within its radius (#63)", function()
+    local t = setup()
+    storage.colonies[1] = {id = 1, surface_index = 1, domes = {
+      [5] = {valid = true, position = {x = 0, y = 0}, name = core.DOME, unit_number = 5}}, towers = {}}
+    eq(t.owner_at(1, {x = 63, y = 0}), 1)
+    eq(t.owner_at(1, {x = -63, y = 0}), 1)
+    eq(t.owner_at(1, {x = 0, y = 63}), 1)
+    eq(t.owner_at(1, {x = 0, y = -63}), 1)
+    eq(t.owner_at(1, {x = 65, y = 0}), nil)
+    eq(t.owner_at(1, {x = -65, y = 0}), nil)
+    truthy(#t.chunks(storage.colonies[1]) > 0, "the dome also emits claimed chunks")
+  end)
+  it("emitters are core first, then domes and towers by numeric unit number (#63)", function()
+    local t = setup()
+    local hall = {valid = true, position = {x = 0, y = 0}, name = core.HALL, unit_number = 100}
+    local d9 = {valid = true, position = {x = 10, y = 0}, name = core.DOME, unit_number = 9}
+    local d4 = {valid = true, position = {x = 20, y = 0}, name = core.DOME, unit_number = 4}
+    local t20 = {valid = true, position = {x = 30, y = 0}, name = "colony-watchtower", unit_number = 20}
+    local t11 = {valid = true, position = {x = 40, y = 0}, name = "colony-watchtower", unit_number = 11}
+    storage.colonies[1] = {id = 1, surface_index = 1, hall = hall,
+      domes = {[9] = d9, [4] = d4}, towers = {[20] = t20, [11] = t11}}
+    local e = t.emitters(storage.colonies[1])
+    eq(#e, 5)
+    eq(e[1].entity, hall); eq(e[1].radius, 64); eq(e[1].name, core.HALL)
+    eq(e[2].entity, d4); eq(e[2].radius, 64); eq(e[2].name, core.DOME)
+    eq(e[3].entity, d9)
+    eq(e[4].entity, t11); eq(e[4].radius, 48)
+    eq(e[5].entity, t20)
+    -- Invalid emitters are skipped without mutating the colony's registries.
+    d4.valid = false; t20.valid = false
+    local pruned = t.emitters(storage.colonies[1])
+    eq(#pruned, 3)
+    eq(pruned[2].entity, d9); eq(pruned[3].entity, t11)
+    eq(storage.colonies[1].domes[4], d4); eq(storage.colonies[1].towers[20], t20)
+    eq(#t.emitters(nil), 0)
+  end)
+  it("no domes leaves hall/tower territory byte-identical (#63)", function()
+    local t = setup()
+    storage.colonies[1] = {id = 1, surface_index = 1,
+      hall = {valid = true, position = {x = 0, y = 0}}, towers = {}}
+    storage.colonies[1].towers[10] = {valid = true, position = {x = 50, y = 0}}
+    local expected = {{-2, -2}, {-2, -1}, {-2, 0}, {-2, 1}, {-1, -2}, {-1, -1}, {-1, 0}, {-1, 1}, {-1, 2},
+      {0, -2}, {0, -1}, {0, 0}, {0, 1}, {0, 2}, {1, -2}, {1, -1}, {1, 0}, {1, 1},
+      {2, -2}, {2, -1}, {2, 0}, {2, 1}, {3, -1}, {3, 0}}
+    local got = t.chunks(storage.colonies[1])
+    eq(#got, #expected)
+    for i, c in ipairs(expected) do eq(got[i][1], c[1]); eq(got[i][2], c[2]) end
+    eq(t.owner_at(1, {x = 65, y = 0}), 1)   -- the tower at 50 still covers this
+    eq(t.owner_at(1, {x = -65, y = 0}), nil)
+    eq(t.owner_at(1, {x = 97, y = 0}), 1)
+    eq(t.owner_at(1, {x = 99, y = 0}), nil)
+  end)
+end)
+
+describe("colony core identity (#63 review)", function()
+  local function setup()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local force = {name = "player", valid = true, print = function() end,
+      set_cease_fire = function() end, laboratory_speed_modifier = 0,
+      technologies = {["colony-settlement"] = {researched = true}}}
+    game.forces["player"] = force
+    local surface = {index = 1, freeze_daytime = true,
+      get_pollution = function() return 0 end,
+      find_entities_filtered = function() return {} end,
+      get_tile = function() return {name = "grass-1"} end,
+      is_chunk_generated = function() return false end,
+      find_non_colliding_position = function(_, pos) return pos end,
+      create_entity = function() return {valid = true, unit_number = 999} end}
+    game.surfaces[1] = surface
+    local hall = {valid = true, name = colony_mod.HALL, unit_number = 777,
+      position = {x = 0, y = 0}, surface = surface, force = force,
+      get_item_count = function() return 0 end,
+      get_inventory = function() return nil end,
+      remove_item = function() return 0 end}
+    local c = {id = 1, surface_index = 1, hall = hall, houses = {}, huts = {}, machines = {},
+      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, armories = {},
+      pools = {}, taverns = {}, theatres = {}, plazas = {}, platforms = {}, spas = {}, cemeteries = {},
+      alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, priority = {},
+      colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {},
+      accept_migrants = false}
+    storage.colonies = {[1] = c}
+    return colony_mod, c
+  end
+
+  it("backfills hall_un and hall_force from the live core on evaluate (#63)", function()
+    local colony_mod, c = setup()
+    eq(c.hall_un, nil)   -- an old save predates both plain fields
+    eq(c.hall_force, nil)
+    colony_mod.evaluate({colony_id = 1})
+    eq(c.hall_un, 777, "plain unit number captured while the core is still alive")
+    eq(c.hall_force, "player", "plain force name captured while the core is still alive")
+  end)
+
+  it("does not rewrite an already-recorded core identity", function()
+    local colony_mod, c = setup()
+    c.hall_un, c.hall_force = 42, "other"
+    colony_mod.evaluate({colony_id = 1})
+    eq(c.hall_un, 42)
+    eq(c.hall_force, "other")
+  end)
+
+  it("a hall-founded town with no domes survives losing its hall (#63)", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    require("scripts.colony")
+    local c = {id = 1, surface_index = 1, hall_un = 100, hall_force = "player",
+      hall = {valid = false}, houses = {}, domes = nil}
+    storage.colonies = {[1] = c}
+    env.fire("on_object_destroyed", {useful_id = 100})
+    eq(c.hall_un, 100, "the dead hall's identity is kept, no promotion and no crash")
+    eq(c.hall.valid, false)
+  end)
+
+  it("promotion only considers a live dome on the hall's force and surface (#63)", function()
+    local env = mock.install(); env = env.reset()
+    require("scripts.store").init()
+    local colony_mod = require("scripts.colony")
+    local foreign = {valid = true, name = colony_mod.DOME, surface = {index = 2},
+      force = {name = "enemy"}, unit_number = 7}
+    local other_surface = {valid = true, name = colony_mod.DOME, surface = {index = 2},
+      force = {name = "player"}, unit_number = 8}
+    local own = {valid = true, name = colony_mod.DOME, surface = {index = 1},
+      force = {name = "player"}, unit_number = 9}
+    local c = {id = 1, surface_index = 1, hall_un = 100, hall_force = "player",
+      hall = {valid = false}, houses = {},
+      domes = {[7] = {entity = foreign}, [8] = {entity = other_surface}, [9] = {entity = own}}}
+    storage.colonies = {[1] = c}
+    env.fire("on_object_destroyed", {useful_id = 100})
+    eq(c.hall, own, "a foreign-force or off-surface dome cannot inherit the colony")
+    eq(c.hall_un, 9)
   end)
 end)
 

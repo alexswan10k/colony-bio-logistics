@@ -55,6 +55,12 @@ Three headless gates cover the things the unit tests and the playable spike cann
   and integrated checks that a lease release returns a commanded hunter's kill and that a stale construction
   timer cannot overwrite a live order. Real mouse gestures cannot be raised from script — see the in-game
   checklist on #58.
+- `scripts/headless-spike.sh m4_dome` - the #63 Habitat Dome integration spike (54 checks, `TICKS=6000`): a dome
+  founds a colony with no hall on Nauvis, a second dome extends beds and territory, destroying the core promotes
+  the lowest-unit-number dome and destroying the last one makes the colony dormant. Hostile worlds refuse a Town
+  Hall but accept a dome, and a real `entity-ghost` revive registers a second emitter. `s24_dome_platform`
+  (25 checks) proves the same founding path on a grown platform deck; `s23_dome_build` (8 checks) proves that
+  clearing `surface_conditions` is the only prototype fix needed.
 - `scripts/headless-spike.sh s22_dome` - the #63 Habitat Dome engine probe (23 checks, 91 probes): all four
   planet surfaces and their properties, off-Gleba nil pollutant, `surface.platform` as the platform test,
   and the blocker that inherited `gravity >= 0.1` surface conditions prevent ANY of our chest-cloned

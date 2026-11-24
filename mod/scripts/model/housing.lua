@@ -59,6 +59,18 @@ M.TIERS = {
       {id = "comfort", options = {{item = "colony-furniture", per = 0.1}}},
     },
   },
+  -- Tier 5 (#63): a sealed Habitat Dome on a hostile world or a space platform. Same life-support shape as
+  -- the apartment (mandatory power, comfort furniture), with a 32-colonist capacity. It is also a territory
+  -- emitter; that part lives in scripts/territory.lua, not here.
+  dome = {
+    capacity = 32, buffer_intervals = 6,
+    needs = {
+      {id = "food", critical = true, options = M.FOOD},
+      {id = "water", critical = true, options = M.WATER},
+      {id = "electricity", critical = true, options = {{power = true}}},
+      {id = "comfort", options = {{item = "colony-furniture", per = 0.1}}},
+    },
+  },
 }
 
 function M.items_of(tier)

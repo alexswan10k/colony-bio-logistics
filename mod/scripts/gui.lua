@@ -59,7 +59,7 @@ function M.colony_advice(colony, st, counts)
   local merged = colony_mod.tool_gaps(colony)
   return advice.colony{pop = st.pop, capacity = st.capacity, food = st.food,
     haul_rank = jobs.effective(colony.priority).haul, haulers = counts.haul or 0,
-    houses = st.tents + st.cabins + (st.homesteads or 0) + (st.townhouses or 0) + (st.apartments or 0),
+    houses = st.tents + st.cabins + (st.homesteads or 0) + (st.townhouses or 0) + (st.apartments or 0) + (st.domes or 0),
     hall_stock = stock, tool_gaps = merged}
 end
 
@@ -847,7 +847,7 @@ local function update_info(body, colony)
   end
 
   if body.status_housing then
-    body.status_housing.caption = {"colony-gui-info.housing", st.tents, st.cabins, st.homesteads or 0, st.townhouses or 0, st.apartments or 0, math.max(st.capacity - st.pop, 0)}
+    body.status_housing.caption = {"colony-gui-info.housing", st.tents, st.cabins, st.homesteads or 0, st.townhouses or 0, st.apartments or 0, math.max(st.capacity - st.pop, 0), st.domes or 0}
   end
 
   local colour = st.food_ratio < 0.5 and "red" or (st.food_ratio < 1 and "orange" or "green")
@@ -1088,7 +1088,7 @@ local function open_info(player, e)
   if not colony then return end
   local frame = player.gui.relative.add{type = "frame", name = INFO_FRAME, direction = "vertical",
     caption = {"colony-gui-info.title"}, anchor = {gui = defines.relative_gui_type.container_gui,
-      position = defines.relative_gui_position.right, names = {colony_mod.HALL}}}
+      position = defines.relative_gui_position.right, names = {colony_mod.HALL, colony_mod.DOME}}}
   local body = frame.add{type = "scroll-pane", name = "body", direction = "vertical"}
   body.style.maximal_height = 640
   fill_info(body, colony)
@@ -1208,7 +1208,7 @@ events.on(defines.events.on_gui_click, function(ev)
   if name == "colony_hall_sprio_less" or name == "colony_hall_sprio_more" then
     local player = game.get_player(ev.player_index)
     local e = player and player.opened
-    if not (e and e.valid and e.name == colony_mod.HALL) then return end
+    if not (e and e.valid and colony_mod.is_core(e.name)) then return end
     local colony = colony_at(e)
     if not colony then return end
     local delta = name == "colony_hall_sprio_more" and -1 or 1
@@ -1295,7 +1295,7 @@ events.on(defines.events.on_gui_click, function(ev)
   if (target_job and (target_dir == "more" or target_dir == "less")) or name == "colony_target_reset" then
     local player = game.get_player(ev.player_index)
     local e = player and player.opened
-    if not (e and e.valid and e.name == colony_mod.HALL) then return end
+    if not (e and e.valid and colony_mod.is_core(e.name)) then return end
     local colony = colony_at(e)
     if not colony then return end
     if name == "colony_target_reset" then
@@ -1316,7 +1316,7 @@ events.on(defines.events.on_gui_click, function(ev)
   if not ((job and (dir == "more" or dir == "less")) or name == "colony_prio_reset") then return end
   local player = game.get_player(ev.player_index)
   local e = player and player.opened
-  if not (e and e.valid and e.name == colony_mod.HALL) then return end
+  if not (e and e.valid and colony_mod.is_core(e.name)) then return end
   local colony = colony_at(e)
   if not colony then return end
   if name == "colony_prio_reset" then
@@ -1344,7 +1344,7 @@ events.on(defines.events.on_gui_click, function(ev)
   if name == "colony_mat_reset" then
     local player = game.get_player(ev.player_index)
     local e = player and player.opened
-    if not (e and e.valid and e.name == colony_mod.HALL) then return end
+    if not (e and e.valid and colony_mod.is_core(e.name)) then return end
     local colony = colony_at(e)
     if not colony then return end
     colony.ratings = {}
@@ -1357,7 +1357,7 @@ events.on(defines.events.on_gui_click, function(ev)
   if not (mat_item and material_priority.is_rankable(mat_item) and (mat_dir == "more" or mat_dir == "less")) then return end
   local player = game.get_player(ev.player_index)
   local e = player and player.opened
-  if not (e and e.valid and e.name == colony_mod.HALL) then return end
+  if not (e and e.valid and colony_mod.is_core(e.name)) then return end
   local colony = colony_at(e)
   if not colony then return end
   colony.ratings = colony.ratings or {}
@@ -1376,7 +1376,7 @@ events.on(defines.events.on_gui_checked_state_changed, function(ev)
   if not material_priority.is_rankable(item) then return end
   local player = game.get_player(ev.player_index)
   local e = player and player.opened
-  if not (e and e.valid and e.name == colony_mod.HALL) then return end
+  if not (e and e.valid and colony_mod.is_core(e.name)) then return end
   local colony = colony_at(e)
   if not colony then return end
   colony.ratings = colony.ratings or {}
@@ -1830,9 +1830,9 @@ events.on(defines.events.on_gui_opened, function(ev)
   if not (player and e and e.valid and ev.gui_type == defines.gui_type.entity) then return end
   local name = (e.type == "entity-ghost") and e.ghost_name or e.name
   local type = (e.type == "entity-ghost") and e.ghost_type or e.type
-  if colony_mod.HOUSES[name] then open_house(player, e)
+  if colony_mod.is_core(name) then open_info(player, e)
+  elseif colony_mod.HOUSES[name] then open_house(player, e)
   elseif labour.HUTS[name] then open_hut(player, e)
-  elseif name == colony_mod.HALL then open_info(player, e)
   elseif colony_mod.CRATES[name] then open_crate(player, e)
   elseif name == colony_mod.ARMORY then open_armory(player, e)
   elseif name == patrol.POST then open_patrol(player, e)
@@ -1900,7 +1900,7 @@ events.on(defines.events.on_gui_checked_state_changed, function(ev)
   if name == "colony_accept_migrants" then
     local player = game.get_player(ev.player_index)
     local e = player and player.opened
-    if not (e and e.valid and e.name == colony_mod.HALL) then return end
+    if not (e and e.valid and colony_mod.is_core(e.name)) then return end
     local colony = colony_at(e)
     if colony then colony.accept_migrants = ev.element.state end
     return

@@ -1328,6 +1328,87 @@ describe("housing", function()
     eq(#h.assign({}, {4}), 1); eq(#h.assign({}, {4})[1], 0)
     eq(#h.assign({1, 2}, {}), 0)
   end)
+  it("Habitat Dome is Tier 5: capacity 32, powered life support and furniture (#63)", function()
+    local tier = h.TIERS.dome
+    eq(tier.capacity, 32)
+    eq(h.needs_power(tier), true)
+    local items = h.items_of(tier)
+    eq(items["colony-forage"], true)
+    eq(items["colony-water"], true)
+    eq(items["colony-furniture"], true)
+    local d = by_need(h.demand(tier, {}, {}, true))
+    eq(d.food.count, 32 * 6)          -- 32 occ * 1 * 6 intervals
+    eq(d.water.count, 32 * 0.5 * 6)
+    eq(d.comfort.count, math.ceil(32 * 0.1 * 6))
+    eq(d.electricity, nil)            -- power is not a haul item
+    -- The ids and option shapes are the apartment's, not invented here.
+    local apt, dome = {}, {}
+    for _, need in ipairs(h.TIERS.apartment.needs) do apt[need.id] = need end
+    for _, need in ipairs(tier.needs) do dome[need.id] = need end
+    eq(dome.electricity.critical, apt.electricity.critical)
+    eq(dome.electricity.options[1].power, apt.electricity.options[1].power)
+    eq(dome.comfort.options[1].item, apt.comfort.options[1].item)
+    eq(dome.comfort.options[1].per, apt.comfort.options[1].per)
+    local _, sat, score, crit = h.step(tier, 32,
+      {["colony-forage"] = 32, ["colony-water"] = 16, ["colony-furniture"] = 3}, true, {})
+    eq(sat.food, true); eq(sat.water, true); eq(sat.electricity, true); eq(sat.comfort, true)
+    eq(score, 1); eq(crit, false)
+  end)
+  it("a dome without power fails the critical electricity need like an apartment (#63)", function()
+    local _, sat, _, crit = h.step(h.TIERS.dome, 32,
+      {["colony-forage"] = 32, ["colony-water"] = 16, ["colony-furniture"] = 4}, false, {})
+    eq(sat.electricity, false); eq(crit, true)
+  end)
+end)
+
+describe("planet surface rules (#63)", function()
+  local p = require("scripts.planet")
+  local core = require("scripts.model.core")
+  local nauvis = {name = "nauvis", planet = {name = "nauvis"}}
+  local gleba = {name = "gleba", planet = {name = "gleba"}, pollutant_type = {name = "spores"}}
+  local vulcanus = {name = "vulcanus", planet = {name = "vulcanus"}}
+  local fulgora = {name = "fulgora", planet = {name = "fulgora"}}
+  local aquilo = {name = "aquilo", planet = {name = "aquilo"}}
+  local platform = {name = "platform-1", platform = {}}
+  local plain = {name = "some-mod-surface"}
+
+  it("is_platform uses surface.platform, not the name", function()
+    eq(p.is_platform(platform), true)
+    eq(p.is_platform(nauvis), false)
+    eq(p.is_platform(nil), false)
+  end)
+  it("is_hostile covers the three barren worlds, not Gleba or Nauvis", function()
+    eq(p.is_hostile(vulcanus), true); eq(p.is_hostile(fulgora), true); eq(p.is_hostile(aquilo), true)
+    eq(p.is_hostile(gleba), false); eq(p.is_hostile(nauvis), false)
+    eq(p.is_hostile({name = "vulcanus"}), true)  -- name fallback for a script-created surface
+    eq(p.is_hostile(plain), false); eq(p.is_hostile(nil), false)
+  end)
+  it("is_exotic unions platform and hostile, leaving life-friendly surfaces alone", function()
+    eq(p.is_exotic(platform), true); eq(p.is_exotic(vulcanus), true)
+    eq(p.is_exotic(gleba), false); eq(p.is_exotic(nauvis), false); eq(p.is_exotic(plain), false)
+    eq(p.is_exotic(nil), false)
+  end)
+  it("may_found gates the hall but always admits a dome", function()
+    eq(p.may_found(nauvis, core.HALL), true)
+    eq(p.may_found(gleba, core.HALL), true)
+    eq(p.may_found(vulcanus, core.HALL), false)
+    eq(p.may_found(platform, core.HALL), false)
+    eq(p.may_found(vulcanus, core.DOME), true)
+    eq(p.may_found(platform, core.DOME), true)
+    eq(p.may_found(nauvis, "colony-housing-tent"), true)
+    eq(p.may_found(platform, nil), false)
+  end)
+  it("may_build_hall is the hall-only gate", function()
+    eq(p.may_build_hall(nauvis), true); eq(p.may_build_hall(gleba), true)
+    eq(p.may_build_hall(vulcanus), false); eq(p.may_build_hall(fulgora), false)
+    eq(p.may_build_hall(aquilo), false); eq(p.may_build_hall(platform), false)
+    eq(p.may_build_hall(plain), true); eq(p.may_build_hall(nil), true)
+  end)
+  it("the existing spore checks are unchanged", function()
+    eq(p.is_gleba(gleba), true); eq(p.is_gleba({name = "gleba"}), true)
+    eq(p.is_gleba(nauvis), false); eq(p.is_gleba(nil), false)
+    eq(p.is_spore(gleba), true); eq(p.is_spore(nauvis), false); eq(p.is_spore(nil), false)
+  end)
 end)
 
 describe("construct", function()

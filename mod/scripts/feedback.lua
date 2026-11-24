@@ -173,8 +173,12 @@ function M.update(colony)
     end
   end
   for _, h in ipairs(colony_mod.house_list(colony)) do
-    local r, label, icon = house_status(h, colony)
-    if r then report(h.entity, r, label, icon or h.entity.name) end
+    -- #63: a dome-founded colony's core IS a house and IS `colony.hall`. Its diode belongs to the hall
+    -- status written below, so skip the house line here instead of having the hall overwrite it.
+    if h.entity ~= colony.hall then
+      local r, label, icon = house_status(h, colony)
+      if r then report(h.entity, r, label, icon or h.entity.name) end
+    end
   end
   local stock = colony_mod.stock_table(colony)
   local haul_rank = jobs.effective(colony.priority).haul or 1

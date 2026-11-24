@@ -53,9 +53,17 @@ local breeding = require("scripts.model.breeding")
 local stats = require("scripts.stats")
 local tech = require("scripts.tech")
 local ledger_signal = require("scripts.ledger_signal")
+local core = require("scripts.model.core")
+local planet = require("scripts.planet")
 local M = {}
 
-M.HALL = "colony-town-hall"
+-- #63: a colony's core is either the seed Town Hall or a founding Habitat Dome. M.HALL keeps its literal
+-- value (every proto/item/locale key uses it); `colony.hall` is the live *entity* and may be a dome.
+M.HALL = core.HALL
+M.DOME = core.DOME
+M.CORE = core.CORE
+M.is_core = core.is_core
+M.is_dome = core.is_dome
 M.WATCHTOWER = "colony-watchtower"
 M.PLOT = "colony-farm-plot"
 M.WELL = "colony-well"
@@ -84,6 +92,7 @@ M.FORAGE_TILES = {["grass-1"] = true, ["grass-2"] = true, ["grass-3"] = true, ["
 M.HOUSES = {["colony-housing-tent"] = "tent", ["colony-housing-cabin"] = "cabin",
   ["colony-housing-homestead"] = "homestead", ["colony-housing-townhouse"] = "townhouse",
   ["colony-housing-apartment"] = "apartment"}
+M.HOUSES[M.DOME] = "dome"   -- #63: a dome is also a house (the founding dome is its core's stock room)
 -- Colony logistics crates (#33): supply = provider, demand = requester, warehouse = bulk colony stock.
 -- Haul Station (#94) is bulk stock like a Warehouse, plus a Wooden Trailer depot (work.lua).
 M.SUPPLY_CRATE = "colony-supply-crate"
@@ -185,6 +194,19 @@ function M.tavern_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.taverns[un] end
+  return out
+end
+
+-- Habitat Domes (#63), in a stable order: [unit_number] = {entity, colony_id, ...}. A dome is a territory
+-- emitter and a house; the founding dome is also the colony's core (aliased as `colony.hall`).
+function M.dome_list(colony)
+  local ids = {}
+  for un, d in pairs(colony.domes or {}) do
+    if d.entity and d.entity.valid then ids[#ids + 1] = un else colony.domes[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.domes[un] end
   return out
 end
 
@@ -1383,9 +1405,15 @@ end
 function M.total_food(colony)
   if colony.food_tick and game.tick - colony.food_tick < M.FOOD_TTL then return colony.food_total end
   local n = M.food_in(colony)
+  -- A founding Habitat Dome is both the core stock room (already counted by food_in/colony.hall) and a
+  -- registered house; counting its chest here too would double it. Every other domes' chest is ordinary
+  -- house stock and still counts.
+  local core_entity = colony.hall and colony.hall.valid and colony.hall
   for _, h in ipairs(M.house_list(colony)) do
-    local stock = M.house_stock(h)
-    for _, opt in ipairs(housing.FOOD) do n = n + (stock[opt.item] or 0) end
+    if not (core_entity and h.kind == "dome" and h.entity == core_entity) then
+      local stock = M.house_stock(h)
+      for _, opt in ipairs(housing.FOOD) do n = n + (stock[opt.item] or 0) end
+    end
   end
   -- Warehouses and hut stockpiles count too: food only waits there until a hauler clears it.
   for _, c in ipairs(M.storage_crates(colony)) do
@@ -1569,6 +1597,13 @@ function M.evaluate(data)
     -- ignores invalid halls and drops the bonus to zero. Without this the modifier would never clear (M2).
     research_speed.apply_all()
     return
+  end
+  -- #63 review: self-heal old saves (and any core created before the unified init) without a schema bump. The
+  -- plain core identity is captured while `colony.hall` is still live; the death handler then never has to read
+  -- a possibly-pruned power sink to decide whether a dome may inherit the colony.
+  if not colony.hall_un or not colony.hall_force then
+    colony.hall_un = colony.hall.unit_number
+    colony.hall_force = colony.hall.force and colony.hall.force.name
   end
   scheduler.after(M.interval(), "colony.evaluate", data)
 
@@ -1985,6 +2020,31 @@ events.on_configuration_changed(function()
   scheduler.after(1, "colony.rebadge", {})
 end)
 
+-- A fresh colony record. Shared by Hall and founding-dome builds so both cores start with identical state;
+-- only the core entity (`hall`, which may be a dome) and the `domes` registry differ. `hall_un`/`hall_force` are
+-- plain data so the death handler can tell whether the core itself died and which force may inherit it,
+-- without reading an entity that may already have been pruned from the house registry.
+local function new_colony(id, e)
+  return {id = id, surface_index = e.surface.index, hall = e, hall_un = e.unit_number, hall_force = e.force.name,
+    houses = {}, machines = {}, huts = {},
+    towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, armories = {},
+    patrol_posts = {}, patrols = {},   -- M3 Stage 3 (#57): waypoint records and active patrol leases (schema 41)
+    pools = {}, taverns = {}, theatres = {}, plazas = {}, plaza_count = 0, platforms = {}, spas = {}, insights = 0, insights_total = 0, last_insight_tick = 0,
+    cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, overflow = {}, ratings = {},
+    colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, storage_priority = 3}
+end
+
+-- Register a colony house (kind from M.HOUSES). Extracted from the generic house branch in on_built so a
+-- Habitat Dome core can be a house too without that branch ever seeing a core entity.
+local function register_house(colony, e, kind)
+  local h = {entity = e, kind = kind, acc = {}, inflight = {}, logistics_enabled = true, priority = 3}
+  if housing.needs_power(housing.TIERS[kind]) then
+    h.sink = e.surface.create_entity{name = "colony-power-sink", position = e.position, force = e.force}
+  end
+  colony.houses[e.unit_number] = h
+  script.register_on_object_destroyed(e)
+end
+
 local function on_built(ev)
   local e = ev.entity or ev.created_entity
   if not (e and e.valid) then return end
@@ -1999,6 +2059,18 @@ local function on_built(ev)
       if owner then
         local p = ev.player_index and game.get_player(ev.player_index)
         if p then p.create_local_flying_text{text = {"colony-message.hall-too-close"}, position = e.position} end
+        e.destroy()
+        return
+      end
+      if not planet.may_build_hall(e.surface) then
+        refund(ev, e, M.HALL, {"colony-message.core-hostile-hall"})
+        e.destroy()
+        return
+      end
+    elseif name == M.DOME then
+      -- A Habitat Dome may found a colony (no owner) or extend one (has an owner); only the surface rule gates it.
+      if not planet.may_found(e.surface, M.DOME) then
+        refund(ev, e, M.DOME, {"colony-message.core-hostile-hall"})
         e.destroy()
         return
       end
@@ -2026,7 +2098,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or M.HOUSES[name] or labour.HUTS[name] then
+    elseif (M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or M.HOUSES[name] or labour.HUTS[name]) and not core.is_core(name) then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -2060,30 +2132,75 @@ local function on_built(ev)
     return
   end
 
-  if name == M.HALL then
-    local owner = territory.owner_at(e.surface.index, e.position)
-    if owner then refund(ev, e, name, {"colony-message.hall-too-close"}); e.destroy(); return end   -- no overlapping halls
-    local id = storage.next_colony_id; storage.next_colony_id = id + 1
-    local colony = {id = id, surface_index = e.surface.index, hall = e, houses = {}, machines = {}, huts = {},
-      towers = {}, plots = {}, crates = {}, bins = {}, salt_pans = {}, wells = {}, armories = {},
-      patrol_posts = {}, patrols = {},   -- M3 Stage 3 (#57): waypoint records and active patrol leases (schema 41)
-      pools = {}, taverns = {}, theatres = {}, plazas = {}, plaza_count = 0, platforms = {}, spas = {}, insights = 0, insights_total = 0, last_insight_tick = 0,
-      cemeteries = {}, fallen = 0, buried = 0, alarms = {}, canteens = {}, away = 0, locks = {}, quotas = {}, job_targets = {}, overflow = {}, ratings = {},
-      colonists = {}, deaths = {}, claimed = {}, no_site = {}, ghosts = {}, repairs = {}, ghost_blocked = {}, storage_priority = 3}
-    storage.colonies[id] = colony
-    M.seed_forage(colony)   -- the claimed land already has berries on it
-    local founder = ev.player_index and game.get_player(ev.player_index)
-    if founder then founder.create_local_flying_text{text = {"colony-message.colony-founded"}, position = e.position} end
-    e.force.print({"colony-message.colony-founded-hint", gps(e)})
-    M.check_milestones(e.force)
-    feedback.ensure(colony)
-    rendering.draw_circle{color = {0.1, 0.4, 0.15, 0.5}, width = 2, filled = false, radius = territory.HALL_RADIUS,
-      target = e, surface = e.surface, only_in_alt_mode = true}
-    script.register_on_object_destroyed(e)
-    scheduler.after(M.interval(), "colony.evaluate", {colony_id = id})
-    scheduler.after(construct.SCAN_TICKS, "construct.scan", {colony_id = id})   -- #37 ghosts + damage
-    scheduler.after(work.MACHINE_SWEEP_TICKS, "work.machine_sweep", {colony_id = id})   -- #75 machine output
-    M.refresh_all_cursor_overlays()
+  if core.is_core(name) then
+    -- A core may only be founded where its prototype can live: a plain Hall needs a life-friendly surface,
+    -- while a Habitat Dome is the pressurized core hostile worlds and space platforms need.
+    if not planet.may_found(e.surface, name) or (name == M.HALL and not planet.may_build_hall(e.surface)) then
+      refund(ev, e, name, {"colony-message.core-hostile-hall"})
+      e.destroy()
+      return
+    end
+    if name == M.HALL then
+      local owner = territory.owner_at(e.surface.index, e.position)
+      if owner then refund(ev, e, name, {"colony-message.hall-too-close"}); e.destroy(); return end   -- no overlapping halls
+      local id = storage.next_colony_id; storage.next_colony_id = id + 1
+      local colony = new_colony(id, e)
+      storage.colonies[id] = colony
+      M.seed_forage(colony)   -- the claimed land already has berries on it
+      local founder = ev.player_index and game.get_player(ev.player_index)
+      if founder then founder.create_local_flying_text{text = {"colony-message.colony-founded"}, position = e.position} end
+      e.force.print({"colony-message.colony-founded-hint", gps(e)})
+      M.check_milestones(e.force)
+      feedback.ensure(colony)
+      rendering.draw_circle{color = {0.1, 0.4, 0.15, 0.5}, width = 2, filled = false, radius = territory.HALL_RADIUS,
+        target = e, surface = e.surface, only_in_alt_mode = true}
+      script.register_on_object_destroyed(e)
+      scheduler.after(M.interval(), "colony.evaluate", {colony_id = id})
+      scheduler.after(construct.SCAN_TICKS, "construct.scan", {colony_id = id})   -- #37 ghosts + damage
+      scheduler.after(work.MACHINE_SWEEP_TICKS, "work.machine_sweep", {colony_id = id})   -- #75 machine output
+      M.refresh_all_cursor_overlays()
+    else
+      -- Habitat Dome (#63): no owner -> FOUND a colony whose core (`colony.hall`) is the dome itself; with an
+      -- owner -> a second territory emitter and a house of that colony (no new colony, no numeric id change).
+      local owner = territory.owner_at(e.surface.index, e.position)
+      if owner then
+        local colony = storage.colonies[owner]
+        -- #63 review: a second emitter joins an existing town, so it must belong to that town's force. The
+        -- plain `hall_force` is authoritative; the live hall (if any) is only a fallback for an old save.
+        local live_force = colony.hall and colony.hall.valid and colony.hall.force and colony.hall.force.name
+        if e.force.name ~= colony.hall_force and e.force.name ~= live_force then
+          refund(ev, e, M.DOME, {"colony-message.outside-territory"})
+          e.destroy()
+          return
+        end
+        colony.domes = colony.domes or {}
+        colony.domes[e.unit_number] = {entity = e, colony_id = colony.id}
+        register_house(colony, e, "dome")
+        colony.forage_seeded = nil   -- the dome claims new chunks; seed them once (no-op on bare platforms)
+        M.seed_forage(colony)
+        rendering.draw_circle{color = {0.1, 0.4, 0.15, 0.5}, width = 2, filled = false, radius = territory.DOME_RADIUS,
+          target = e, surface = e.surface, only_in_alt_mode = true}
+        M.refresh_all_cursor_overlays()
+      else
+        local id = storage.next_colony_id; storage.next_colony_id = id + 1
+        local colony = new_colony(id, e)
+        colony.domes = {[e.unit_number] = {entity = e, colony_id = id}}
+        storage.colonies[id] = colony
+        register_house(colony, e, "dome")
+        M.seed_forage(colony)   -- no forage tiles on a platform; a plain no-op there
+        local founder = ev.player_index and game.get_player(ev.player_index)
+        if founder then founder.create_local_flying_text{text = {"colony-message.colony-founded"}, position = e.position} end
+        e.force.print({"colony-message.colony-founded-hint", gps(e)})
+        M.check_milestones(e.force)
+        feedback.ensure(colony)
+        rendering.draw_circle{color = {0.1, 0.4, 0.15, 0.5}, width = 2, filled = false, radius = territory.DOME_RADIUS,
+          target = e, surface = e.surface, only_in_alt_mode = true}
+        scheduler.after(M.interval(), "colony.evaluate", {colony_id = id})
+        scheduler.after(construct.SCAN_TICKS, "construct.scan", {colony_id = id})   -- #37 ghosts + damage
+        scheduler.after(work.MACHINE_SWEEP_TICKS, "work.machine_sweep", {colony_id = id})   -- #75 machine output
+        M.refresh_all_cursor_overlays()
+      end
+    end
   elseif name == M.PLOT then
     local owner = territory.owner_at(e.surface.index, e.position)
     local tile = e.surface.get_tile(e.position)
@@ -2274,7 +2391,7 @@ local function on_built(ev)
     colony.plazas = colony.plazas or {}
     colony.plazas[e.unit_number] = {entity = e, colony_id = colony.id}
     script.register_on_object_destroyed(e)
-  elseif (M.HOUSES[name] or labour.HUTS[name]) then
+  elseif (M.HOUSES[name] or labour.HUTS[name]) and not core.is_core(name) then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
     local colony = storage.colonies[owner]
@@ -2305,12 +2422,7 @@ local function on_built(ev)
         target = e, surface = e.surface, only_in_alt_mode = true}
       return
     end
-    local h = {entity = e, kind = M.HOUSES[name], acc = {}, inflight = {}, logistics_enabled = true, priority = 3}
-    if housing.needs_power(housing.TIERS[h.kind]) then
-      h.sink = e.surface.create_entity{name = "colony-power-sink", position = e.position, force = e.force}
-    end
-    colony.houses[e.unit_number] = h
-    script.register_on_object_destroyed(e)
+    register_house(colony, e, M.HOUSES[name])
   elseif dict and gui.MACHINE_GUIS[e.type] then
     -- A machine carries no colony prototype of ours, so only a blueprint tags can say it was opted in.
     local colony = M.colony_of(e)
@@ -2320,6 +2432,9 @@ end
 
 events.on(defines.events.on_built_entity, on_built)
 events.on(defines.events.on_robot_built_entity, on_built)
+-- #63: platform construction robots raise this event (scripted builds do not, per s23). on_built already
+-- reads `ev.entity or ev.created_entity`, so the unproven field name needs no special adapter here.
+events.on(defines.events.on_space_platform_built_entity, on_built)
 events.on(defines.events.script_raised_built, on_built)
 events.on(defines.events.script_raised_revive, on_built)
 
@@ -2348,7 +2463,7 @@ function M.update_cursor_overlay(player)
   elseif player.cursor_ghost then
     item_name = player.cursor_ghost.name
   end
-  if not (item_name == M.WATCHTOWER or item_name == M.HALL or M.HOUSES[item_name] or labour.HUTS[item_name]
+  if not (item_name == M.WATCHTOWER or core.is_core(item_name) or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
       or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.PLOT) then return end
 
@@ -2357,10 +2472,11 @@ function M.update_cursor_overlay(player)
   for _, colony in pairs(storage.colonies or {}) do
     if colony.surface_index == surface.index then
       if colony.hall and colony.hall.valid then
+        local hall_radius = territory.core_radius(colony.hall.name) or territory.HALL_RADIUS
         local r_fill = rendering.draw_circle{
           color = {0.008, 0.032, 0.012, 0.04},   -- premultiplied: a faint wash, the terrain stays readable
           filled = true,
-          radius = territory.HALL_RADIUS,
+          radius = hall_radius,
           target = colony.hall,
           surface = surface,
           players = {player},
@@ -2369,13 +2485,40 @@ function M.update_cursor_overlay(player)
           color = {0.1, 0.4, 0.15, 0.5},
           width = 2,
           filled = false,
-          radius = territory.HALL_RADIUS,
+          radius = hall_radius,
           target = colony.hall,
           surface = surface,
           players = {player},
         }
         table.insert(list, r_fill)
         table.insert(list, r_border)
+      end
+      for _, d in ipairs(M.dome_list(colony)) do
+        local dome = d.entity
+        -- #63 review: the founding dome is also the core and was drawn above; emitters lists it twice by
+        -- design (core + registry) and every consumer dedupes it.
+        if dome and dome.valid and dome ~= colony.hall then
+          local dome_radius = territory.core_radius(dome.name) or territory.DOME_RADIUS
+          local r_fill = rendering.draw_circle{
+            color = {0.008, 0.032, 0.012, 0.04},   -- premultiplied: a faint wash, the terrain stays readable
+            filled = true,
+            radius = dome_radius,
+            target = dome,
+            surface = surface,
+            players = {player},
+          }
+          local r_border = rendering.draw_circle{
+            color = {0.1, 0.4, 0.15, 0.5},
+            width = 2,
+            filled = false,
+            radius = dome_radius,
+            target = dome,
+            surface = surface,
+            players = {player},
+          }
+          table.insert(list, r_fill)
+          table.insert(list, r_border)
+        end
       end
       for _, tower in pairs(colony.towers or {}) do
         if tower and tower.valid then
@@ -2447,6 +2590,41 @@ events.on(defines.events.on_object_destroyed, function(ev)
   -- crate registry record survived, or a mined half would leave a dead slot and a "taken" peer forever.
   if storage.links and next(storage.links) then M.unbind_link(un) end
   for _, colony in pairs(storage.colonies) do
+    -- Habitat Domes (#63): a dome is both a territory emitter and a house, so handle it here before the
+    -- generic house branch. Its death shrinks territory automatically (emitters skips invalid entities).
+    -- The `hall_un` arm covers a dead core whose records were already pruned by dome_list/house_list earlier
+    -- in the tick, before this deferred event fires.
+    if (colony.domes and colony.domes[un]) or un == colony.hall_un then
+      if colony.domes then colony.domes[un] = nil end
+      local h = colony.houses and colony.houses[un]
+      if h then
+        if h.sink and h.sink.valid then h.sink.destroy() end
+        colony.houses[un] = nil
+      end
+      if un == colony.hall_un then
+        -- The core itself died. Keep the colony id alive by promoting the lowest-unit-number live dome on
+        -- the same surface and force; never promote a non-dome. `hall_force` is a plain string captured at
+        -- founding: the sink that used to name the force may already have been pruned by house_list, which
+        -- would silently turn a LuaForce guard into "no guard at all". Otherwise leave the dead entity in
+        -- `colony.hall` and let M.evaluate's dormancy path handle it.
+        -- A hall-founded town that never built a dome has no `domes` table at all; its hall death still
+        -- enters this branch now that hall_un is set for both core types, so the loop must be nil-safe.
+        local next_core, next_un = nil, nil
+        for dun, dr in pairs(colony.domes or {}) do
+          local e = dr.entity
+          if e and e.valid and e.name == M.DOME and e.surface.index == colony.surface_index
+              and e.force and e.force.name == colony.hall_force and (not next_un or dun < next_un) then
+            next_core, next_un = e, dun
+          end
+        end
+        if next_core then
+          colony.hall = next_core
+          colony.hall_un = next_core.unit_number
+        end
+      end
+      M.refresh_all_cursor_overlays()
+      return
+    end
     if colony.houses and colony.houses[un] then
       local h = colony.houses[un]
       if h.sink and h.sink.valid then h.sink.destroy() end
@@ -2973,6 +3151,7 @@ function M.stats(colony)
   for _, r in pairs(colony.repairs or {}) do if r.valid and construct.needs_repair(r.health, r.max_health) then damaged = damaged + 1 end end
   return {pop = pop, capacity = capacity, food = food, food_target = target, food_ratio = food / target,
     tents = tents, cabins = cabins, homesteads = homesteads, townhouses = townhouses, apartments = apartments,
+    domes = #M.dome_list(colony),
     huts = huts, machines = machines, towers = towers, chunks = chunks,
     crates = #M.crate_list(colony), ghosts = ghosts, damaged = damaged,
     d = colony.d or 0, parts = colony.d_parts or {},

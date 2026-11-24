@@ -431,16 +431,19 @@ end
 local function colony_area(colony)
   local hall = colony.hall
   if not (hall and hall.valid) then return nil end
-  local minx, miny = hall.position.x - territory.HALL_RADIUS, hall.position.y - territory.HALL_RADIUS
-  local maxx, maxy = hall.position.x + territory.HALL_RADIUS, hall.position.y + territory.HALL_RADIUS
-  for _, t in pairs(colony.towers or {}) do
-    if t.valid then
-      minx = math.min(minx, t.position.x - territory.TOWER_RADIUS)
-      miny = math.min(miny, t.position.y - territory.TOWER_RADIUS)
-      maxx = math.max(maxx, t.position.x + territory.TOWER_RADIUS)
-      maxy = math.max(maxy, t.position.y + territory.TOWER_RADIUS)
-    end
+  -- Every territory emitter (core, domes, towers) contributes its own circle. With no domes this is the
+  -- hall + towers box exactly as before; a dome-founded colony gets its 64-tile circle in the scan bounds.
+  local emitters = territory.emitters(colony)
+  local minx, miny = math.huge, math.huge
+  local maxx, maxy = -math.huge, -math.huge
+  for _, e in ipairs(emitters) do
+    local p, r = e.entity.position, e.radius
+    minx = math.min(minx, p.x - r)
+    miny = math.min(miny, p.y - r)
+    maxx = math.max(maxx, p.x + r)
+    maxy = math.max(maxy, p.y + r)
   end
+  if minx == math.huge then return nil end
   return {{minx, miny}, {maxx, maxy}}
 end
 

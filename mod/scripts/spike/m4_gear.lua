@@ -53,9 +53,12 @@ core.register("m4_gear", {
     local data_prereqs = f.technologies["colony-bio-ecological-data"].prerequisites or {}
     local codex_prereqs = f.technologies["colony-sovereignty-codex"].prerequisites or {}
     ctx.check("codex requires the data tier", codex_prereqs["colony-bio-ecological-data"] ~= nil)
-    ctx.check("data tier requires Civic Governance + the Gleba interlock",
-      data_prereqs["colony-civic-governance"] ~= nil and data_prereqs["yumako"] ~= nil
-        and data_prereqs["jellynut"] ~= nil)
+    ctx.check("data tier requires Civic Governance + the bioflux interlock",
+      data_prereqs["colony-civic-governance"] ~= nil and data_prereqs["bioflux"] ~= nil)
+    local panacea_ing = prototypes.recipe["colony-panacea-serum"].ingredients
+    local has_bioflux = false
+    for _, i in ipairs(panacea_ing or {}) do if i.name == "bioflux" then has_bioflux = true end end
+    ctx.check("panacea is brewed from bioflux, not raw fruit", has_bioflux)
 
     f.technologies["colony-bio-ecological-data"].researched = true
     f.technologies["colony-sovereignty-codex"].researched = true

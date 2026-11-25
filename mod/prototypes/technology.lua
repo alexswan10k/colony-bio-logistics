@@ -199,10 +199,10 @@ data:extend({
     }),
   -- #69 M4 tier: Bio-Ecological Data. This is the first technology paid for with the *second* pack tier
   -- (Civic Treatise), closing the gap recorded in §8. The University is its only lab, and it is unlocked by
-  -- Civic Governance, so lab coverage holds. The vanilla Gleba prereqs keep the serum's fruit ingredients
-  -- makeable at the point the tech appears (tech_audit rule 6).
+  -- Civic Governance, so lab coverage holds. The vanilla `bioflux` interlock proves the serum's Gleba
+  -- intermediate is makeable when the tech appears (tech_audit rule 6).
   tech("colony-bio-ecological-data", "icon-civic-pack.png", 40, {"colony-civic-pack"}, 25,
-    {"colony-civic-governance", "colony-rail-transit", "colony-cold-chain", "yumako", "jellynut"}, {
+    {"colony-civic-governance", "colony-rail-transit", "colony-cold-chain", "bioflux"}, {
       unlock("colony-tungsten-pickaxe"), unlock("colony-exoskeleton-harness"), unlock("colony-panacea-serum"),
       unlock("colony-heavy-siege-armor"), unlock("colony-personal-shield-pack"),
     }),

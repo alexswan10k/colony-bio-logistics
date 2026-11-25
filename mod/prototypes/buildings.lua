@@ -689,7 +689,9 @@ data:extend({
   -- checks the vanilla plates/circuits, all already reachable in the Civic Governance prerequisite closure.
   recipe("colony-tungsten-pickaxe", {["tungsten-ore"] = 4, ["steel-plate"] = 2}, 4, 1, false),
   recipe("colony-exoskeleton-harness", {["holmium-ore"] = 4, ["steel-plate"] = 2, ["electronic-circuit"] = 2}, 6, 1, false),
-  recipe("colony-panacea-serum", {yumako = 2, jellynut = 2, ["colony-herbal-medicine"] = 1}, 6, 1, false),
+  -- Bioflux panacea (#69): the Gleba endgame intermediate, not raw fruit. The vanilla `bioflux` technology
+  -- is a prerequisite of Bio-Ecological Data, so tech_audit rule 6 can prove the ingredient is makeable.
+  recipe("colony-panacea-serum", {bioflux = 2, ["colony-herbal-medicine"] = 1}, 6, 1, false),
   recipe("colony-heavy-siege-armor", {["tungsten-ore"] = 8, ["steel-plate"] = 6, ["iron-plate"] = 4}, 8, 1, false),
   recipe("colony-personal-shield-pack", {["holmium-ore"] = 8, ["electronic-circuit"] = 6, ["steel-plate"] = 4}, 8, 1, false),
   recipe("colony-rifle", {wood = 4, ["iron-plate"] = 6, ["copper-plate"] = 2}, 2, 1, false),

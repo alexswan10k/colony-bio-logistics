@@ -51,6 +51,7 @@ local patrol = require("scripts.patrol")
 local command = require("scripts.command")
 local mortality_model = require("scripts.model.mortality")
 local breeding = require("scripts.model.breeding")
+local pods = require("scripts.model.pods")
 local stats = require("scripts.stats")
 local tech = require("scripts.tech")
 local ledger_signal = require("scripts.ledger_signal")
@@ -1821,6 +1822,25 @@ function M.evaluate(data)
           target = {entity = g, offset = {0, -2}}, color = {1, 1, 0.8}, scale = 0.9,
           alignment = "center", time_to_live = 150}
         work.assign(colony, un)
+      end
+    end
+  end
+  -- Cryo-Colonist Pods (#69): a dome colony with a free bed wakes one settler per evaluation from a pod in
+  -- its stock. An ordinary Town Hall never unpacks pods, so an established Nauvis town is unchanged.
+  if core.is_dome(colony.hall.name) then
+    local free = M.capacity(colony) - M.live_colonists(colony) - (colony.away or 0)
+    if pods.can_unpack(M.stock_table(colony), free) then
+      local taken = colony.hall.remove_item{name = pods.POD, count = 1} > 0
+      if not taken then
+        for _, cr in ipairs(M.storage_crates(colony)) do
+          local ent = cr.entity
+          if ent and ent.valid and ent.remove_item{name = pods.POD, count = 1} > 0 then taken = true; break end
+        end
+      end
+      if taken then
+        colony.stock_cache, colony.storage_cache = nil, nil
+        local woken = spawn_colonist(colony, colony.hall.position)
+        if woken then colony.hall.force.print({"colony-message.pod-unpacked", gps(woken)}) end
       end
     end
   end

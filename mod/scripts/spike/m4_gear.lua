@@ -11,6 +11,7 @@ local gear_speed = require("scripts.gear_speed")
 local militia = require("scripts.militia")
 local armour = require("scripts.model.armour")
 local enviro = require("scripts.model.enviro")
+local pods = require("scripts.model.pods")
 local gear = require("scripts.model.gear")
 local labour = require("scripts.model.labour")
 local housing = require("scripts.model.housing")
@@ -30,7 +31,7 @@ core.register("m4_gear", {
 
     -- ---------- prototypes ----------
     for _, name in ipairs({"colony-tungsten-pickaxe", "colony-exoskeleton-harness", "colony-panacea-serum",
-      "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
+      "colony-cryo-pod", "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
       "colony-cryo-warehouse", "colony-fusion-arcology"}) do
       ctx.check(name .. " is a real item", prototypes.item[name] ~= nil)
       ctx.check(name .. " has a recipe", prototypes.recipe[name] ~= nil)
@@ -68,6 +69,8 @@ core.register("m4_gear", {
       f.recipes["colony-tungsten-pickaxe"].enabled == true
         and f.recipes["colony-exoskeleton-harness"].enabled == true
         and f.recipes["colony-panacea-serum"].enabled == true
+        and f.recipes["colony-cryo-pod"].enabled == true
+        and f.recipes["colony-pod-refill"].enabled == true
         and f.recipes["colony-enviro-suit"].enabled == true
         and f.recipes["colony-heavy-siege-armor"].enabled == true
         and f.recipes["colony-personal-shield-pack"].enabled == true)
@@ -85,6 +88,12 @@ core.register("m4_gear", {
     ctx.check("the arcology is a housing tier with 48 beds",
       housing.TIERS.arcology ~= nil and housing.TIERS.arcology.capacity == 48
         and colony.HOUSES["colony-fusion-arcology"] == "arcology")
+    -- Engine fact pinned by this spike: LuaItemPrototype does not expose `spoil_ticks` at runtime, so the
+    -- shelf life is asserted from the pure model/constant, not by reading the live prototype.
+    ctx.check("a pod's 20-minute timer is its life support",
+      pods.SHELF_TICKS == 20 * 60 * 60 and pods.needs_refill(0.6) and not pods.needs_refill(0.2))
+    ctx.check("pod refill product always_fresh (2.1 API)",
+      prototypes.recipe["colony-pod-refill"].products[1].always_fresh == true)
     ctx.check("an Enviro-Suit lifts the off-world work penalty",
       enviro.work_ticks(480, false, false) == 480 and enviro.work_ticks(480, true, false) == 240
         and enviro.work_ticks(480, true, true) == 480)

@@ -660,6 +660,13 @@ data:extend({
    subgroup = "raw-resource", order = "z[colony]-b4[panacea]", stack_size = 10,
    localised_name = {"item-name.colony-panacea-serum"},
    localised_description = {"item-description.colony-panacea-serum"}},
+  -- Cryo-Colonist Pod (#69, §9.2): the 20-minute spoil timer IS the life support. The refill recipe uses the
+  -- engine's `result_is_always_fresh` so a near-spoiled pod plus rations and water becomes a fresh one.
+  {type = "item", name = "colony-cryo-pod", icon = G .. "icon-passenger-coach.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-p[pod]", stack_size = 1,
+   spoil_ticks = 20 * 60 * 60, spoil_result = "spoilage",
+   localised_name = {"item-name.colony-cryo-pod"},
+   localised_description = {"item-description.colony-cryo-pod"}},
   {type = "item", name = "colony-enviro-suit", icon = G .. "icon-tool-rack.png", icon_size = 64,
    subgroup = "armor", order = "z[colony]-c[enviro]", stack_size = 1,
    localised_name = {"item-name.colony-enviro-suit"},
@@ -696,6 +703,17 @@ data:extend({
   -- Bioflux panacea (#69): the Gleba endgame intermediate, not raw fruit. The vanilla `bioflux` technology
   -- is a prerequisite of Bio-Ecological Data, so tech_audit rule 6 can prove the ingredient is makeable.
   recipe("colony-panacea-serum", {bioflux = 2, ["colony-herbal-medicine"] = 1}, 6, 1, false),
+  recipe("colony-cryo-pod", {["steel-plate"] = 6, ["colony-canned-meat"] = 2, ["colony-water"] = 2}, 10, 1, false),
+  -- 2.1 fact pinned by m4_gear: `result_is_always_fresh` moved from the recipe to the product
+  -- (`ItemProductPrototype::always_fresh`), or the whole mod fails to load.
+  {type = "recipe", name = "colony-pod-refill", enabled = false, energy_required = 2,
+   ingredients = {{type = "item", name = "colony-cryo-pod", amount = 1},
+                  {type = "item", name = "colony-canned-meat", amount = 1},
+                  {type = "item", name = "colony-water", amount = 2}},
+   results = {{type = "item", name = "colony-cryo-pod", amount = 1, always_fresh = true}},
+   icon = G .. "icon-passenger-coach.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-p[pod]-b[refill]",
+   localised_name = {"recipe-name.colony-pod-refill"}},
   recipe("colony-enviro-suit", {["steel-plate"] = 4, ["electronic-circuit"] = 2, ["copper-cable"] = 4}, 5, 1, false),
   recipe("colony-heavy-siege-armor", {["tungsten-ore"] = 8, ["steel-plate"] = 6, ["iron-plate"] = 4}, 8, 1, false),
   recipe("colony-personal-shield-pack", {["holmium-ore"] = 8, ["electronic-circuit"] = 6, ["steel-plate"] = 4}, 8, 1, false),

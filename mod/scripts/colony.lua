@@ -52,6 +52,7 @@ local command = require("scripts.command")
 local mortality_model = require("scripts.model.mortality")
 local breeding = require("scripts.model.breeding")
 local pods = require("scripts.model.pods")
+local nursery = require("scripts.model.nursery")
 local stats = require("scripts.stats")
 local tech = require("scripts.tech")
 local ledger_signal = require("scripts.ledger_signal")
@@ -81,6 +82,7 @@ M.CANTEEN = "colony-canteen"
 M.SPA = "colony-spa"
 M.ARMORY = "colony-armory"
 M.PATROL_POST = "colony-patrol-post"
+M.NURSERY = nursery.NURSERY   -- #69: worker-free off-world breeding amenity (lazy registry, no schema)
 M.MEAL_ITEMS = commute.FOOD_ITEMS     -- what a Canteen serves (#50): the foods houses eat
 local MEAL_SET = {}
 for _, item in ipairs(M.MEAL_ITEMS) do MEAL_SET[item] = true end
@@ -289,6 +291,18 @@ function M.pool_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.pools[un] end
+  return out
+end
+
+-- Nurseries (#69) in a stable order; prunes dead ones like water towers. No schema: the registry is lazy.
+function M.nursery_list(colony)
+  local ids = {}
+  for un, n in pairs(colony.nurseries or {}) do
+    if n.entity.valid then ids[#ids + 1] = un else colony.nurseries[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.nurseries[un] end
   return out
 end
 
@@ -1798,7 +1812,17 @@ function M.evaluate(data)
         states[#states + 1] = {sex = breeding.sex_of(un), stage = (rec and rec.stage) or "adult"}
       end
       local ok = breeding.eligible(states, h.crit_unmet, tier.capacity - occ[i], tick, h.breed_ready)
-      if ok and breeding.roll_birth(h.entity.unit_number, tick, 3) then
+      -- Nurseries (#69): off-world houses only breed near one, and there the chance is doubled. Nauvis and
+      -- Gleba keep exactly the old roll, so an established town's births are bit-identical.
+      local chance = breeding.BREED_P
+      if planet.is_exotic(colony.hall.surface) then
+        local covered = false
+        for _, n in ipairs(M.nursery_list(colony)) do
+          if nursery.in_radius(n.entity.position, h.entity.position, nursery.RADIUS) then covered = true; break end
+        end
+        chance = nursery.birth_chance(true, covered)
+      end
+      if ok and chance > 0 and breeding.roll_birth(h.entity.unit_number, tick, 3, chance) then
         local child = spawn_colonist(colony, h.entity.position, true)
         if child then h.breed_ready = tick + breeding.COOLDOWN_TICKS end
       end
@@ -2125,7 +2149,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif (M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or M.HOUSES[name] or labour.HUTS[name]) and not core.is_core(name) then
+    elseif (M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or name == M.NURSERY or M.HOUSES[name] or labour.HUTS[name]) and not core.is_core(name) then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -2334,6 +2358,13 @@ local function on_built(ev)
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
     patrol.register_post(storage.colonies[owner], e, dict)
+  elseif name == M.NURSERY then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.nurseries = colony.nurseries or {}
+    colony.nurseries[e.unit_number] = {entity = e, colony_id = colony.id}
+    script.register_on_object_destroyed(e)
   elseif name == M.WATER_TOWER then
     -- Water Tower (#96): a worker-free assembler with a locked recipe (the bottling recipe). It bottles the
     -- fluid water the player pipes in and hands it straight to the houses around it at evaluation time, so no
@@ -2492,7 +2523,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or core.is_core(item_name) or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.NURSERY or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -2668,6 +2699,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.water_towers and colony.water_towers[un] then
       colony.water_towers[un] = nil
+      return
+    end
+    if colony.nurseries and colony.nurseries[un] then
+      colony.nurseries[un] = nil
       return
     end
     if colony.ledgers and colony.ledgers[un] then

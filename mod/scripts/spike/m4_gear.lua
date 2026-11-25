@@ -12,6 +12,7 @@ local militia = require("scripts.militia")
 local armour = require("scripts.model.armour")
 local enviro = require("scripts.model.enviro")
 local pods = require("scripts.model.pods")
+local nursery = require("scripts.model.nursery")
 local gear = require("scripts.model.gear")
 local labour = require("scripts.model.labour")
 local housing = require("scripts.model.housing")
@@ -31,7 +32,7 @@ core.register("m4_gear", {
 
     -- ---------- prototypes ----------
     for _, name in ipairs({"colony-tungsten-pickaxe", "colony-exoskeleton-harness", "colony-panacea-serum",
-      "colony-cryo-pod", "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
+      "colony-cryo-pod", "colony-nursery", "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
       "colony-cryo-warehouse", "colony-fusion-arcology"}) do
       ctx.check(name .. " is a real item", prototypes.item[name] ~= nil)
       ctx.check(name .. " has a recipe", prototypes.recipe[name] ~= nil)
@@ -71,6 +72,7 @@ core.register("m4_gear", {
         and f.recipes["colony-panacea-serum"].enabled == true
         and f.recipes["colony-cryo-pod"].enabled == true
         and f.recipes["colony-pod-refill"].enabled == true
+        and f.recipes["colony-nursery"].enabled == true
         and f.recipes["colony-enviro-suit"].enabled == true
         and f.recipes["colony-heavy-siege-armor"].enabled == true
         and f.recipes["colony-personal-shield-pack"].enabled == true)
@@ -94,6 +96,9 @@ core.register("m4_gear", {
       pods.SHELF_TICKS == 20 * 60 * 60 and pods.needs_refill(0.6) and not pods.needs_refill(0.2))
     ctx.check("pod refill product always_fresh (2.1 API)",
       prototypes.recipe["colony-pod-refill"].products[1].always_fresh == true)
+    ctx.check("off-world births need a Nursery and double there",
+      nursery.birth_chance(true, false) == 0 and nursery.birth_chance(false, false) == 0.05
+        and nursery.birth_chance(true, true) == 0.1)
     ctx.check("an Enviro-Suit lifts the off-world work penalty",
       enviro.work_ticks(480, false, false) == 480 and enviro.work_ticks(480, true, false) == 240
         and enviro.work_ticks(480, true, true) == 480)

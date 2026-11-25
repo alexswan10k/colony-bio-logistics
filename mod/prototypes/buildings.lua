@@ -147,6 +147,9 @@ ledger_entity.placeable_by = nil
 
 -- Clinic (#47): doctors cure sick colonists with Herbal Medicine (labour.lua job "heal").
 local clinic = chest_clone("iron-chest", "colony-clinic", "clinic", 8, 1)
+-- Nursery (#69, §9.1): a worker-free, pressurised cradle for off-world natural reproduction. Reuses the
+-- Clinic art until dedicated art exists; its only state is a lazy registry of positions (no schema).
+local nursery = chest_clone("iron-chest", "colony-nursery", "clinic", 6, 1)
 
 -- Passenger Coach (#49): a vanilla cargo wagon, recoloured and renamed. Colonists ride it abstractly (no seats),
 -- so `inventory_size` stays at 1 and the wagon's own inventory is not used for passengers.
@@ -367,7 +370,7 @@ ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while wal
 data:extend({
   hall, dome, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, theatre, plaza, spa, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, freight_crate, warehouse, haul_station, compost_bin,
-  cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity,
+  cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity, nursery,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(dome, "town-hall", "z[colony]-l0[dome]"),
@@ -410,6 +413,7 @@ data:extend({
   item_of(spa, "tavern", "z[colony]-l4[spa]"),
   item_of(plaza, "plaza", "z[colony]-l5[plaza]"),
   item_of(clinic, "clinic", "z[colony]-l6[clinic]"),
+  item_of(nursery, "clinic", "z[colony]-l7[nursery]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(freight_crate, "demand-crate", "z[colony]-k1[freight-crate]"),
@@ -632,6 +636,7 @@ data:extend({
   recipe("colony-canteen", {wood = 30, ["stone-brick"] = 10, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-spa", {wood = 20, ["stone-brick"] = 10, ["iron-plate"] = 5}, 3, 1, false),
   recipe("colony-clinic", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
+  recipe("colony-nursery", {["steel-plate"] = 15, ["electronic-circuit"] = 4, ["colony-furniture"] = 4}, 5, 1, false),
   recipe("colony-passenger-coach", {["cargo-wagon"] = 1, wood = 20}, 5, 1, false),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4, false),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1, 1, false),

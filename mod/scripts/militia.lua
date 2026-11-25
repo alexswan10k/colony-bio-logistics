@@ -43,6 +43,13 @@ local function quality_of(stack)
   return (q and q.name) or "normal"
 end
 
+-- Issue armour into pure gear data. A Personal Shield Pack (#69) starts with a full charge; its absorption
+-- and recharge are pure armour-model rules, applied by the single damage handler and the scan below.
+local function set_armour(gear, item, q)
+  gear.armour, gear.armour_quality = item, q
+  if armour.is_shield(item) then gear.shield = armour.SHIELD_CAPACITY end
+end
+
 -- Colony stock, with item qualities, read from the Town Hall. Gear is issued from (and ammo spent out of)
 -- this single depot, so two militia can never draw the same physical item, and a Watchtower's stock room is
 -- never a source (review finding 5: no garrison starvation).
@@ -127,7 +134,7 @@ function M.issue_gear(colony, st, e, opts)
           if militia_model.WEAPONS[g.item] and not gear.weapon then
             gear.weapon, gear.quality, gear.uses, gear.ammo_count = g.item, q, 0, 0
           elseif not gear.armour then
-            gear.armour, gear.armour_quality = g.item, q
+            set_armour(gear, g.item, q)
           end
           gear.source_armory = a.entity.unit_number
           got_source = a
@@ -153,7 +160,7 @@ function M.issue_gear(colony, st, e, opts)
     else arm, aq = armour.best(counts, quals) end
     if arm then
       remove_from_hall(colony, arm, 1)
-      gear.armour, gear.armour_quality = arm, aq or "normal"
+      set_armour(gear, arm, aq or "normal")
     end
   end
   return gear
@@ -319,6 +326,10 @@ local function scan(d)
   -- Off duty at night like guards and every other colonist; the morning assignment re-posts them (#86).
   if work.is_sleep_time(e.surface) then work.assign(colony, d.un); return end
   M.issue_gear(colony, st, e)
+  -- A shield recharges a little each scan (event-driven, never per tick); the pure rule caps it at capacity.
+  if st.gear and armour.is_shield(st.gear.armour) then
+    st.gear.shield = armour.shield_recharge(st.gear.shield, M.SCAN_TICKS)
+  end
   if not (st.gear and st.gear.weapon) then
     -- Nothing to fight with: hand the unit back to the workforce rather than leaving a permanent empty post.
     work.assign(colony, d.un)
@@ -374,14 +385,24 @@ events.on(defines.events.on_entity_damaged, function(ev)
   local st = storage.unit_state and storage.unit_state[e.unit_number]
   local gear = st and st.gear
   if not (gear and gear.armour) then return end
-  local mitigation = armour.mitigation(gear.armour, gear.armour_quality)
-  if mitigation <= 0 then return end
   local applied = ev.final_damage_amount or ev.original_damage_amount or 0
   if applied <= 0 then return end
   local hp = e.health
   -- Armour never revives: if the engine already took this unit to 0 health (a lethal hit), do not heal.
   if hp <= 0 then return end
-  local healed = math.min(applied * mitigation, e.max_health - hp)
+  local healed = 0
+  if armour.is_shield(gear.armour) then
+    -- The Fulgora shield is a flat, finite pool rather than a percentage (#69): the absorbed part is healed
+    -- back and the charge is spent now, then refilled by the scan timer. No second percentage applies.
+    local absorbed, left = armour.shield_drain(gear.shield, applied)
+    gear.shield = left
+    healed = absorbed
+  else
+    local mitigation = armour.mitigation(gear.armour, gear.armour_quality)
+    if mitigation <= 0 then return end
+    healed = applied * mitigation
+  end
+  healed = math.min(healed, e.max_health - hp)
   if healed > 0 then e.health = hp + healed end
 end)
 

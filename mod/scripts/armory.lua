@@ -230,7 +230,16 @@ function M.offer(a, colony)
   local limit = a.limit or 0
   if limit <= 0 then return nil end
   local contents = M.contents(a)
-  local demands = armour.restock_deficit(contents, armour.armory_targets(limit), a.inflight)
+  -- Endgame armour is only requested once Bio-Ecological Data is researched; before that the haul rows are
+  -- exactly what they always were (#69).
+  local unlocked = nil
+  local force = colony.hall and colony.hall.valid and colony.hall.force
+  local data = force and force.technologies and force.technologies["colony-bio-ecological-data"]
+  if data and data.researched then
+    unlocked = {}
+    for _, item in ipairs(armour.ENDGAME) do unlocked[item] = true end
+  end
+  local demands = armour.restock_deficit(contents, armour.armory_targets(limit, unlocked), a.inflight)
   if #demands == 0 then return nil end
   return {kind = "supply", armory = a, entity = a.entity, pos = a.entity.position,
     priority = haul_plan.PRIORITY.tools, building_priority = a.priority or 3,

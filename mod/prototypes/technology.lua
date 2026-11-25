@@ -204,6 +204,7 @@ data:extend({
   tech("colony-bio-ecological-data", "icon-civic-pack.png", 40, {"colony-civic-pack"}, 25,
     {"colony-civic-governance", "colony-rail-transit", "colony-cold-chain", "yumako", "jellynut"}, {
       unlock("colony-tungsten-pickaxe"), unlock("colony-exoskeleton-harness"), unlock("colony-panacea-serum"),
+      unlock("colony-heavy-siege-armor"), unlock("colony-personal-shield-pack"),
     }),
   -- #69 M4 tier: Interplanetary Sovereignty Codex. The late structures: a zero-spoilage store and the Tier-6
   -- Fusion Arcology. Needs the data tier (for its pack economy) and orbit (for the Aquilo interlock).

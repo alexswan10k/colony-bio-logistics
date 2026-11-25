@@ -8,6 +8,8 @@ local colony = require("scripts.colony")
 local territory = require("scripts.territory")
 local cold = require("scripts.cold")
 local gear_speed = require("scripts.gear_speed")
+local militia = require("scripts.militia")
+local armour = require("scripts.model.armour")
 local gear = require("scripts.model.gear")
 local labour = require("scripts.model.labour")
 local housing = require("scripts.model.housing")
@@ -27,6 +29,7 @@ core.register("m4_gear", {
 
     -- ---------- prototypes ----------
     for _, name in ipairs({"colony-tungsten-pickaxe", "colony-exoskeleton-harness", "colony-panacea-serum",
+      "colony-heavy-siege-armor", "colony-personal-shield-pack",
       "colony-cryo-warehouse", "colony-fusion-arcology"}) do
       ctx.check(name .. " is a real item", prototypes.item[name] ~= nil)
       ctx.check(name .. " has a recipe", prototypes.recipe[name] ~= nil)
@@ -57,10 +60,12 @@ core.register("m4_gear", {
     f.technologies["colony-bio-ecological-data"].researched = true
     f.technologies["colony-sovereignty-codex"].researched = true
     tech_mod.sync_force(f)
-    ctx.check("the data tier unlocks the three personal gear recipes",
+    ctx.check("the data tier unlocks the personal gear recipes",
       f.recipes["colony-tungsten-pickaxe"].enabled == true
         and f.recipes["colony-exoskeleton-harness"].enabled == true
-        and f.recipes["colony-panacea-serum"].enabled == true)
+        and f.recipes["colony-panacea-serum"].enabled == true
+        and f.recipes["colony-heavy-siege-armor"].enabled == true
+        and f.recipes["colony-personal-shield-pack"].enabled == true)
     ctx.check("the codex unlocks both late buildings",
       f.recipes["colony-cryo-warehouse"].enabled == true and f.recipes["colony-fusion-arcology"].enabled == true)
 
@@ -75,6 +80,13 @@ core.register("m4_gear", {
     ctx.check("the arcology is a housing tier with 48 beds",
       housing.TIERS.arcology ~= nil and housing.TIERS.arcology.capacity == 48
         and colony.HOUSES["colony-fusion-arcology"] == "arcology")
+    ctx.check("siege armour is the best mitigation and a shield is a flat pool",
+      armour.best({[armour.SIEGE] = 1, ["power-armor-mk2"] = 1}) == armour.SIEGE
+        and armour.mitigation(armour.SIEGE, "normal") == 0.55
+        and armour.mitigation(armour.SHIELD, "legendary") == 0)
+    local absorbed, left = armour.shield_drain(armour.SHIELD_CAPACITY, 20)
+    ctx.check("a shield drains and recharges by pure rules",
+      absorbed == 20 and left == 40 and armour.shield_recharge(0, 100) == 10)
 
     -- The cryo pass is a separately armed scheduler chain: a pre-#69 save must gain it without resetting
     -- the existing refrigerated chain.
@@ -90,6 +102,12 @@ core.register("m4_gear", {
     storage.interval_override = 600
     local c = storage.colonies[territory.owner_at(s.index, p)]
     ctx.check("colony registered", c ~= nil)
+    local defender = militia.spawn(c, {x = p.x + 24, y = p.y}, {armour = armour.SHIELD})
+    local dgear = defender and storage.unit_state[defender.unit_number]
+      and storage.unit_state[defender.unit_number].gear
+    ctx.check("a militia issued a shield starts with a full charge",
+      dgear ~= nil and dgear.shield == armour.SHIELD_CAPACITY,
+      dgear and tostring(dgear.shield) or "no gear")
 
     -- Cryo store: restamp a near-spoiled stack; a plain chest beside it must keep decaying.
     local cryo = build("colony-cryo-warehouse", {p.x + 12, p.y + 2})

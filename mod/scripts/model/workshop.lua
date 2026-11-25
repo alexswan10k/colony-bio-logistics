@@ -15,6 +15,8 @@ M.RECIPES = {
   ["colony-steel-axe"] = {["iron-plate"] = 2, ["steel-plate"] = 1},
   ["colony-steel-pickaxe"] = {["iron-plate"] = 2, ["steel-plate"] = 1},
   ["colony-steel-hoe"] = {["iron-plate"] = 2, ["steel-plate"] = 1},
+  -- Tier-3 tungsten (#69, Vulcanus): mined ore + steel, no wood. Mirrors prototypes/buildings.lua.
+  ["colony-tungsten-pickaxe"] = {["tungsten-ore"] = 4, ["steel-plate"] = 2},
   ["colony-rod"] = {wood = 3, ["iron-plate"] = 2},
   ["colony-spade"] = {wood = 2, ["iron-plate"] = 2},   -- Forester's Hut (#97): plants saplings
   ["colony-bow"] = {wood = 4},

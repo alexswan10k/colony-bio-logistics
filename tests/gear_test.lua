@@ -1,0 +1,66 @@
+-- Pure rules for the cross-planetary endgame gear (#69). No Factorio globals here: every rule is a plain
+-- function of numbers and stock tables, so the adapter can only misuse it, not reinterpret it.
+local gear = require("scripts.model.gear")
+
+describe("cross-planet gear", function()
+  it("tungsten is a real third tier: more trips and faster work than steel", function()
+    truthy(gear.TUNGSTEN_TOOL_USES > 45, "tungsten must outlast steel (45)")
+    truthy(gear.TUNGSTEN_WORK_MULT < 0.8, "tungsten must work faster than steel (0.8)")
+    eq(gear.TUNGSTEN_TOOL_USES, 60)
+    eq(gear.TUNGSTEN_WORK_MULT, 0.65)
+  end)
+
+  it("the exoskeleton doubles haul speed and keeps the trailer penalty", function()
+    eq(gear.haul_speed(1, false), 1)
+    eq(gear.haul_speed(1, true), 2)
+    near(gear.haul_speed(0.6, true), 1.2)
+    eq(gear.EXO_HAUL_MULT, 2)
+  end)
+
+  it("panacea halves work ticks and rounds up", function()
+    eq(gear.work_ticks(480, false), 480)
+    eq(gear.work_ticks(480, true), 240)
+    eq(gear.work_ticks(481, true), 241)
+    eq(gear.work_ticks(1, true), 1)
+  end)
+
+  it("panacea grants immunity to every known disease but nothing else", function()
+    for _, kind in ipairs({"lung", "poison", "swamp_fever"}) do
+      truthy(gear.immune(kind, true), kind .. " should be prevented by panacea")
+      eq(gear.immune(kind, false), false)
+    end
+    eq(gear.immune("unknown", true), false)
+  end)
+
+  it("a cryo store stops the spoil countdown; the normal world does not", function()
+    eq(gear.spoil_rate(false), 1)
+    eq(gear.spoil_rate(true), 0)
+    eq(gear.spoils_after(216000, false), 216000)
+    eq(gear.spoils_after(216000, true), nil)
+  end)
+
+  it("issued gear is present only when the colony actually stocks it", function()
+    eq(gear.present(nil, gear.ITEM.panacea), false)
+    eq(gear.present({}, gear.ITEM.panacea), false)
+    eq(gear.present({[gear.ITEM.panacea] = 0}, gear.ITEM.panacea), false)
+    eq(gear.present({[gear.ITEM.panacea] = 1}, gear.ITEM.panacea), true)
+  end)
+
+  it("effects are derived from stock and nothing else", function()
+    local none = gear.effects({})
+    eq(none.exo, false)
+    eq(none.panacea, false)
+    local both = gear.effects({[gear.ITEM.exoskeleton] = 2, [gear.ITEM.panacea] = 1})
+    eq(both.exo, true)
+    eq(both.panacea, true)
+    local exo_only = gear.effects({[gear.ITEM.exoskeleton] = 1})
+    eq(exo_only.exo, true)
+    eq(exo_only.panacea, false)
+  end)
+
+  it("the arcology is a denser tier-6 house with life support", function()
+    truthy(gear.ARCOLOGY_CAPACITY > 32, "arcology must beat the Tier-5 dome (32 beds)")
+    eq(gear.ARCOLOGY_CAPACITY, 48)
+    truthy(gear.ARCOLOGY_BUFFER_INTERVALS >= 6)
+  end)
+end)

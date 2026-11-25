@@ -17,19 +17,23 @@ M.STOCK = {{item = "wood", n = 8}, {item = "iron-plate", n = 12}, {item = "coppe
 -- Steel buffer (#95): only asked for while a steel tool is actually wanted (see M.wants), enough for
 -- a few steel tools at 1 steel each. Keeps the Toolsmith from hoarding steel before Steel Tools unlocks.
 M.STEEL_STOCK = {item = "steel-plate", n = 4}
+-- Tier-3 tungsten (#69): the Toolsmith only buffers ore while a tungsten tool is actually wanted, so an
+-- early town never hoards an off-world resource it cannot use.
+M.TUNGSTEN_STOCK = {item = "tungsten-ore", n = 8}
 
--- Steel ladders (#95): tier-1 -> tier-2, best-first. The Toolsmith covers tier-1 gaps before it asks
--- for tier-2 upgrades (M.wanted suppresses steel while its tier-1 gap exists).
+-- Tool ladders, best-first (#95 steel, #69 tungsten). The Toolsmith covers tier-1 gaps before it asks
+-- for upgrades (M.wanted suppresses an upgrade while its tier-1 gap exists).
 M.LADDER = {
   ["colony-axe"] = {"colony-steel-axe", "colony-axe"},
-  ["colony-pickaxe"] = {"colony-steel-pickaxe", "colony-pickaxe"},
+  ["colony-pickaxe"] = {"colony-tungsten-pickaxe", "colony-steel-pickaxe", "colony-pickaxe"},
   ["colony-hoe"] = {"colony-steel-hoe", "colony-hoe"},
 }
 M.TIER1_OF = {
   ["colony-steel-axe"] = "colony-axe", ["colony-steel-pickaxe"] = "colony-pickaxe",
-  ["colony-steel-hoe"] = "colony-hoe",
+  ["colony-steel-hoe"] = "colony-hoe", ["colony-tungsten-pickaxe"] = "colony-pickaxe",
 }
 M.STEEL = {["colony-steel-axe"] = true, ["colony-steel-pickaxe"] = true, ["colony-steel-hoe"] = true}
+M.TUNGSTEN = {["colony-tungsten-pickaxe"] = true}
 
 ---@param base integer
 ---@return integer
@@ -127,6 +131,17 @@ function M.wants(counts, inflight, wanted)
   end
   if wants_steel then
     local want = M.STEEL_STOCK
+    local n = want.n - (counts[want.item] or 0) - ((inflight and inflight[want.item]) or 0)
+    if n > 0 then out[#out + 1] = {item = want.item, count = n} end
+  end
+  local wants_tungsten = false
+  if wanted then
+    for _, tool in ipairs(wanted) do
+      if M.TUNGSTEN[tool] then wants_tungsten = true; break end
+    end
+  end
+  if wants_tungsten then
+    local want = M.TUNGSTEN_STOCK
     local n = want.n - (counts[want.item] or 0) - ((inflight and inflight[want.item]) or 0)
     if n > 0 then out[#out + 1] = {item = want.item, count = n} end
   end

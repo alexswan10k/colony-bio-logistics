@@ -1078,6 +1078,20 @@ end)
 
 describe("housing", function()
   local h = require("scripts.model.housing")
+  it("the fusion arcology is a powered Tier-6 house with 48 beds (#69)", function()
+    local tier = h.TIERS.arcology
+    truthy(tier ~= nil)
+    eq(tier.capacity, 48)
+    eq(tier.buffer_intervals, 8)
+    truthy(h.needs_power(tier))
+    local items = h.items_of(tier)
+    truthy(items["colony-water"])
+    truthy(items["colony-furniture"])
+    local stock = {["colony-forage"] = 60, ["colony-water"] = 30, ["colony-furniture"] = 10}
+    local c, sat, score = h.step(tier, 48, stock, true, {})
+    eq(sat.food, true); eq(sat.water, true); eq(sat.electricity, true)
+    eq(score, 1)
+  end)
   it("consumes food and fuel per occupant", function()
     local stock, acc = {["colony-forage"] = 10, wood = 10}, {}
     local c, sat, score = h.step(h.TIERS.tent, 4, stock, false, acc)
@@ -1580,7 +1594,7 @@ describe("labour", function()
   it("steel ladders pick best for service and worst for consumption (#95)", function()
     local def = l.HUTS["colony-woodcutter-hut"]
     eq(table.concat(def.tools, ","), "colony-steel-axe,colony-axe")
-    eq(table.concat(l.HUTS["colony-miner-hut"].tools, ","), "colony-steel-pickaxe,colony-pickaxe")
+    eq(table.concat(l.HUTS["colony-miner-hut"].tools, ","), "colony-tungsten-pickaxe,colony-steel-pickaxe,colony-pickaxe")
     eq(table.concat(l.HUTS["colony-farm-hut"].tools, ","), "colony-steel-hoe,colony-hoe")
     eq(l.best_tool({["colony-steel-axe"] = 1, ["colony-axe"] = 2}, def.tools), "colony-steel-axe")
     eq(l.best_tool({["colony-axe"] = 2}, def.tools), "colony-axe")
@@ -1588,6 +1602,18 @@ describe("labour", function()
     eq(l.worst_tool({["colony-steel-axe"] = 1, ["colony-axe"] = 2}, def.tools), "colony-axe")
     eq(l.worst_tool({["colony-steel-axe"] = 1}, def.tools), "colony-steel-axe")
     eq(l.worst_tool({}, def.tools), nil)
+  end)
+  it("tungsten is the third ladder tier: best for service, first to be consumed (#69)", function()
+    local tools = l.HUTS["colony-miner-hut"].tools
+    eq(l.uses_for("colony-tungsten-pickaxe"), 60)
+    eq(l.work_ticks(480, "colony-tungsten-pickaxe"), 312)
+    eq(l.best_tool({["colony-pickaxe"] = 2, ["colony-steel-pickaxe"] = 1, ["colony-tungsten-pickaxe"] = 1}, tools),
+      "colony-tungsten-pickaxe")
+    eq(l.worst_tool({["colony-pickaxe"] = 2, ["colony-steel-pickaxe"] = 1, ["colony-tungsten-pickaxe"] = 1}, tools),
+      "colony-pickaxe")
+    local c = 0
+    for _ = 1, 60 do c, _ = l.wear(c, "colony-tungsten-pickaxe") end
+    eq(c, 0)
   end)
   it("sums free slots by job", function()
     local f = l.free_slots({{job = "mine", allowed = 3, workers = 1}, {job = "mine", allowed = 1, workers = 1}, {job = "chop", allowed = 0, workers = 0}})
@@ -2042,6 +2068,15 @@ describe("toolsmith (tool recipes and the Toolsmith hut)", function()
     local by2 = {}
     for _, item in ipairs(t.wants({}, {}, {"colony-axe"})) do by2[item.item] = item.count end
     eq(by2["steel-plate"], nil)
+  end)
+  it("buffers tungsten ore only while a tungsten tool is wanted (#69)", function()
+    local by = {}
+    for _, item in ipairs(t.wants({}, {}, {"colony-tungsten-pickaxe"})) do by[item.item] = item.count end
+    eq(by["tungsten-ore"], 8)
+    local none = {}
+    for _, item in ipairs(t.wants({}, {}, {"colony-axe"})) do none[item.item] = item.count end
+    eq(none["tungsten-ore"], nil)
+    eq(next(w.missing("colony-tungsten-pickaxe", {["tungsten-ore"] = 4, ["steel-plate"] = 2})), nil)
   end)
   it("keeps one spare of each tool a hut uses, once the colony has none of it", function()
     local gaps = {"colony-rod", "colony-axe"}

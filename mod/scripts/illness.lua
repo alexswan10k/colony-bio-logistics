@@ -5,6 +5,7 @@ local gleba = require("scripts.model.gleba")
 local planet = require("scripts.planet")
 local mortality = require("scripts.mortality")
 local commute = require("scripts.commute")
+local gear = require("scripts.model.gear")
 local M = {}
 
 M.CLINIC = "colony-clinic"
@@ -81,6 +82,10 @@ function M.evaluate(colony, rotten)
   local ids = {}
   for un, c in pairs(colony.colonists) do if c.valid then ids[#ids + 1] = un end end
   table.sort(ids)
+  -- Panacea serum (#69): while the town issues it, nobody catches anything and every existing illness is
+  -- cleared without spending medicine. The pure rules are gear.present/gear.immune; here presence gates
+  -- the whole evaluation (including the untreated course below, which then sees no patients).
+  local panacea = gear.present(colony_mod.stock_table(colony), gear.ITEM.panacea)
 
   -- Exposure. Colonists breathe the air of the surface they are actually standing on: on a spore surface an
   -- on-duty colonist catches Swamp Fever (#70) from the local spore pollution. An ordinary (non-spore) surface
@@ -97,7 +102,7 @@ function M.evaluate(colony, rotten)
     end
   end
   for _, un in ipairs(ids) do
-    if not storage.sick[un] then
+    if not panacea and not storage.sick[un] then
       local e = colony.colonists[un]
       local st = storage.unit_state[un]
       local es = e and e.valid and e.surface
@@ -118,22 +123,27 @@ function M.evaluate(colony, rotten)
     if fell[kind] > 0 then colony.hall.force.print({"colony-message.fell-ill", fell[kind], {"colony-illness." .. kind}}) end
   end
 
-  -- Treatment: the doctors on duty cure the longest-sick first, one medicine each.
-  local sick = {}
-  for _, un in ipairs(ids) do
-    local rec = storage.sick[un]
-    if rec and rec.age > 0 then sick[#sick + 1] = un end   -- caught this evaluation: not yet a patient
-  end
-  table.sort(sick, function(a, b)
-    local ra, rb = storage.sick[a], storage.sick[b]
-    if ra.age ~= rb.age then return ra.age > rb.age end
-    return a < b
-  end)
-  local cured = illness.treat(#sick, doctors(colony), medicine(colony))
-  for i = 1, cured do storage.sick[sick[i]] = nil end
-  if cured > 0 then
-    use_medicine(colony, cured)
-    colony.hall.force.print({"colony-message.cured", cured})
+  -- Treatment: the doctors on duty cure the longest-sick first, one medicine each. Panacea cures everybody
+  -- for free and never spends a Clinic's medicine.
+  if panacea then
+    for _, un in ipairs(ids) do storage.sick[un] = nil end
+  else
+    local sick = {}
+    for _, un in ipairs(ids) do
+      local rec = storage.sick[un]
+      if rec and rec.age > 0 then sick[#sick + 1] = un end   -- caught this evaluation: not yet a patient
+    end
+    table.sort(sick, function(a, b)
+      local ra, rb = storage.sick[a], storage.sick[b]
+      if ra.age ~= rb.age then return ra.age > rb.age end
+      return a < b
+    end)
+    local cured = illness.treat(#sick, doctors(colony), medicine(colony))
+    for i = 1, cured do storage.sick[sick[i]] = nil end
+    if cured > 0 then
+      use_medicine(colony, cured)
+      colony.hall.force.print({"colony-message.cured", cured})
+    end
   end
 
   -- Untreated illness runs its course.

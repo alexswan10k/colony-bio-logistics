@@ -1,0 +1,136 @@
+-- M4 cross-planet gear (#69): the two late tech tiers and the five endgame unlocks, checked against real
+-- Factorio prototypes and a live colony. The pure rules live in model/gear.lua and are covered by unit tests;
+-- this spike pins the seams the offline tests cannot: prototype registration, pack costs, the cryo pass
+-- reviving a near-spoiled stack, the arcology being a real house, and panacea clearing sickness in the
+-- adapter's evaluation. Run: scripts/headless-spike.sh m4_gear
+local core = require("scripts.spike.core")
+local colony = require("scripts.colony")
+local territory = require("scripts.territory")
+local cold = require("scripts.cold")
+local gear = require("scripts.model.gear")
+local labour = require("scripts.model.labour")
+local housing = require("scripts.model.housing")
+local tech_mod = require("scripts.tech")
+
+core.register("m4_gear", {
+  issue = 69, auto = true,
+  desc = "cross-planet gear: Bio-Ecological Data + Sovereignty Codex, tungsten tier, cryo store, arcology, panacea",
+  usage = "",
+  run = function(ctx)
+    local s, p = ctx.surface, ctx.position
+    ctx.flat_area(120, "grass-1")
+    s.always_day, s.freeze_daytime, s.daytime = true, true, 0
+    local function build(name, pos)
+      return s.create_entity{name = name, position = pos, force = "player", raise_built = true}
+    end
+
+    -- ---------- prototypes ----------
+    for _, name in ipairs({"colony-tungsten-pickaxe", "colony-exoskeleton-harness", "colony-panacea-serum",
+      "colony-cryo-warehouse", "colony-fusion-arcology"}) do
+      ctx.check(name .. " is a real item", prototypes.item[name] ~= nil)
+      ctx.check(name .. " has a recipe", prototypes.recipe[name] ~= nil)
+    end
+    ctx.check("cryo warehouse and arcology are buildings",
+      prototypes.entity["colony-cryo-warehouse"] ~= nil and prototypes.entity["colony-fusion-arcology"] ~= nil)
+    ctx.check("arcology is a 4x4 container in the housing replace group",
+      prototypes.entity["colony-fusion-arcology"].type == "container"
+        and prototypes.entity["colony-fusion-arcology"].fast_replaceable_group == "colony-housing")
+
+    -- The two new tiers pay with Civic Treatises, not Frontier Charters (the §8 gap this closes).
+    local f = game.forces.player
+    for _, name in ipairs({"colony-bio-ecological-data", "colony-sovereignty-codex"}) do
+      local t = f.technologies[name]
+      ctx.check(name .. " exists and is researchable", t ~= nil and t.enabled == true)
+      local ing = t and t.research_unit_ingredients and t.research_unit_ingredients[1]
+      ctx.check(name .. " costs Civic Treatises", ing and ing.name == "colony-civic-pack",
+        ing and ing.name or "?")
+      ctx.check(name .. " is not researched yet", t ~= nil and t.researched == false)
+    end
+    local data_prereqs = f.technologies["colony-bio-ecological-data"].prerequisites or {}
+    local codex_prereqs = f.technologies["colony-sovereignty-codex"].prerequisites or {}
+    ctx.check("codex requires the data tier", codex_prereqs["colony-bio-ecological-data"] ~= nil)
+    ctx.check("data tier requires Civic Governance + the Gleba interlock",
+      data_prereqs["colony-civic-governance"] ~= nil and data_prereqs["yumako"] ~= nil
+        and data_prereqs["jellynut"] ~= nil)
+
+    f.technologies["colony-bio-ecological-data"].researched = true
+    f.technologies["colony-sovereignty-codex"].researched = true
+    tech_mod.sync_force(f)
+    ctx.check("the data tier unlocks the three personal gear recipes",
+      f.recipes["colony-tungsten-pickaxe"].enabled == true
+        and f.recipes["colony-exoskeleton-harness"].enabled == true
+        and f.recipes["colony-panacea-serum"].enabled == true)
+    ctx.check("the codex unlocks both late buildings",
+      f.recipes["colony-cryo-warehouse"].enabled == true and f.recipes["colony-fusion-arcology"].enabled == true)
+
+    -- ---------- pure rules through the real modules ----------
+    ctx.check("tungsten wear and work spell come from the gear model",
+      labour.uses_for("colony-tungsten-pickaxe") == gear.TUNGSTEN_TOOL_USES
+        and labour.work_ticks(480, "colony-tungsten-pickaxe") == 312,
+      tostring(labour.work_ticks(480, "colony-tungsten-pickaxe")))
+    ctx.check("a tungsten pickaxe is the best tool in the miner's ladder",
+      labour.best_tool({["colony-pickaxe"] = 2, ["colony-steel-pickaxe"] = 1, ["colony-tungsten-pickaxe"] = 1},
+        labour.HUTS["colony-miner-hut"].tools) == "colony-tungsten-pickaxe")
+    ctx.check("the arcology is a housing tier with 48 beds",
+      housing.TIERS.arcology ~= nil and housing.TIERS.arcology.capacity == 48
+        and colony.HOUSES["colony-fusion-arcology"] == "arcology")
+
+    -- The cryo pass is a separately armed scheduler chain: a pre-#69 save must gain it without resetting
+    -- the existing refrigerated chain.
+    local scheduled_cryo = false
+    for _, bucket in pairs(storage.scheduled or {}) do
+      for _, job in ipairs(bucket) do if job.handler == "cold.cryo.tick" then scheduled_cryo = true end end
+    end
+    ctx.check("the cryo pass is armed on the scheduler", scheduled_cryo)
+
+    -- ---------- the colony ----------
+    local hall = build("colony-town-hall", {p.x, p.y})
+    ctx.check("hall built", hall and hall.valid)
+    storage.interval_override = 600
+    local c = storage.colonies[territory.owner_at(s.index, p)]
+    ctx.check("colony registered", c ~= nil)
+
+    -- Cryo store: restamp a near-spoiled stack; a plain chest beside it must keep decaying.
+    local cryo = build("colony-cryo-warehouse", {p.x + 12, p.y + 2})
+    ctx.check("cryo warehouse built", cryo and cryo.valid)
+    if cryo and cryo.valid then
+      cryo.insert{name = "colony-preserved-meat", count = 2}
+      local stack = cryo.get_inventory(defines.inventory.chest)[1]
+      stack.spoil_tick = game.tick + 1
+      ctx.check("cryo stack is near-spoiled before the pass", stack.spoil_percent > 0.99,
+        tostring(stack.spoil_percent))
+    end
+    local control = s.create_entity{name = "iron-chest", position = {p.x + 16, p.y + 2}, force = "player", raise_built = true}
+    control.insert{name = "colony-preserved-meat", count = 1}
+    local control_stack = control.get_inventory(defines.inventory.chest)[1]
+    control_stack.spoil_tick = game.tick + 1
+    ctx.check("cryo pass restamped the cryo stack", cold.pause_cryo() >= 1)
+    if cryo and cryo.valid then
+      ctx.check("cryo stack revived to 0% spoilage",
+        cryo.get_inventory(defines.inventory.chest)[1].spoil_percent == 0)
+    end
+    ctx.check("control chest was NOT revived", control_stack.spoil_percent > 0.99,
+      tostring(control_stack.spoil_percent))
+    ctx.check("cryo store is ordinary colony stock",
+      c ~= nil and c.crates[cryo.unit_number] ~= nil)
+
+    -- Panacea: a sick colonist is cured on the next evaluation and pollution cannot make a new one sick
+    -- while the serum sits in the hall.
+    local person = colony.spawn_colonist(c)
+    ctx.check("colonist spawned", person and person.valid)
+    if person and person.valid and c then
+      storage.sick = storage.sick or {}
+      storage.sick[person.unit_number] = {kind = "lung", age = 3}
+      hall.insert{name = "colony-panacea-serum", count = 1}
+      c.stock_cache = nil
+      c.pollution = 1
+      colony.evaluate({colony_id = c.id})   -- the live scheduled path, not a mocked call
+      ctx.check("panacea cleared the existing illness", storage.sick[person.unit_number] == nil)
+      ctx.check("panacea prevents new illness at full pollution",
+        (c.sick_lung or 0) + (c.sick_poison or 0) + (c.sick_swamp_fever or 0) == 0,
+        tostring(c.sick_lung) .. "/" .. tostring(c.sick_poison) .. "/" .. tostring(c.sick_swamp_fever))
+    end
+
+    ctx.finish()
+  end,
+})

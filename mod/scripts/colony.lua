@@ -91,7 +91,8 @@ M.FORAGE_PER_CHUNK = 3          -- natural forage patches seeded per already-gen
 M.FORAGE_TILES = {["grass-1"] = true, ["grass-2"] = true, ["grass-3"] = true, ["grass-4"] = true}
 M.HOUSES = {["colony-housing-tent"] = "tent", ["colony-housing-cabin"] = "cabin",
   ["colony-housing-homestead"] = "homestead", ["colony-housing-townhouse"] = "townhouse",
-  ["colony-housing-apartment"] = "apartment"}
+  ["colony-housing-apartment"] = "apartment",
+  ["colony-fusion-arcology"] = "arcology"}   -- #69 Tier-6 housing
 M.HOUSES[M.DOME] = "dome"   -- #63: a dome is also a house (the founding dome is its core's stock room)
 -- Colony logistics crates (#33): supply = provider, demand = requester, warehouse = bulk colony stock.
 -- Haul Station (#94) is bulk stock like a Warehouse, plus a Wooden Trailer depot (work.lua).
@@ -100,6 +101,9 @@ M.DEMAND_CRATE = "colony-demand-crate"
 M.WAREHOUSE = "colony-warehouse"
 M.HAUL_STATION = "colony-haul-station"
 M.REFRIGERATED_WAREHOUSE = "colony-refrigerated-warehouse"
+-- #69: the cryo store is ordinary bulk colony stock (accept-all, counted in the ledger) whose contents the
+-- cold pass restamps ten times as often. Reusing the refrigerator kind means no new registry or schema.
+M.CRYO_WAREHOUSE = "colony-cryo-warehouse"
 M.LINK_CRATE = "colony-freight-crate"   -- #52: one half of a colony-to-colony freight pair
 M.CRATES = {
   [M.SUPPLY_CRATE] = crates.SUPPLY,
@@ -107,6 +111,7 @@ M.CRATES = {
   [M.WAREHOUSE] = crates.WAREHOUSE,
   [M.HAUL_STATION] = crates.HAUL_STATION,
   [M.REFRIGERATED_WAREHOUSE] = crates.REFRIGERATOR,
+  [M.CRYO_WAREHOUSE] = crates.REFRIGERATOR,
   [M.LINK_CRATE] = crates.LINK,
 }
 -- Compost Bin (#78, design §3.2): spoilage is removed from houses and stock by colonists and converted here.
@@ -3132,13 +3137,14 @@ function M.stats(colony)
   local capacity = M.capacity(colony)
   local target = math.max(pop * M.FOOD_PER_COLONIST * M.TARGET_STOCK_INTERVALS, 1)
   local food = M.total_food(colony)
-  local tents, cabins, homesteads, townhouses, apartments = 0, 0, 0, 0, 0
+  local tents, cabins, homesteads, townhouses, apartments, arcologies = 0, 0, 0, 0, 0, 0
   for _, h in ipairs(M.house_list(colony)) do
     if h.kind == "tent" then tents = tents + 1
     elseif h.kind == "cabin" then cabins = cabins + 1
     elseif h.kind == "homestead" then homesteads = homesteads + 1
     elseif h.kind == "townhouse" then townhouses = townhouses + 1
     elseif h.kind == "apartment" then apartments = apartments + 1
+    elseif h.kind == "arcology" then arcologies = arcologies + 1
     end
   end
   local chunks = #territory.chunks(colony)
@@ -3151,7 +3157,7 @@ function M.stats(colony)
   for _, r in pairs(colony.repairs or {}) do if r.valid and construct.needs_repair(r.health, r.max_health) then damaged = damaged + 1 end end
   return {pop = pop, capacity = capacity, food = food, food_target = target, food_ratio = food / target,
     tents = tents, cabins = cabins, homesteads = homesteads, townhouses = townhouses, apartments = apartments,
-    domes = #M.dome_list(colony),
+    arcologies = arcologies, domes = #M.dome_list(colony),
     huts = huts, machines = machines, towers = towers, chunks = chunks,
     crates = #M.crate_list(colony), ghosts = ghosts, damaged = damaged,
     d = colony.d or 0, parts = colony.d_parts or {},

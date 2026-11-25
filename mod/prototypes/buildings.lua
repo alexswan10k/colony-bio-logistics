@@ -217,6 +217,15 @@ local cannery = chest_clone("iron-chest", "colony-cannery", "cannery", 8, 1)
 -- Refrigerated Warehouse (#45): bulk colony stock like a Warehouse, but everything inside stays fresh
 -- forever. Colonists stock it like any warehouse; the spoil countdown only resumes when goods leave (#45).
 local refrigerated_warehouse = chest_clone("steel-chest", "colony-refrigerated-warehouse", "refrigerated-warehouse", 64, 1.5)
+-- Cryo-Preservation Warehouse (#69, Aquilo): the Cold Chain's big brother. Same bulk stock as a Warehouse, but
+-- `scripts/cold.lua` restamps its contents far more often, so the countdown never gets anywhere. Art is shared
+-- with the Refrigerated Warehouse until dedicated art exists; only the name and the pass cadence differ.
+local cryo_warehouse = chest_clone("steel-chest", "colony-cryo-warehouse", "refrigerated-warehouse", 64, 1.5)
+-- Fusion Arcology (#69, Aquilo): Tier-6 housing above the Habitat Dome. 4x4 like the dome, denser and with a
+-- bigger pantry; it is an ordinary house in the `colony-housing` fast-replace group, so a player can upgrade a
+-- settled world in place. No new `next_upgrade` hop is added (a 4x4 hop is not legal from the 3x3 tiers).
+local arcology = chest_clone("steel-chest", "colony-fusion-arcology", "apartment", 64, 2)
+arcology.fast_replaceable_group = "colony-housing"
 -- Refrigerated Wagon (#45): a cargo wagon in the cold chain. Its inventory never ages while it rides the
 -- rails, so preserved and canned food can cross the map. Shares the vanilla cargo-wagon sprites.
 local refrigerated_wagon = table.deepcopy(data.raw["cargo-wagon"]["cargo-wagon"])
@@ -358,7 +367,7 @@ ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while wal
 data:extend({
   hall, dome, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, theatre, plaza, spa, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, freight_crate, warehouse, haul_station, compost_bin,
-  cannery, refrigerated_warehouse, refrigerated_wagon, tower, ledger_entity,
+  cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(dome, "town-hall", "z[colony]-l0[dome]"),
@@ -386,6 +395,8 @@ data:extend({
   item_of(toolsmith, "toolsmith", "z[colony]-l1[toolsmith]"),
   item_of(cannery, "cannery", "z[colony]-l2[cannery]"),
   item_of(refrigerated_warehouse, "refrigerated-warehouse", "z[colony]-l2[refrigerated-warehouse]"),
+  item_of(cryo_warehouse, "refrigerated-warehouse", "z[colony]-l2[cryo-warehouse]"),
+  item_of(arcology, "apartment", "z[colony]-c3[arcology]"),
   {type = "item", name = "colony-refrigerated-wagon", icon = G .. "icon-refrigerated-wagon.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-r[refrigerated-wagon]", place_result = "colony-refrigerated-wagon", stack_size = 10,
    localised_name = {"item-name.colony-refrigerated-wagon"},
@@ -443,6 +454,10 @@ data:extend({
   recipe("colony-habitat-dome", {["steel-plate"] = 40, ["iron-plate"] = 40, ["copper-cable"] = 20, ["electronic-circuit"] = 10}, 8, 1, false),
   recipe("colony-water-tower", {["iron-plate"] = 30, ["steel-plate"] = 10, ["electronic-circuit"] = 2, ["copper-cable"] = 5}, 4, 1, false),
   recipe("colony-refrigerated-warehouse", {["steel-plate"] = 60, ["iron-plate"] = 40, ["electronic-circuit"] = 5}, 5, 1, false),
+  -- #69 Aquilo: all ingredients are vanilla goods already proven reachable by the Civic Governance chain, so
+  -- tech_audit rule 6 stays happy without inventing a new vanilla prerequisite.
+  recipe("colony-cryo-warehouse", {["steel-plate"] = 80, ["iron-plate"] = 50, ["electronic-circuit"] = 10}, 8, 1, false),
+  recipe("colony-fusion-arcology", {["steel-plate"] = 60, concrete = 40, ["iron-plate"] = 40, ["electronic-circuit"] = 20}, 10, 1, false),
   recipe("colony-cannery", {["iron-plate"] = 30, ["steel-plate"] = 10, ["electronic-circuit"] = 2}, 4, 1, false),
   recipe("colony-refrigerated-wagon", {["iron-plate"] = 40, ["steel-plate"] = 20, ["electronic-circuit"] = 5}, 6, 1, false),
   recipe("colony-well", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
@@ -634,6 +649,17 @@ data:extend({
   tool("colony-spade", "icon-spade.png"),
   tool("colony-steel-axe", "icon-steel-axe.png"), tool("colony-steel-pickaxe", "icon-steel-pickaxe.png"),
   tool("colony-steel-hoe", "icon-steel-hoe.png"),
+  -- #69 cross-planet gear. Tier-3 tungsten pickaxe is a `tool` like the tiers below it; the harness and serum
+  -- are plain issued items (they are never equipped on a real character - the effects are pure colony rules).
+  tool("colony-tungsten-pickaxe", "icon-steel-pickaxe.png"),
+  {type = "item", name = "colony-exoskeleton-harness", icon = G .. "icon-tool-rack.png", icon_size = 64,
+   subgroup = "tool", order = "z[colony]-t[exoskeleton]", stack_size = 1,
+   localised_name = {"item-name.colony-exoskeleton-harness"},
+   localised_description = {"item-description.colony-exoskeleton-harness"}},
+  {type = "item", name = "colony-panacea-serum", icon = G .. "icon-herbal-medicine.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-b4[panacea]", stack_size = 10,
+   localised_name = {"item-name.colony-panacea-serum"},
+   localised_description = {"item-description.colony-panacea-serum"}},
   tool("colony-bow", "icon-bow.png"),
   recipe("colony-bow", {wood = 4}, 1, 1, false),
   {type = "item", name = "colony-arrow", icon = G .. "icon-arrow.png", icon_size = 64,
@@ -651,6 +677,11 @@ data:extend({
   recipe("colony-steel-axe", {["iron-plate"] = 2, ["steel-plate"] = 1}, 2, 1, false),
   recipe("colony-steel-pickaxe", {["iron-plate"] = 2, ["steel-plate"] = 1}, 2, 1, false),
   recipe("colony-steel-hoe", {["iron-plate"] = 2, ["steel-plate"] = 1}, 2, 1, false),
+  -- #69 cross-planet gear. Planet ores are resources (no crafting technology gates them), so rule 6 only
+  -- checks the vanilla plates/circuits, all already reachable in the Civic Governance prerequisite closure.
+  recipe("colony-tungsten-pickaxe", {["tungsten-ore"] = 4, ["steel-plate"] = 2}, 4, 1, false),
+  recipe("colony-exoskeleton-harness", {["holmium-ore"] = 4, ["steel-plate"] = 2, ["electronic-circuit"] = 2}, 6, 1, false),
+  recipe("colony-panacea-serum", {yumako = 2, jellynut = 2, ["colony-herbal-medicine"] = 1}, 6, 1, false),
   recipe("colony-rifle", {wood = 4, ["iron-plate"] = 6, ["copper-plate"] = 2}, 2, 1, false),
   recipe("colony-rod", {wood = 3, ["iron-plate"] = 2}, 1, 1, false),
   {type = "item", name = "colony-forage", icon = G .. "icon-forage.png", icon_size = 64,

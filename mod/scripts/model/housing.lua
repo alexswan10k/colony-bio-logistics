@@ -71,6 +71,17 @@ M.TIERS = {
       {id = "comfort", options = {{item = "colony-furniture", per = 0.1}}},
     },
   },
+  -- Tier 6 (#69, Aquilo): the Fusion Arcology. Same life-support shape as the dome with a larger pantry,
+  -- 48 beds in the same 4x4 footprint, and the `colony-housing` fast-replace group for in-place upgrades.
+  arcology = {
+    capacity = 48, buffer_intervals = 8,
+    needs = {
+      {id = "food", critical = true, options = M.FOOD},
+      {id = "water", critical = true, options = M.WATER},
+      {id = "electricity", critical = true, options = {{power = true}}},
+      {id = "comfort", options = {{item = "colony-furniture", per = 0.1}}},
+    },
+  },
 }
 
 function M.items_of(tier)

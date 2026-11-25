@@ -17,7 +17,7 @@ M.HUTS = {
   ["colony-woodcutter-hut"] = {job = "chop", tool = "colony-axe",
     tools = {"colony-steel-axe", "colony-axe"}, capacity = 3},
   ["colony-miner-hut"] = {job = "mine", tool = "colony-pickaxe",
-    tools = {"colony-steel-pickaxe", "colony-pickaxe"}, capacity = 3},
+    tools = {"colony-tungsten-pickaxe", "colony-steel-pickaxe", "colony-pickaxe"}, capacity = 3},
   ["colony-farm-hut"] = {job = "farm", tool = "colony-hoe",
     tools = {"colony-steel-hoe", "colony-hoe"}, capacity = 3,
     keep = {"colony-fertilizer"}, inputs = {{item = "colony-fertilizer", count = 6}}},
@@ -63,17 +63,21 @@ M.HUTS = {
 M.TOOL_USES = yields.TOOL_USES
 M.STEEL_TOOL_USES = yields.STEEL_TOOL_USES
 M.STEEL_WORK_MULT = yields.STEEL_WORK_MULT
--- Trips per tool by tier (#95). Unlisted tools use TOOL_USES.
+M.TUNGSTEN_TOOL_USES = yields.TUNGSTEN_TOOL_USES
+M.TUNGSTEN_WORK_MULT = yields.TUNGSTEN_WORK_MULT
+-- Trips per tool by tier (#95, #69). Unlisted tools use TOOL_USES.
 M.USES = {
   ["colony-steel-axe"] = yields.STEEL_TOOL_USES,
   ["colony-steel-pickaxe"] = yields.STEEL_TOOL_USES,
   ["colony-steel-hoe"] = yields.STEEL_TOOL_USES,
+  ["colony-tungsten-pickaxe"] = yields.TUNGSTEN_TOOL_USES,
 }
--- Work-spell multiplier by tier (#95): steel works 20% faster (480 -> 384 ticks).
+-- Work-spell multiplier by tier (#95, #69): steel 0.8x (480 -> 384), tungsten 0.65x (480 -> 312).
 M.WORK_MULT = {
   ["colony-steel-axe"] = yields.STEEL_WORK_MULT,
   ["colony-steel-pickaxe"] = yields.STEEL_WORK_MULT,
   ["colony-steel-hoe"] = yields.STEEL_WORK_MULT,
+  ["colony-tungsten-pickaxe"] = yields.TUNGSTEN_WORK_MULT,
 }
 M.STEEL = {["colony-steel-axe"] = true, ["colony-steel-pickaxe"] = true, ["colony-steel-hoe"] = true}
 

@@ -46,6 +46,7 @@ local inspiration = require("scripts.model.inspiration")
 local jobs = require("scripts.model.jobs")
 local material_priority = require("scripts.model.material_priority")
 local needs = require("scripts.model.needs")
+local gear = require("scripts.model.gear")
 local armory = require("scripts.armory")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
@@ -3425,6 +3426,8 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     end
     local ticks = inspiration.work_ticks(base, colony_mod.inspiration_quality(colony, ev.unit_number))
     ticks = illness.work_ticks(ticks, colony_mod.is_sick(ev.unit_number))   -- the sick work at half speed (#47)
+    -- Panacea serum (#69): issued from colony stock, halves every work spell on top of the other buffs.
+    ticks = gear.work_ticks(ticks, gear.present(colony_mod.stock_table(colony), gear.ITEM.panacea))
     scheduler.after(ticks + (ev.unit_number * 23) % 240, "work.finish", {un = ev.unit_number})
   elseif st.state == "to_hut" then
     local e = unit_entity(colony, ev.unit_number)

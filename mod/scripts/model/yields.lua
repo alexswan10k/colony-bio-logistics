@@ -6,6 +6,8 @@
 -- `farm.YIELD_BASE`, `salt.TICKS_PER_SALT`, `labour.TOOL_USES`), which made the sim's copy a belief rather than
 -- evidence. The job modules keep their old names as aliases so call sites and tests read naturally; the numbers
 -- themselves only exist here.
+local gear = require("scripts.model.gear")
+
 local M = {}
 
 -- --- harvest, per completed trip -------------------------------------------------------------------------
@@ -30,6 +32,9 @@ M.TRAILER_MIN_LOAD = 21     -- deficit that makes a trailer trip worth the detou
 M.TOOL_USES = 30            -- trips before one tool in the hut wears out
 M.STEEL_TOOL_USES = 45      -- steel-axe/pickaxe/hoe (#95): 1.5x trips per tool
 M.STEEL_WORK_MULT = 0.8     -- steel-axe/pickaxe/hoe (#95): 20% faster work spells (480 -> 384 ticks)
+-- Tier 3 (#69, Vulcanus tungsten). Aliases of the gear model's authoritative numbers.
+M.TUNGSTEN_TOOL_USES = gear.TUNGSTEN_TOOL_USES
+M.TUNGSTEN_WORK_MULT = gear.TUNGSTEN_WORK_MULT
 
 -- --- salt + preservation ---------------------------------------------------------------------------------
 M.SALT_TICKS = 1800         -- ticks per salt from one pan (30 s), worker-free

@@ -1,6 +1,7 @@
 -- Pure rules for the cross-planetary endgame gear (#69). No Factorio globals here: every rule is a plain
 -- function of numbers and stock tables, so the adapter can only misuse it, not reinterpret it.
 local gear = require("scripts.model.gear")
+local enviro = require("scripts.model.enviro")
 
 describe("cross-planet gear", function()
   it("tungsten is a real third tier: more trips and faster work than steel", function()
@@ -58,6 +59,13 @@ describe("cross-planet gear", function()
     eq(exo_only.panacea, false)
   end)
 
+  it("an Enviro-Suit lifts the off-world work penalty (#69)", function()
+    eq(enviro.work_ticks(480, false, false), 480)
+    eq(enviro.work_ticks(480, true, false), 240)
+    eq(enviro.work_ticks(480, true, true), 480)
+    eq(enviro.work_ticks(481, true, false), 241)
+    eq(enviro.SUIT, "colony-enviro-suit")
+  end)
   it("the arcology is a denser tier-6 house with life support", function()
     truthy(gear.ARCOLOGY_CAPACITY > 32, "arcology must beat the Tier-5 dome (32 beds)")
     eq(gear.ARCOLOGY_CAPACITY, 48)

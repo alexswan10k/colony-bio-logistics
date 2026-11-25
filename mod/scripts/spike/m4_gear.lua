@@ -10,6 +10,7 @@ local cold = require("scripts.cold")
 local gear_speed = require("scripts.gear_speed")
 local militia = require("scripts.militia")
 local armour = require("scripts.model.armour")
+local enviro = require("scripts.model.enviro")
 local gear = require("scripts.model.gear")
 local labour = require("scripts.model.labour")
 local housing = require("scripts.model.housing")
@@ -29,7 +30,7 @@ core.register("m4_gear", {
 
     -- ---------- prototypes ----------
     for _, name in ipairs({"colony-tungsten-pickaxe", "colony-exoskeleton-harness", "colony-panacea-serum",
-      "colony-heavy-siege-armor", "colony-personal-shield-pack",
+      "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
       "colony-cryo-warehouse", "colony-fusion-arcology"}) do
       ctx.check(name .. " is a real item", prototypes.item[name] ~= nil)
       ctx.check(name .. " has a recipe", prototypes.recipe[name] ~= nil)
@@ -67,6 +68,7 @@ core.register("m4_gear", {
       f.recipes["colony-tungsten-pickaxe"].enabled == true
         and f.recipes["colony-exoskeleton-harness"].enabled == true
         and f.recipes["colony-panacea-serum"].enabled == true
+        and f.recipes["colony-enviro-suit"].enabled == true
         and f.recipes["colony-heavy-siege-armor"].enabled == true
         and f.recipes["colony-personal-shield-pack"].enabled == true)
     ctx.check("the codex unlocks both late buildings",
@@ -83,6 +85,9 @@ core.register("m4_gear", {
     ctx.check("the arcology is a housing tier with 48 beds",
       housing.TIERS.arcology ~= nil and housing.TIERS.arcology.capacity == 48
         and colony.HOUSES["colony-fusion-arcology"] == "arcology")
+    ctx.check("an Enviro-Suit lifts the off-world work penalty",
+      enviro.work_ticks(480, false, false) == 480 and enviro.work_ticks(480, true, false) == 240
+        and enviro.work_ticks(480, true, true) == 480)
     ctx.check("siege armour is the best mitigation and a shield is a flat pool",
       armour.best({[armour.SIEGE] = 1, ["power-armor-mk2"] = 1}) == armour.SIEGE
         and armour.mitigation(armour.SIEGE, "normal") == 0.55

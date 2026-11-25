@@ -660,6 +660,10 @@ data:extend({
    subgroup = "raw-resource", order = "z[colony]-b4[panacea]", stack_size = 10,
    localised_name = {"item-name.colony-panacea-serum"},
    localised_description = {"item-description.colony-panacea-serum"}},
+  {type = "item", name = "colony-enviro-suit", icon = G .. "icon-tool-rack.png", icon_size = 64,
+   subgroup = "armor", order = "z[colony]-c[enviro]", stack_size = 1,
+   localised_name = {"item-name.colony-enviro-suit"},
+   localised_description = {"item-description.colony-enviro-suit"}},
   {type = "item", name = "colony-heavy-siege-armor", icon = G .. "icon-armory.png", icon_size = 64,
    subgroup = "armor", order = "z[colony]-a[siege]", stack_size = 1,
    localised_name = {"item-name.colony-heavy-siege-armor"},
@@ -692,6 +696,7 @@ data:extend({
   -- Bioflux panacea (#69): the Gleba endgame intermediate, not raw fruit. The vanilla `bioflux` technology
   -- is a prerequisite of Bio-Ecological Data, so tech_audit rule 6 can prove the ingredient is makeable.
   recipe("colony-panacea-serum", {bioflux = 2, ["colony-herbal-medicine"] = 1}, 6, 1, false),
+  recipe("colony-enviro-suit", {["steel-plate"] = 4, ["electronic-circuit"] = 2, ["copper-cable"] = 4}, 5, 1, false),
   recipe("colony-heavy-siege-armor", {["tungsten-ore"] = 8, ["steel-plate"] = 6, ["iron-plate"] = 4}, 8, 1, false),
   recipe("colony-personal-shield-pack", {["holmium-ore"] = 8, ["electronic-circuit"] = 6, ["steel-plate"] = 4}, 8, 1, false),
   recipe("colony-rifle", {wood = 4, ["iron-plate"] = 6, ["copper-plate"] = 2}, 2, 1, false),

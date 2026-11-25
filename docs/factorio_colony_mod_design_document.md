@@ -358,7 +358,7 @@ Colonies have their own **Tech Subtree** researched in a **Town Archive** (early
 4. **Tier 3** (40-50 packs): Civic Governance (University, Apartment, Kitchen, Civic Treatise recipe; **needs Concrete** and the circuits it implies) and Rail Transit (Passenger Platform, Coach, Canteen; **needs Railway**).
 5. **Known gap:** every tech still costs only Frontier Charters, so the distinct `colony-civic-pack` (Civic Treatise) recipe has no consumer yet. #98 is closed: it only renamed the preserved Frontier Charter *recipe variants*; the Civic Treatise item/recipe still exists and a genuine second pack tier is deferred to the M4 tree (#69).
 
-6. **M4 tiers (built, #69):** **Bio-Ecological Data** (40 Civic Treatises) unlocks the three personal gear items - the Tier-3 tungsten pickaxe, the exoskeleton harness and panacea serum - and is the first technology to actually *spend* the second pack tier, closing the §8 gap. **Interplanetary Sovereignty Codex** (60 Civic Treatises, needs the data tier and orbit) unlocks the Cryo-Preservation Warehouse and the Tier-6 Fusion Arcology. Both ride the existing University lab, and their vanilla interlocks (the two Gleba fruits; orbit) keep their ingredients makeable. Still planned beyond this slice in #69: Resorts, Enviro-Suits, Cryo-Colonist Pods, Nurseries, Orbital Hydroponics and Space Platform EVA Crew.
+6. **M4 tiers (built, #69):** **Bio-Ecological Data** (40 Civic Treatises) unlocks the three personal gear items - the Tier-3 tungsten pickaxe, the exoskeleton harness and panacea serum - and is the first technology to actually *spend* the second pack tier, closing the §8 gap. **Interplanetary Sovereignty Codex** (60 Civic Treatises, needs the data tier and orbit) unlocks the Cryo-Preservation Warehouse and the Tier-6 Fusion Arcology. Both ride the existing University lab, and their vanilla interlocks (the two Gleba fruits; orbit) keep their ingredients makeable. A third tier, **Interplanetary Federation** (80 Civic Treatises, needs the Codex), unlocks Federation Plating - minted directly from Civic Treatises - and the Federation Vault, so the second pack tier feeds a production chain as well as research. All of §9.1-§9.4 below are now built except Resorts, a Space Training Center, EVA tile-repair tasks and a true second-pack *science* tier.
 
 * **Implementation details (#42, #19):**
   * **Lab Whitelist Isolation:** Vanilla labs reject custom colony packs (`can_insert == false`, `insert() == 0`), and colony labs reject vanilla packs. Isolation is enforced at the C++ engine level.
@@ -375,19 +375,19 @@ Colonies have their own **Tech Subtree** researched in a **Town Archive** (early
 
 ### 9.1 Planet Classifications
 * **Life-Friendly Worlds (Nauvis & Gleba):** Open-air housing and organic migration. Gleba offers abundant foraging and wood, balanced by Swamp Fever and Pentapods.
-* **Hostile / Barren Worlds (Vulcanus, Fulgora, Aquilo):** Unbreathable environments. Colonists must live inside pressurized **Habitat Domes** (which emit territory), equip **Enviro-Suits** to work outside, and grow their population via **natural reproduction** in Nurseries.
+* **Hostile / Barren Worlds (Vulcanus, Fulgora, Aquilo):** Unbreathable environments. Colonists must live inside pressurized **Habitat Domes** (which emit territory), equip **Enviro-Suits** to work outside, and grow their population via **natural reproduction** in Nurseries. **Built (#69):** an issued Enviro-Suit lifts a 2x work penalty off hostile worlds and platforms; a worker-free Nursery within 24 tiles lets off-world houses breed at double the normal chance (and is required at all there).
 
 ### 9.2 Cryo-Colonist Pods & Refillable Life Support
 * **Launching Pioneers:** Train a colonist at a Space Training Center into a launchable `Cryo-Colonist Pod` item.
 * **Spoilage Timer as Life Support:** The pod has a $20\text{-minute}$ spoilage timer representing finite internal battery, oxygen, and rations.
 * **Refueling / Resetting Pod Life Support (Solving the Locked-Pod Problem):**
   * What if a pod is waiting on a Space Platform or Landing Pad and its life-support timer is running low, while you have plenty of food and oxygen on hand?
-  * Using Factorio 2.0's native `result_is_always_fresh = true` recipe property, any Assembler or **Life-Support Bay** can run a fast **"Replenish Pod Life Support"** recipe:
+  * **Engine fact (#69):** in Factorio 2.1 `result_is_always_fresh` moved from the recipe to the product (`ItemProductPrototype::always_fresh`); using the old recipe key refuses to load the mod. The **built** refill recipe sets `always_fresh = true` on its product.
     $$\text{Cryo-Colonist Pod (Any Freshness)} + \text{Canned Rations} + \text{Water/Oxygen Barrel} \longrightarrow \text{Cryo-Colonist Pod (100\% Fresh)}$$
   * This means players can build a life-support maintenance loop on their Space Platforms or staging areas to keep pods alive indefinitely as long as they supply food and water/oxygen!
 
 ### 9.3 Self-Sustaining Orbital Space Colonies (Space Platforms)
-Rather than treating Space Platforms as purely unmanned robot ships, late-game players can turn massive Space Platforms into **Self-Sustaining Orbital Colonies**:
+**Built (#69):** a Cryo-Colonist Pod in a dome colony's stock with a free bed is unpacked into a settler once per evaluation; a worker-free Orbital Hydroponics Bay crushes asteroid chunks into water and fresh produce and recycles spoilage on a 600-tick timer; an EVA Airlock plus an issued jetpack lifts the platform work penalty. Rather than treating Space Platforms as purely unmanned robot ships, late-game players can turn massive Space Platforms into **Self-Sustaining Orbital Colonies**:
 * **Orbital Habitat Domes & Hydroponics:**
   * Unpack `Cryo-Colonist Pods` into an **Orbital Habitat Dome** built on the Space Platform deck.
   * Build **Orbital Hydroponics Bays** that crush metallic/carbonic/oxide asteroid chunks for **Ice (Water)** and **Carbon (Nutrients/Fertilizer)**, growing fresh food in orbit and recycling organic `spoilage` back into biomass in a closed loop!
@@ -397,9 +397,9 @@ Rather than treating Space Platforms as purely unmanned robot ships, late-game p
   * They manually haul ammo to edge turrets, clear asteroid collectors, tend Orbital Hydroponics, and repair platform tiles damaged by impacts during flight.
 
 ### 9.4 Cross-Planetary Endgame Gear
-**First slice built (#69):** the two M4 tiers above unlock five items; all rules live in pure `model/gear.lua` and the adapter only applies them.
-* **Vulcanus (Tungsten):** **Tungsten Pickaxe built** - Tier 3 above iron and steel, 60 trips at 0.65x work ticks. Heavy Siege Armor for Militia remains planned.
-* **Fulgora (Holmium):** **Exoskeleton Harness built as an issued item** with the pure car-speed haul rule (`gear.haul_speed`, 2x); wiring it onto live unit movement is still open. Personal Shield Packs remain planned.
+**Built (#69):** the M4 tiers above unlock the gear; all rules live in pure models (`model/gear.lua`, `model/enviro.lua`, `model/eva.lua`, `model/pods.lua`, `model/nursery.lua`, `model/hydroponics.lua`, `model/armour.lua`) and the adapter only applies them.
+* **Vulcanus (Tungsten):** **Tungsten Pickaxe built** - Tier 3 above iron and steel, 60 trips at 0.65x work ticks. **Heavy Siege Armor built** - 0.55 quality-scaled heal-back mitigation for militia.
+* **Fulgora (Holmium):** **Exoskeleton Harness built** with a live 2x unit-speed hook that composes with trailers. **Personal Shield Pack built** - a flat 60-point damage pool that recharges between scans.
 * **Gleba (Bioflux):** **Panacea Serum built** from bioflux + herbal medicine (the `bioflux` vanilla technology is a prerequisite of Bio-Ecological Data, so the ingredient is provably makeable). While at least one is in colony stock, colonists are immune to every illness (existing sickness clears without spending Clinic medicine) and work 50% faster. It is a colony-wide issued good, not a per-colonist consumable, so it needs no schema.
 * **Aquilo (Cryogenics):** **Cryo-Preservation Warehouse built** - bulk colony stock whose `spoil_percent` is restamped every 60 ticks (ten times the Cold Chain cadence), so its contents have an effective 0% spoilage rate. **Fusion Arcology built** - Tier-6, 48 beds, 4x4, in the `colony-housing` fast-replace group, with the dome's food/water/power/comfort life support and a larger pantry.
 

@@ -154,6 +154,9 @@ local hydroponics = chest_clone("steel-chest", "colony-hydroponics-bay", "water-
 -- EVA Airlock (#69, §9.3): the platform-side depot that issues jetpacks. Worker-free; the jetpack itself is
 -- carried in colony stock like any other issued gear, so there is no per-unit equipment state.
 local eva_airlock = chest_clone("iron-chest", "colony-eva-airlock", "passenger-platform", 8, 1)
+-- Federation Vault (#69): the third Civic Treatise consumer. A 3x3 bulk store whose plating is literally
+-- minted from Civic Treatises, so the second pack tier has a production chain, not just two research sinks.
+local federation_vault = chest_clone("steel-chest", "colony-federation-vault", "warehouse", 100, 1.5)
 
 -- Nursery (#69, §9.1): a worker-free, pressurised cradle for off-world natural reproduction. Reuses the
 -- Clinic art until dedicated art exists; its only state is a lazy registry of positions (no schema).
@@ -378,7 +381,7 @@ ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while wal
 data:extend({
   hall, dome, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, theatre, plaza, spa, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, freight_crate, warehouse, haul_station, compost_bin,
-  cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity, nursery, hydroponics, eva_airlock,
+  cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity, nursery, hydroponics, eva_airlock, federation_vault,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(dome, "town-hall", "z[colony]-l0[dome]"),
@@ -424,6 +427,7 @@ data:extend({
   item_of(nursery, "clinic", "z[colony]-l7[nursery]"),
   item_of(hydroponics, "water-tower", "z[colony]-k5[hydroponics]"),
   item_of(eva_airlock, "passenger-platform", "z[colony]-l8[eva-airlock]"),
+  item_of(federation_vault, "warehouse", "z[colony]-l9[federation-vault]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(freight_crate, "demand-crate", "z[colony]-k1[freight-crate]"),
@@ -649,6 +653,11 @@ data:extend({
   recipe("colony-nursery", {["steel-plate"] = 15, ["electronic-circuit"] = 4, ["colony-furniture"] = 4}, 5, 1, false),
   recipe("colony-hydroponics-bay", {["steel-plate"] = 25, ["iron-plate"] = 20, ["electronic-circuit"] = 8}, 6, 1, false),
   recipe("colony-eva-airlock", {["steel-plate"] = 15, ["iron-plate"] = 15, ["electronic-circuit"] = 4}, 4, 1, false),
+  {type = "item", name = "colony-federation-plating", icon = G .. "icon-civic-pack.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-f[federation-plating]", stack_size = 100,
+   localised_name = {"item-name.colony-federation-plating"}},
+  recipe("colony-federation-plating", {["colony-civic-pack"] = 1, ["steel-plate"] = 4}, 6, 2, false),
+  recipe("colony-federation-vault", {["steel-plate"] = 60, ["colony-federation-plating"] = 20, ["electronic-circuit"] = 10}, 10, 1, false),
   recipe("colony-passenger-coach", {["cargo-wagon"] = 1, wood = 20}, 5, 1, false),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4, false),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1, 1, false),

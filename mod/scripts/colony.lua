@@ -112,6 +112,8 @@ M.REFRIGERATED_WAREHOUSE = "colony-refrigerated-warehouse"
 -- #69: the cryo store is ordinary bulk colony stock (accept-all, counted in the ledger) whose contents the
 -- cold pass restamps ten times as often. Reusing the refrigerator kind means no new registry or schema.
 M.CRYO_WAREHOUSE = "colony-cryo-warehouse"
+-- #69: the Federation Vault is ordinary bulk stock; its only difference is a much bigger chest.
+M.FEDERATION_VAULT = "colony-federation-vault"
 M.LINK_CRATE = "colony-freight-crate"   -- #52: one half of a colony-to-colony freight pair
 M.CRATES = {
   [M.SUPPLY_CRATE] = crates.SUPPLY,
@@ -120,6 +122,7 @@ M.CRATES = {
   [M.HAUL_STATION] = crates.HAUL_STATION,
   [M.REFRIGERATED_WAREHOUSE] = crates.REFRIGERATOR,
   [M.CRYO_WAREHOUSE] = crates.REFRIGERATOR,
+  [M.FEDERATION_VAULT] = crates.WAREHOUSE,
   [M.LINK_CRATE] = crates.LINK,
 }
 -- Compost Bin (#78, design §3.2): spoilage is removed from houses and stock by colonists and converted here.

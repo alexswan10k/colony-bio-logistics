@@ -37,6 +37,7 @@ core.register("m4_gear", {
     for _, name in ipairs({"colony-tungsten-pickaxe", "colony-exoskeleton-harness", "colony-panacea-serum",
       "colony-cryo-pod", "colony-nursery", "colony-hydroponics-bay", "colony-eva-airlock", "colony-eva-jetpack",
       "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
+      "colony-federation-plating", "colony-federation-vault",
       "colony-cryo-warehouse", "colony-fusion-arcology"}) do
       ctx.check(name .. " is a real item", prototypes.item[name] ~= nil)
       ctx.check(name .. " has a recipe", prototypes.recipe[name] ~= nil)
@@ -67,8 +68,20 @@ core.register("m4_gear", {
     for _, i in ipairs(panacea_ing or {}) do if i.name == "bioflux" then has_bioflux = true end end
     ctx.check("panacea is brewed from bioflux, not raw fruit", has_bioflux)
 
+    local federation = f.technologies["colony-interplanetary-federation"]
+    local fprereqs = federation and federation.prerequisites or {}
+    local fing = federation and federation.research_unit_ingredients and federation.research_unit_ingredients[1]
+    ctx.check("the third tier costs Civic Treatises and requires the codex",
+      federation ~= nil and fing and fing.name == "colony-civic-pack"
+        and fprereqs["colony-sovereignty-codex"] ~= nil)
+    local plating_ing = prototypes.recipe["colony-federation-plating"].ingredients
+    local consumes_civic = false
+    for _, i in ipairs(plating_ing or {}) do if i.name == "colony-civic-pack" then consumes_civic = true end end
+    ctx.check("Federation Plating is minted from Civic Treatises", consumes_civic)
+
     f.technologies["colony-bio-ecological-data"].researched = true
     f.technologies["colony-sovereignty-codex"].researched = true
+    federation.researched = true
     tech_mod.sync_force(f)
     ctx.check("the data tier unlocks the personal gear recipes",
       f.recipes["colony-tungsten-pickaxe"].enabled == true
@@ -84,7 +97,10 @@ core.register("m4_gear", {
       f.recipes["colony-cryo-warehouse"].enabled == true and f.recipes["colony-fusion-arcology"].enabled == true
         and f.recipes["colony-hydroponics-bay"].enabled == true
         and f.recipes["colony-eva-airlock"].enabled == true
-        and f.recipes["colony-eva-jetpack"].enabled == true)
+        and f.recipes["colony-eva-jetpack"].enabled == true
+        and f.recipes["colony-federation-plating"].enabled == true
+        and f.recipes["colony-federation-vault"].enabled == true,
+      "federation=" .. tostring(f.recipes["colony-federation-vault"].enabled))
 
     -- ---------- pure rules through the real modules ----------
     ctx.check("tungsten wear and work spell come from the gear model",

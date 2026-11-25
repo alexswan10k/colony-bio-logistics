@@ -214,4 +214,10 @@ data:extend({
       unlock("colony-cryo-warehouse"), unlock("colony-fusion-arcology"), unlock("colony-hydroponics-bay"),
       unlock("colony-eva-airlock"), unlock("colony-eva-jetpack"),
     }),
+  -- A third Civic Treatise consumer (#69): the Federation Vault's plating is minted from Civic Treatises, so
+  -- the second pack tier feeds a production chain rather than only being spent on research.
+  tech("colony-interplanetary-federation", "icon-civic-pack.png", 80, {"colony-civic-pack"}, 30,
+    {"colony-sovereignty-codex"}, {
+      unlock("colony-federation-plating"), unlock("colony-federation-vault"),
+    }),
 })

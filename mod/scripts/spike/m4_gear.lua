@@ -13,6 +13,8 @@ local armour = require("scripts.model.armour")
 local enviro = require("scripts.model.enviro")
 local pods = require("scripts.model.pods")
 local nursery = require("scripts.model.nursery")
+local hydro = require("scripts.model.hydroponics")
+local hydroponics = require("scripts.hydroponics")
 local gear = require("scripts.model.gear")
 local labour = require("scripts.model.labour")
 local housing = require("scripts.model.housing")
@@ -32,7 +34,7 @@ core.register("m4_gear", {
 
     -- ---------- prototypes ----------
     for _, name in ipairs({"colony-tungsten-pickaxe", "colony-exoskeleton-harness", "colony-panacea-serum",
-      "colony-cryo-pod", "colony-nursery", "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
+      "colony-cryo-pod", "colony-nursery", "colony-hydroponics-bay", "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
       "colony-cryo-warehouse", "colony-fusion-arcology"}) do
       ctx.check(name .. " is a real item", prototypes.item[name] ~= nil)
       ctx.check(name .. " has a recipe", prototypes.recipe[name] ~= nil)
@@ -76,8 +78,9 @@ core.register("m4_gear", {
         and f.recipes["colony-enviro-suit"].enabled == true
         and f.recipes["colony-heavy-siege-armor"].enabled == true
         and f.recipes["colony-personal-shield-pack"].enabled == true)
-    ctx.check("the codex unlocks both late buildings",
-      f.recipes["colony-cryo-warehouse"].enabled == true and f.recipes["colony-fusion-arcology"].enabled == true)
+    ctx.check("the codex unlocks the late buildings",
+      f.recipes["colony-cryo-warehouse"].enabled == true and f.recipes["colony-fusion-arcology"].enabled == true
+        and f.recipes["colony-hydroponics-bay"].enabled == true)
 
     -- ---------- pure rules through the real modules ----------
     ctx.check("tungsten wear and work spell come from the gear model",
@@ -96,6 +99,9 @@ core.register("m4_gear", {
       pods.SHELF_TICKS == 20 * 60 * 60 and pods.needs_refill(0.6) and not pods.needs_refill(0.2))
     ctx.check("pod refill product always_fresh (2.1 API)",
       prototypes.recipe["colony-pod-refill"].products[1].always_fresh == true)
+    ctx.check("a hydroponics cycle crushes a chunk into food",
+      hydro.cycle({["metallic-asteroid-chunk"] = 1}, 0).produce == hydro.FOOD_PER_CYCLE
+        and hydro.cycle({}, 0) == nil)
     ctx.check("off-world births need a Nursery and double there",
       nursery.birth_chance(true, false) == 0 and nursery.birth_chance(false, false) == 0.05
         and nursery.birth_chance(true, true) == 0.1)
@@ -124,6 +130,15 @@ core.register("m4_gear", {
     storage.interval_override = 600
     local c = storage.colonies[territory.owner_at(s.index, p)]
     ctx.check("colony registered", c ~= nil)
+    local bay = build("colony-hydroponics-bay", {p.x + 16, p.y + 8})
+    ctx.check("hydroponics bay built and registered", bay and bay.valid and c and c.hydroponics[bay.unit_number] ~= nil)
+    if bay and bay.valid and c then
+      bay.insert{name = "carbonic-asteroid-chunk", count = 1}
+      bay.insert{name = "spoilage", count = 3}
+      ctx.check("a live hydroponics cycle grew food and recycled spoilage",
+        hydroponics.run_colony(c) >= 1 and bay.get_item_count("colony-produce") >= hydro.FOOD_PER_CYCLE,
+        "produce=" .. tostring(bay.get_item_count("colony-produce")))
+    end
     local defender = militia.spawn(c, {x = p.x + 24, y = p.y}, {armour = armour.SHIELD})
     local dgear = defender and storage.unit_state[defender.unit_number]
       and storage.unit_state[defender.unit_number].gear

@@ -53,6 +53,7 @@ local mortality_model = require("scripts.model.mortality")
 local breeding = require("scripts.model.breeding")
 local pods = require("scripts.model.pods")
 local nursery = require("scripts.model.nursery")
+local hydroponics = require("scripts.hydroponics")
 local stats = require("scripts.stats")
 local tech = require("scripts.tech")
 local ledger_signal = require("scripts.ledger_signal")
@@ -83,6 +84,7 @@ M.SPA = "colony-spa"
 M.ARMORY = "colony-armory"
 M.PATROL_POST = "colony-patrol-post"
 M.NURSERY = nursery.NURSERY   -- #69: worker-free off-world breeding amenity (lazy registry, no schema)
+M.HYDRO_BAY = "colony-hydroponics-bay"   -- #69: worker-free orbital closed-loop food producer
 M.MEAL_ITEMS = commute.FOOD_ITEMS     -- what a Canteen serves (#50): the foods houses eat
 local MEAL_SET = {}
 for _, item in ipairs(M.MEAL_ITEMS) do MEAL_SET[item] = true end
@@ -2149,7 +2151,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif (M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or name == M.NURSERY or M.HOUSES[name] or labour.HUTS[name]) and not core.is_core(name) then
+    elseif (M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or name == M.NURSERY or name == M.HYDRO_BAY or M.HOUSES[name] or labour.HUTS[name]) and not core.is_core(name) then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -2365,6 +2367,13 @@ local function on_built(ev)
     colony.nurseries = colony.nurseries or {}
     colony.nurseries[e.unit_number] = {entity = e, colony_id = colony.id}
     script.register_on_object_destroyed(e)
+  elseif name == M.HYDRO_BAY then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.hydroponics = colony.hydroponics or {}
+    colony.hydroponics[e.unit_number] = {entity = e, colony_id = colony.id}
+    script.register_on_object_destroyed(e)
   elseif name == M.WATER_TOWER then
     -- Water Tower (#96): a worker-free assembler with a locked recipe (the bottling recipe). It bottles the
     -- fluid water the player pipes in and hands it straight to the houses around it at evaluation time, so no
@@ -2523,7 +2532,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or core.is_core(item_name) or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.NURSERY or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.NURSERY or item_name == M.HYDRO_BAY or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -2703,6 +2712,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.nurseries and colony.nurseries[un] then
       colony.nurseries[un] = nil
+      return
+    end
+    if colony.hydroponics and colony.hydroponics[un] then
+      colony.hydroponics[un] = nil
       return
     end
     if colony.ledgers and colony.ledgers[un] then

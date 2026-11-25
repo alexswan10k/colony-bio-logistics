@@ -211,6 +211,6 @@ data:extend({
   -- Fusion Arcology. Needs the data tier (for its pack economy) and orbit (for the Aquilo interlock).
   tech("colony-sovereignty-codex", "icon-civic-pack.png", 60, {"colony-civic-pack"}, 30,
     {"colony-bio-ecological-data", "colony-habitat-domes"}, {
-      unlock("colony-cryo-warehouse"), unlock("colony-fusion-arcology"),
+      unlock("colony-cryo-warehouse"), unlock("colony-fusion-arcology"), unlock("colony-hydroponics-bay"),
     }),
 })

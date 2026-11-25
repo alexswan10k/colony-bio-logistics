@@ -151,6 +151,9 @@ local clinic = chest_clone("iron-chest", "colony-clinic", "clinic", 8, 1)
 -- water and fresh produce and recycles spoilage, on a slow scheduler timer. No new fluid or item prototype:
 -- the bay is ordinary colony storage, and its chest is the whole interface for belts/inserters.
 local hydroponics = chest_clone("steel-chest", "colony-hydroponics-bay", "water-tower", 20, 1.5)
+-- EVA Airlock (#69, §9.3): the platform-side depot that issues jetpacks. Worker-free; the jetpack itself is
+-- carried in colony stock like any other issued gear, so there is no per-unit equipment state.
+local eva_airlock = chest_clone("iron-chest", "colony-eva-airlock", "passenger-platform", 8, 1)
 
 -- Nursery (#69, §9.1): a worker-free, pressurised cradle for off-world natural reproduction. Reuses the
 -- Clinic art until dedicated art exists; its only state is a lazy registry of positions (no schema).
@@ -375,7 +378,7 @@ ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while wal
 data:extend({
   hall, dome, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, theatre, plaza, spa, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, freight_crate, warehouse, haul_station, compost_bin,
-  cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity, nursery, hydroponics,
+  cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity, nursery, hydroponics, eva_airlock,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(dome, "town-hall", "z[colony]-l0[dome]"),
@@ -420,6 +423,7 @@ data:extend({
   item_of(clinic, "clinic", "z[colony]-l6[clinic]"),
   item_of(nursery, "clinic", "z[colony]-l7[nursery]"),
   item_of(hydroponics, "water-tower", "z[colony]-k5[hydroponics]"),
+  item_of(eva_airlock, "passenger-platform", "z[colony]-l8[eva-airlock]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(freight_crate, "demand-crate", "z[colony]-k1[freight-crate]"),
@@ -644,6 +648,7 @@ data:extend({
   recipe("colony-clinic", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-nursery", {["steel-plate"] = 15, ["electronic-circuit"] = 4, ["colony-furniture"] = 4}, 5, 1, false),
   recipe("colony-hydroponics-bay", {["steel-plate"] = 25, ["iron-plate"] = 20, ["electronic-circuit"] = 8}, 6, 1, false),
+  recipe("colony-eva-airlock", {["steel-plate"] = 15, ["iron-plate"] = 15, ["electronic-circuit"] = 4}, 4, 1, false),
   recipe("colony-passenger-coach", {["cargo-wagon"] = 1, wood = 20}, 5, 1, false),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4, false),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1, 1, false),
@@ -679,6 +684,10 @@ data:extend({
    spoil_ticks = 20 * 60 * 60, spoil_result = "spoilage",
    localised_name = {"item-name.colony-cryo-pod"},
    localised_description = {"item-description.colony-cryo-pod"}},
+  {type = "item", name = "colony-eva-jetpack", icon = G .. "icon-tool-rack.png", icon_size = 64,
+   subgroup = "armor", order = "z[colony]-d[eva]", stack_size = 1,
+   localised_name = {"item-name.colony-eva-jetpack"},
+   localised_description = {"item-description.colony-eva-jetpack"}},
   {type = "item", name = "colony-enviro-suit", icon = G .. "icon-tool-rack.png", icon_size = 64,
    subgroup = "armor", order = "z[colony]-c[enviro]", stack_size = 1,
    localised_name = {"item-name.colony-enviro-suit"},
@@ -726,6 +735,7 @@ data:extend({
    icon = G .. "icon-passenger-coach.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-p[pod]-b[refill]",
    localised_name = {"recipe-name.colony-pod-refill"}},
+  recipe("colony-eva-jetpack", {["steel-plate"] = 4, ["electronic-circuit"] = 3, ["copper-cable"] = 4}, 5, 1, false),
   recipe("colony-enviro-suit", {["steel-plate"] = 4, ["electronic-circuit"] = 2, ["copper-cable"] = 4}, 5, 1, false),
   recipe("colony-heavy-siege-armor", {["tungsten-ore"] = 8, ["steel-plate"] = 6, ["iron-plate"] = 4}, 8, 1, false),
   recipe("colony-personal-shield-pack", {["holmium-ore"] = 8, ["electronic-circuit"] = 6, ["steel-plate"] = 4}, 8, 1, false),

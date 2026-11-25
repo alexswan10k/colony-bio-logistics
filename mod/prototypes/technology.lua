@@ -212,5 +212,6 @@ data:extend({
   tech("colony-sovereignty-codex", "icon-civic-pack.png", 60, {"colony-civic-pack"}, 30,
     {"colony-bio-ecological-data", "colony-habitat-domes"}, {
       unlock("colony-cryo-warehouse"), unlock("colony-fusion-arcology"), unlock("colony-hydroponics-bay"),
+      unlock("colony-eva-airlock"), unlock("colony-eva-jetpack"),
     }),
 })

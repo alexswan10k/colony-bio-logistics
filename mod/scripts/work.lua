@@ -48,6 +48,7 @@ local material_priority = require("scripts.model.material_priority")
 local needs = require("scripts.model.needs")
 local gear = require("scripts.model.gear")
 local enviro = require("scripts.model.enviro")
+local eva = require("scripts.model.eva")
 local armory = require("scripts.armory")
 local M = {}
 local colony_mod   -- injected by scripts.colony via M.bind
@@ -3429,10 +3430,18 @@ events.on(defines.events.on_ai_command_completed, function(ev)
     ticks = illness.work_ticks(ticks, colony_mod.is_sick(ev.unit_number))   -- the sick work at half speed (#47)
     -- Panacea serum (#69): issued from colony stock, halves every work spell on top of the other buffs.
     ticks = gear.work_ticks(ticks, gear.present(colony_mod.stock_table(colony), gear.ITEM.panacea))
-    -- Off-world work (#69): hostile planets and platforms halve a work spell unless a suit is issued.
+    -- Off-world work (#69): hostile worlds need an Enviro-Suit, platforms need an EVA Airlock and a jetpack.
+    -- The two penalties never stack - a platform uses the EVA rule instead of the hostile-world one.
     local hall = colony and colony.hall
-    ticks = enviro.work_ticks(ticks, hall and hall.valid and planet.is_exotic(hall.surface),
-      gear.present(colony_mod.stock_table(colony), enviro.SUIT))
+    local surface = hall and hall.valid and hall.surface
+    local stock = colony_mod.stock_table(colony)
+    if surface and planet.is_platform(surface) then
+      local ready = #colony_mod.airlock_list(colony) > 0 and gear.present(stock, eva.JETPACK)
+      ticks = eva.work_ticks(ticks, true, ready)
+    else
+      ticks = enviro.work_ticks(ticks, surface ~= nil and planet.is_exotic(surface),
+        gear.present(stock, enviro.SUIT))
+    end
     scheduler.after(ticks + (ev.unit_number * 23) % 240, "work.finish", {un = ev.unit_number})
   elseif st.state == "to_hut" then
     local e = unit_entity(colony, ev.unit_number)

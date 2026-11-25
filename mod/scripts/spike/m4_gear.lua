@@ -15,6 +15,7 @@ local pods = require("scripts.model.pods")
 local nursery = require("scripts.model.nursery")
 local hydro = require("scripts.model.hydroponics")
 local hydroponics = require("scripts.hydroponics")
+local eva = require("scripts.model.eva")
 local gear = require("scripts.model.gear")
 local labour = require("scripts.model.labour")
 local housing = require("scripts.model.housing")
@@ -34,7 +35,8 @@ core.register("m4_gear", {
 
     -- ---------- prototypes ----------
     for _, name in ipairs({"colony-tungsten-pickaxe", "colony-exoskeleton-harness", "colony-panacea-serum",
-      "colony-cryo-pod", "colony-nursery", "colony-hydroponics-bay", "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
+      "colony-cryo-pod", "colony-nursery", "colony-hydroponics-bay", "colony-eva-airlock", "colony-eva-jetpack",
+      "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
       "colony-cryo-warehouse", "colony-fusion-arcology"}) do
       ctx.check(name .. " is a real item", prototypes.item[name] ~= nil)
       ctx.check(name .. " has a recipe", prototypes.recipe[name] ~= nil)
@@ -80,7 +82,9 @@ core.register("m4_gear", {
         and f.recipes["colony-personal-shield-pack"].enabled == true)
     ctx.check("the codex unlocks the late buildings",
       f.recipes["colony-cryo-warehouse"].enabled == true and f.recipes["colony-fusion-arcology"].enabled == true
-        and f.recipes["colony-hydroponics-bay"].enabled == true)
+        and f.recipes["colony-hydroponics-bay"].enabled == true
+        and f.recipes["colony-eva-airlock"].enabled == true
+        and f.recipes["colony-eva-jetpack"].enabled == true)
 
     -- ---------- pure rules through the real modules ----------
     ctx.check("tungsten wear and work spell come from the gear model",
@@ -99,6 +103,9 @@ core.register("m4_gear", {
       pods.SHELF_TICKS == 20 * 60 * 60 and pods.needs_refill(0.6) and not pods.needs_refill(0.2))
     ctx.check("pod refill product always_fresh (2.1 API)",
       prototypes.recipe["colony-pod-refill"].products[1].always_fresh == true)
+    ctx.check("EVA crew needs an airlock and a jetpack on a platform",
+      eva.work_ticks(480, false, false) == 480 and eva.work_ticks(480, true, false) == 240
+        and eva.work_ticks(480, true, true) == 480)
     ctx.check("a hydroponics cycle crushes a chunk into food",
       hydro.cycle({["metallic-asteroid-chunk"] = 1}, 0).produce == hydro.FOOD_PER_CYCLE
         and hydro.cycle({}, 0) == nil)

@@ -7,6 +7,7 @@ local core = require("scripts.spike.core")
 local colony = require("scripts.colony")
 local territory = require("scripts.territory")
 local cold = require("scripts.cold")
+local gear_speed = require("scripts.gear_speed")
 local gear = require("scripts.model.gear")
 local labour = require("scripts.model.labour")
 local housing = require("scripts.model.housing")
@@ -129,6 +130,23 @@ core.register("m4_gear", {
       ctx.check("panacea prevents new illness at full pollution",
         (c.sick_lung or 0) + (c.sick_poison or 0) + (c.sick_swamp_fever or 0) == 0,
         tostring(c.sick_lung) .. "/" .. tostring(c.sick_poison) .. "/" .. tostring(c.sick_swamp_fever))
+
+      -- Exoskeleton: the live unit-speed hook doubles a colonist while a harness sits in stock, and gives
+      -- the exact base speed back when the last harness leaves (no permanent stacking).
+      local base = person.speed
+      ctx.check("colonist has a positive base speed", type(base) == "number" and base > 0, tostring(base))
+      hall.insert{name = "colony-exoskeleton-harness", count = 1}
+      c.stock_cache = nil
+      gear_speed.apply(c)
+      ctx.check("exoskeleton doubles live colonist speed", math.abs(person.speed - base * 2) < 1e-6,
+        tostring(base) .. " -> " .. tostring(person.speed))
+      ctx.check("the speed overlay is durable plain data", storage.gear_speed[person.unit_number] ~= nil)
+      hall.remove_item{name = "colony-exoskeleton-harness", count = 1}
+      c.stock_cache = nil
+      gear_speed.apply(c)
+      ctx.check("speed returns to base when the harness is gone", math.abs(person.speed - base) < 1e-6,
+        tostring(person.speed))
+      ctx.check("the overlay is cleared with the buff", storage.gear_speed[person.unit_number] == nil)
     end
 
     ctx.finish()

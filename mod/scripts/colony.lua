@@ -44,6 +44,7 @@ local shelter = require("scripts.shelter")
 local commute = require("scripts.commute")
 local tourism = require("scripts.tourism")
 local illness = require("scripts.illness")
+local gear_speed = require("scripts.gear_speed")
 local militia = require("scripts.militia")
 local armory = require("scripts.armory")
 local patrol = require("scripts.patrol")
@@ -1827,6 +1828,7 @@ function M.evaluate(data)
   M.serve_theatres(colony, houses, occ)   -- #48 slice B: may raise recreation and inspiration quality in place
   M.compute_inspiration(colony, split, houses)
   illness.evaluate(colony, rotten)
+  gear_speed.apply(colony)   -- #69: issued exos harnesses double the colonists' movement speed
   local kept = {}
   for _, a in ipairs(colony.deaths) do if a < 40 then kept[#kept + 1] = a + 1 end end
   colony.deaths = kept
@@ -2719,6 +2721,7 @@ events.on(defines.events.on_object_destroyed, function(ev)
 end)
 
 work.bind(M); gui.bind(M, ledger_signal); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M); commute.bind(M, transit); illness.bind(M)   -- avoids a require cycle (runtime require is illegal)
+gear_speed.bind(M)
 -- #51: the tourism adapter owns the trip's engine side; transit calls back into it on board/alight/loss.
 tourism.bind(M, transit); transit.bind_tourism(tourism)
 ledger_signal.bind(M)

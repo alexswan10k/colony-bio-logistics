@@ -7,6 +7,7 @@
 -- as for commuters (#50), and is released on arrival home, on coach loss or on the stranded walk home.
 local tourism = require("scripts.model.tourism")
 local resorts = require("scripts.model.resorts")
+local hotels = require("scripts.model.hotels")
 local work = require("scripts.work")
 local M = {}
 
@@ -81,6 +82,17 @@ function M.arrive_at_host(colony, batch, spawned)
   -- A Resort host marks the visit: the returning coach group carries the flag and pays double insights at
   -- home (#69). A Spa host leaves it nil, so an untouched tourism town is bit-identical.
   local has_resort = #colony_mod.resort_list(colony) > 0
+  -- A Grand Hotel only pays its premium while its own chest can serve every arriving guest an ale.
+  local grands = colony_mod.grand_list(colony)
+  local has_grand = false
+  if #grands > 0 then
+    local ale = 0
+    for _, g in ipairs(grands) do ale = ale + (g.entity.get_item_count(hotels.ALE) or 0) end
+    has_grand = hotels.premium(ale, #spawned)
+    if has_grand then
+      for _, g in ipairs(grands) do g.entity.remove_item{name = hotels.ALE, count = #spawned} end
+    end
+  end
   for _, e in ipairs(spawned) do
     local un = e.unit_number
     local st = storage.unit_state[un]
@@ -90,7 +102,9 @@ function M.arrive_at_host(colony, batch, spawned)
     end
     storage.unit_state[un] = {colony_id = colony.id, job = "travel", state = "visiting"}
     storage.unit_state[un].tourist_resort = has_resort or nil
-    storage.tourists[un] = {home = batch.home, host = colony.id, ["until"] = until_tick, resort = has_resort or nil}
+    storage.unit_state[un].tourist_grand = has_grand or nil
+    storage.tourists[un] = {home = batch.home, host = colony.id, ["until"] = until_tick,
+      resort = has_resort or nil, grand = has_grand or nil}
   end
 end
 
@@ -201,7 +215,7 @@ local function run_host(colony)
     elseif tourism.visit_over(game.tick, rec["until"], night) then
       if not (p and work.send_to_platform(colony, un, p,
           {tourist_return = true, tourist_home = rec.home, tourist_visited = true,
-           tourist_resort = rec.resort or nil, wait_since = game.tick},
+           tourist_resort = rec.resort or nil, tourist_grand = rec.grand or nil, wait_since = game.tick},
           "heading home 🚉")) then
         if walk_home(colony, un) then walked = walked + 1 end
       end
@@ -247,7 +261,7 @@ local function run_home(colony)
     if host and host.hall.valid and host.hall.surface == colony.hall.surface and tourism.host_ok(colony.id, id)
         and #colony_mod.spa_list(host) > 0 and platform(host) then
       local cap = resorts.host_capacity(#colony_mod.spa_list(host), #colony_mod.resort_list(host),
-        visitors_at(id), inbound_to(id), waiting_to(id))
+        visitors_at(id), inbound_to(id), waiting_to(id), #colony_mod.grand_list(host))
       if cap > 0 then
         want = want + cap
         if not target then target = id end

@@ -70,7 +70,7 @@ end
 -- group is consumed by transit.alight, so neither can pay twice.
 function M.credited(group, here)
   if not M.earns_insight(group, here) then return 0 end
-  return resorts.insights(group.resort, group.n)
+  return resorts.insights(group.resort, group.n, group.grand)
 end
 
 -- One evaluation of half-life decay: after INSIGHT_HALF_LIFE evaluations a stat is worth half as much.

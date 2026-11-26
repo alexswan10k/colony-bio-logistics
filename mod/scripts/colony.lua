@@ -54,6 +54,7 @@ local breeding = require("scripts.model.breeding")
 local pods = require("scripts.model.pods")
 local nursery = require("scripts.model.nursery")
 local resorts = require("scripts.model.resorts")
+local hotels = require("scripts.model.hotels")
 local training = require("scripts.model.training")
 local hydroponics = require("scripts.hydroponics")
 local eva_repair = require("scripts.eva_repair")
@@ -86,6 +87,7 @@ M.CEMETERY = "colony-cemetery"
 M.CANTEEN = "colony-canteen"
 M.SPA = "colony-spa"
 M.RESORT = resorts.RESORT
+M.GRAND_HOTEL = hotels.GRAND
 M.ARMORY = "colony-armory"
 M.PATROL_POST = "colony-patrol-post"
 M.NURSERY = nursery.NURSERY   -- #69: worker-free off-world breeding amenity (lazy registry, no schema)
@@ -278,6 +280,18 @@ function M.training_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.training_centers[un] end
+  return out
+end
+
+-- Grand Hotels (#69), in a stable order; lazy registry like Spas, no schema.
+function M.grand_list(colony)
+  local ids = {}
+  for un, h in pairs(colony.grand_hotels or {}) do
+    if h.entity.valid then ids[#ids + 1] = un else colony.grand_hotels[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.grand_hotels[un] end
   return out
 end
 
@@ -2042,7 +2056,8 @@ function M.evaluate(data)
     sickness = pop > 0 and (colony.sick_count or 0) / pop or 0,
     tents = tents, open_jobs = open_jobs, privacy = privacy, commute = work_walk,
     tourism = colony.insights or 0,
-    hospitality = resorts.hospitality(#M.resort_list(colony) > 0, #tourism.here(colony)),
+    hospitality = resorts.hospitality(#M.resort_list(colony) > 0, #tourism.here(colony),
+      #M.grand_list(colony) > 0),
     death_halflife = mortality_model.halflife(desirability.defaults.death_halflife, #M.cemetery_list(colony) > 0),
   })
   colony.d, colony.d_parts = d, parts
@@ -2256,7 +2271,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif (M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or name == M.NURSERY or name == M.HYDRO_BAY or name == M.EVA_AIRLOCK or name == M.RESORT or name == M.TRAINING_CENTER or M.HOUSES[name] or labour.HUTS[name]) and not core.is_core(name) then
+    elseif (M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or name == M.NURSERY or name == M.HYDRO_BAY or name == M.EVA_AIRLOCK or name == M.RESORT or name == M.GRAND_HOTEL or name == M.TRAINING_CENTER or M.HOUSES[name] or labour.HUTS[name]) and not core.is_core(name) then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -2525,6 +2540,13 @@ local function on_built(ev)
     colony.canteens = colony.canteens or {}
     colony.canteens[e.unit_number] = {entity = e, colony_id = colony.id, inflight = {}}
     script.register_on_object_destroyed(e)
+  elseif name == M.GRAND_HOTEL then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.grand_hotels = colony.grand_hotels or {}
+    colony.grand_hotels[e.unit_number] = {entity = e, colony_id = colony.id}
+    script.register_on_object_destroyed(e)
   elseif name == M.TRAINING_CENTER then
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
@@ -2660,7 +2682,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or core.is_core(item_name) or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.NURSERY or item_name == M.HYDRO_BAY or item_name == M.EVA_AIRLOCK or item_name == M.RESORT or item_name == M.TRAINING_CENTER or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.NURSERY or item_name == M.HYDRO_BAY or item_name == M.EVA_AIRLOCK or item_name == M.RESORT or item_name == M.GRAND_HOTEL or item_name == M.TRAINING_CENTER or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -2872,6 +2894,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.canteens and colony.canteens[un] then
       colony.canteens[un] = nil
+      return
+    end
+    if colony.grand_hotels and colony.grand_hotels[un] then
+      colony.grand_hotels[un] = nil
       return
     end
     if colony.training_centers and colony.training_centers[un] then

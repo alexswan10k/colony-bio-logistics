@@ -19,6 +19,7 @@ local eva = require("scripts.model.eva")
 local resorts = require("scripts.model.resorts")
 local training = require("scripts.model.training")
 local science = require("scripts.model.science")
+local hotels = require("scripts.model.hotels")
 local labour = require("scripts.model.labour")
 local gear = require("scripts.model.gear")
 local labour = require("scripts.model.labour")
@@ -41,7 +42,7 @@ core.register("m4_gear", {
     for _, name in ipairs({"colony-tungsten-pickaxe", "colony-exoskeleton-harness", "colony-panacea-serum",
       "colony-cryo-pod", "colony-nursery", "colony-hydroponics-bay", "colony-eva-airlock", "colony-eva-jetpack",
       "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
-      "colony-federation-plating", "colony-federation-vault", "colony-resort",
+      "colony-federation-plating", "colony-federation-vault", "colony-resort", "colony-grand-hotel",
       "colony-space-training-center", "colony-sovereignty-pack", "colony-federation-archive",
       "colony-cryo-warehouse", "colony-fusion-arcology"}) do
       ctx.check(name .. " is a real item", prototypes.item[name] ~= nil)
@@ -119,8 +120,10 @@ core.register("m4_gear", {
         and f.recipes["colony-eva-airlock"].enabled == true
         and f.recipes["colony-eva-jetpack"].enabled == true
         and f.recipes["colony-federation-plating"].enabled == true
-        and f.recipes["colony-federation-vault"].enabled == true,
-      "federation=" .. tostring(f.recipes["colony-federation-vault"].enabled))
+        and f.recipes["colony-federation-vault"].enabled == true
+        and f.recipes["colony-grand-hotel"].enabled == true,
+      "federation=" .. tostring(f.recipes["colony-federation-vault"].enabled)
+        .. " grand=" .. tostring(f.recipes["colony-grand-hotel"].enabled))
     local rail_effects = prototypes.technology["colony-rail-transit"].effects or {}
     local resort_unlocked = false
     for _, e in ipairs(rail_effects) do if e.recipe == "colony-resort" then resort_unlocked = true end end
@@ -147,6 +150,10 @@ core.register("m4_gear", {
       training.pop_ok(4, 100, nil) == false and training.pop_ok(5, 100, nil) == true
         and training.can_launch(6, 100, nil, {["colony-canned-meat"] = 2, ["colony-water"] = 2}) == true
         and training.can_launch(6, 100, nil, {}) == false)
+    ctx.check("a Grand Hotel hosts eight and triples insights only when served",
+      hotels.CAPACITY == 8 and hotels.premium(2, 2) == true and hotels.premium(1, 2) == false
+        and resorts.host_capacity(0, 0, 0, 0, 0, 1) == 8
+        and resorts.insights(false, 2, true) == 6)
     ctx.check("a resort hosts four visitors and doubles insights",
       resorts.host_capacity(1, 1, 0, 0, 0) == 6 and resorts.insights(true, 2) == 4
         and resorts.hospitality(true, 2) == 4)
@@ -184,6 +191,8 @@ core.register("m4_gear", {
     storage.interval_override = 600
     local c = storage.colonies[territory.owner_at(s.index, p)]
     ctx.check("colony registered", c ~= nil)
+    local grand = build("colony-grand-hotel", {p.x + 4, p.y + 12})
+    ctx.check("grand hotel built and registered", grand and grand.valid and c and c.grand_hotels[grand.unit_number] ~= nil)
     local resort = build("colony-resort", {p.x + 8, p.y + 10})
     ctx.check("resort built and registered", resort and resort.valid and c and c.resorts[resort.unit_number] ~= nil)
 

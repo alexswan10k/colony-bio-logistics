@@ -56,6 +56,7 @@ local nursery = require("scripts.model.nursery")
 local resorts = require("scripts.model.resorts")
 local training = require("scripts.model.training")
 local hydroponics = require("scripts.hydroponics")
+local eva_repair = require("scripts.eva_repair")
 local eva = require("scripts.model.eva")
 local stats = require("scripts.stats")
 local tech = require("scripts.tech")
@@ -1977,6 +1978,7 @@ function M.evaluate(data)
   M.compute_inspiration(colony, split, houses)
   illness.evaluate(colony, rotten)
   gear_speed.apply(colony)   -- #69: issued exos harnesses double the colonists' movement speed
+  eva_repair.dispatch(colony)  -- #69: one EVA repair trip per evaluation on a platform with damaged tiles
   local kept = {}
   for _, a in ipairs(colony.deaths) do if a < 40 then kept[#kept + 1] = a + 1 end end
   colony.deaths = kept
@@ -2928,6 +2930,7 @@ end)
 
 work.bind(M); gui.bind(M, ledger_signal); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M); commute.bind(M, transit); illness.bind(M)   -- avoids a require cycle (runtime require is illegal)
 gear_speed.bind(M)
+eva_repair.bind(M)
 -- #51: the tourism adapter owns the trip's engine side; transit calls back into it on board/alight/loss.
 tourism.bind(M, transit); transit.bind_tourism(tourism)
 ledger_signal.bind(M)

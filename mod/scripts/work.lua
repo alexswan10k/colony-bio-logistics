@@ -2738,6 +2738,7 @@ end
 -- Aborted trip: release reservations, claims and carried goods.
 function M.release(st)
   if not st then return end
+  st.eva_repair = nil   -- #69: a whistle/abort cancels the EVA trip; the finish timer becomes a no-op
   local colony = storage.colonies[st.colony_id]
   if colony and st.trailer then return_trailer(colony, st) end
   if colony and st.car then return_car(colony, st.pool); st.car = nil end
@@ -3175,6 +3176,7 @@ events.on(defines.events.on_ai_command_completed, function(ev)
   -- attack_area + by_enemy does not emit a completion while a target lives, and when one does fire it is
   -- only an early-release hint for the patrol adapter - work.lua must never reassign a patrolling unit.
   if st.state == "commanded" or st.state == "patrolling" or st.state == "patrol-engage" then return end
+  if st.state == "eva-repair" then return end   -- #69: the EVA finish timer owns this lease
   local colony = storage.colonies[st.colony_id]
   if not colony then return end
   if st.state == "to_platform" then

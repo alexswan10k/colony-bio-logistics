@@ -154,19 +154,25 @@ local clinic = chest_clone("iron-chest", "colony-clinic", "clinic", 8, 1)
 -- water and fresh produce and recycles spoilage, on a slow scheduler timer. No new fluid or item prototype:
 -- the bay is ordinary colony storage, and its chest is the whole interface for belts/inserters.
 local hydroponics = chest_clone("steel-chest", "colony-hydroponics-bay", "water-tower", 20, 1.5)
+-- Platform-native buildings (#69) clear the gravity condition they inherit from vanilla chests, exactly as
+-- the Habitat Dome does (#63); without this they cannot be placed on a platform's gravity-0 foundation.
+hydroponics.surface_conditions = nil
 -- EVA Airlock (#69, §9.3): the platform-side depot that issues jetpacks. Worker-free; the jetpack itself is
 -- carried in colony stock like any other issued gear, so there is no per-unit equipment state.
 local eva_airlock = chest_clone("iron-chest", "colony-eva-airlock", "passenger-platform", 8, 1)
+eva_airlock.surface_conditions = nil
 -- Federation Vault (#69): the third Civic Treatise consumer. A 3x3 bulk store whose plating is literally
 -- minted from Civic Treatises, so the second pack tier has a production chain, not just two research sinks.
 local federation_vault = chest_clone("steel-chest", "colony-federation-vault", "warehouse", 100, 1.5)
 -- Space Training Center (#69, §9.2): a worker-free depot that packs a volunteer into a fresh Cryo-Colonist
 -- Pod for launch. Reuses the Passenger Platform art until dedicated art exists.
 local training_center = chest_clone("iron-chest", "colony-space-training-center", "passenger-platform", 8, 1.5)
+training_center.surface_conditions = nil
 
 -- Nursery (#69, §9.1): a worker-free, pressurised cradle for off-world natural reproduction. Reuses the
 -- Clinic art until dedicated art exists; its only state is a lazy registry of positions (no schema).
 local nursery = chest_clone("iron-chest", "colony-nursery", "clinic", 6, 1)
+nursery.surface_conditions = nil
 
 -- Passenger Coach (#49): a vanilla cargo wagon, recoloured and renamed. Colonists ride it abstractly (no seats),
 -- so `inventory_size` stays at 1 and the wagon's own inventory is not used for passengers.

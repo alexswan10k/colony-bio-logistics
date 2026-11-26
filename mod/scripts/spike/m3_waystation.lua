@@ -4,7 +4,6 @@
 -- the registry survives a real entity lifecycle, and destroying the node really releases the ring.
 -- Run: scripts/headless-spike.sh m3_waystation
 local core = require("scripts.spike.core")
-local colony = require("scripts.colony")
 local territory = require("scripts.territory")
 local labour = require("scripts.model.labour")
 local ws = require("scripts.model.waystation")

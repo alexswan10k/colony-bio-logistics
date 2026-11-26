@@ -4,7 +4,7 @@
 local core = require("scripts.spike.core")
 local colony = require("scripts.colony")
 local recreation = require("scripts.model.recreation")
-local territory = require("scripts.territory")
+require("scripts.territory")
 
 local SERVING = "colony-status.tavern-serving"
 

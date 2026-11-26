@@ -56,7 +56,7 @@ local nursery = require("scripts.model.nursery")
 local resorts = require("scripts.model.resorts")
 local hotels = require("scripts.model.hotels")
 local training = require("scripts.model.training")
-local hydroponics = require("scripts.hydroponics")
+require("scripts.hydroponics")   -- self-registers its scheduler handlers; no local API used here
 local eva_repair = require("scripts.eva_repair")
 local launch_adapter = require("scripts.launch")
 local eva = require("scripts.model.eva")
@@ -1787,7 +1787,7 @@ function M.evaluate(data)
   -- up slowly. Bounded by wildlife.CAP, so this never grows with the town.
   wildlife.tick(colony, game.tick)
 
-  local pop = M.live_colonists(colony)
+  M.live_colonists(colony)   -- prune invalid colonists and warm the cache; the count is read again below
   local houses = M.house_list(colony)
   -- Water towers (#96): one pass builds the serve list; houses then drink from it nearest-first. Built once
   -- per evaluation, before the consumption loop, with fresh water counts.
@@ -2002,7 +2002,7 @@ function M.evaluate(data)
   for _, a in ipairs(colony.deaths) do if a < 40 then kept[#kept + 1] = a + 1 end end
   colony.deaths = kept
 
-  pop = M.live_colonists(colony)
+  local pop = M.live_colonists(colony)
   if (colony.scenic_n or 0) <= 0 then
     sample_scenic(colony)
     refresh_specialization(colony)

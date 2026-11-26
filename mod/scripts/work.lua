@@ -1287,21 +1287,21 @@ local function hut_offer(h)
         demands = demands}
     end
     if def.inputs then
-      local demands = {}
-      local contents = chest_contents(h.entity) or {}
+      local input_demands = {}
+      local input_contents = chest_contents(h.entity) or {}
       for _, inp in ipairs(def.inputs) do
         local target = inp.count
-        local have = (contents[inp.item] or 0) + (h.inflight[inp.item] or 0)
+        local have = (input_contents[inp.item] or 0) + (h.inflight[inp.item] or 0)
         local deficit = target - have
         local threshold = math.floor(target * 0.5)
         if deficit > 0 and (have <= threshold or deficit >= 3 or (h.priority and h.priority <= 2)) then
-          demands[#demands + 1] = {item = inp.item, count = deficit}
+          input_demands[#input_demands + 1] = {item = inp.item, count = deficit}
         end
       end
-      if #demands > 0 then
+      if #input_demands > 0 then
         return {kind = "supply", hut = h, entity = h.entity, pos = h.entity.position,
           priority = haul_plan.PRIORITY.request, building_priority = h.priority or 3, key = h.entity.unit_number,
-          demands = demands}
+          demands = input_demands}
       end
     end
     return nil
@@ -1668,8 +1668,8 @@ scheduler.register("work.machine_sweep", function(d)
         local state = "ok"
         if need then
           state = "wait"
-          for _, d in ipairs(need) do
-            if colony_mod.stock_count(colony, d.item) <= 0 and (m.inflight[d.item] or 0) <= 0 then state = "starved"; break end
+          for _, req in ipairs(need) do
+            if colony_mod.stock_count(colony, req.item) <= 0 and (m.inflight[req.item] or 0) <= 0 then state = "starved"; break end
           end
         end
         if state ~= m.badge_state and m.badge and m.badge.valid then
@@ -1930,7 +1930,7 @@ local function find_construct_site(colony, pos)
         local cost = construct.cost(g.ghost_prototype.items_to_place_this)
         if #cost > 0 and construct.affordable(cost, stock_map(colony, cost)) then
           local d = dist2(g.position, pos)
-          if not best_d or d < best_d then best, best_d, best_kind, best_cost = g, d, "build", cost end
+          if not best_d or d < best_d then best, best_d, best_cost = g, d, cost end
         end
       end
     else colony.ghosts[k] = nil end
@@ -2109,8 +2109,7 @@ local function haul_trip(colony, task)
     if src and src.entity and src.entity.valid then pickup = src.entity.position end
   end
 
-  local dest, state = nil, "to_house"
-  local dest_entity = nil
+  local dest, state, dest_entity
   if task.kind == "collect" then
     dest_entity = task.target and task.target.entity
     dest = (dest_entity and dest_entity.valid and dest_entity.position) or colony.hall.position
@@ -2895,8 +2894,8 @@ scheduler.register("work.finish", function(d)
       -- A tool is made from the wood, iron and copper in the Toolsmith's own chest, then carried home like any yield.
       local tool, recipe = toolsmith_pick(colony, hut)
       if tool then
-        for ingredient, n in pairs(recipe) do hut.entity.remove_item{name = ingredient, count = n} end
-        for ingredient, n in pairs(recipe) do stats.consumed(colony, ingredient, n) end
+        for ingredient, count in pairs(recipe) do hut.entity.remove_item{name = ingredient, count = count} end
+        for ingredient, count in pairs(recipe) do stats.consumed(colony, ingredient, count) end
         item, n = tool, 1
         M.tools_made = M.tools_made + 1
         rendering.draw_text{text = {"colony-message.workshop-made", "[item=" .. tool .. "]"}, surface = hut.entity.surface,
@@ -3005,7 +3004,6 @@ scheduler.register("work.finish", function(d)
     end
     local lock = colony.locks and colony.locks[d.un]
     if not M.is_sleep_time(e.surface) and have and (not lock or lock == "research") then
-      local e = colony.colonists[d.un]
       if e and e.valid and hut.entity.valid then
         e.commandable.set_command{type = defines.command.stop, ticks_to_wait = 4294967295, distraction = defines.distraction.none}
         work_ring(e, hut.entity.position)

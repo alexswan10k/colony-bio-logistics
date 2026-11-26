@@ -114,7 +114,7 @@ core.register("m4_dome", {
     end
     ctx.check("six colonists spawned at the dome", initial_pop == 6, tostring(initial_pop))
     ctx.probe("handlers right after founding", function()
-      local _h, summary = scheduled_for(c.id); return summary
+      local _, summary = scheduled_for(c.id); return summary
     end)
 
     -- A second dome INSIDE the founding territory: new emitter, new beds, no new colony.

@@ -46,7 +46,7 @@ core.register("m2_tower", {
       ctx.power_at({x = tower.position.x, y = tower.position.y})
       -- Push water straight into the machine's fluid box; if this API shape moves, the probe prints why.
       ctx.probe("water pushed into the tower's fluid box", function()
-        local ok, res = tower.add_fluid(1, {name = "water", amount = 1000})
+        local _, res = tower.add_fluid(1, {name = "water", amount = 1000})
         return tostring(res)
       end)
     end

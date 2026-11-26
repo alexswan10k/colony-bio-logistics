@@ -11,8 +11,8 @@ local command_model = require("scripts.model.command")
 local patrol_model = require("scripts.model.patrol")
 local M = {}
 
-local colony_mod   -- injected by scripts.colony via M.bind
-function M.bind(c) colony_mod = c end
+-- M.bind stays part of the bind protocol; this adapter needs no colony reference.
+function M.bind() end
 
 local militia_mod  -- injected by scripts.colony via M.bind_militia (cycle-safe)
 function M.bind_militia(m) militia_mod = m end
@@ -137,7 +137,6 @@ end
 --- (to bed at night, back on duty by day). The follow-up reassign is the SAME handler a whistle lease uses.
 function M.end_patrol(colony, un, reason)
   if not (colony and colony.patrols) then return end
-  local rec = colony.patrols[un]
   local st = storage.unit_state and storage.unit_state[un]
   colony.patrols[un] = nil
   if not st then return end
@@ -231,7 +230,7 @@ scheduler.register("patrol.step", function(d)
   if wp then
     local dx, dy = wp.x - pos.x, wp.y - pos.y
     if dx * dx + dy * dy <= patrol_model.REACH * patrol_model.REACH then
-      local next_wp, next_idx = patrol_model.next_waypoint(rec.route, rec.idx)
+      local _, next_idx = patrol_model.next_waypoint(rec.route, rec.idx)
       rec.idx = next_idx or 1
     end
   end
@@ -343,7 +342,7 @@ local function on_command_completed(ev)
     rec.attempts = (rec.attempts or 0) + 1
     if rec.attempts >= patrol_model.MAX_PATH_ATTEMPTS then
       if failing then rec.blacklist[failing] = game.tick + patrol_model.BLACKLIST_TICKS end
-      local next_wp, next_idx = patrol_model.next_waypoint(rec.route, rec.idx)
+      local _, next_idx = patrol_model.next_waypoint(rec.route, rec.idx)
       rec.idx, rec.attempts = next_idx or 1, 0
     else
       keep = true   -- keep for the next failed path

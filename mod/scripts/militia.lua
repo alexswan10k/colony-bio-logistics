@@ -12,8 +12,8 @@ local armour = require("scripts.model.armour")
 local garrison = require("scripts.model.garrison")
 local M = {}
 
-local colony_mod   -- injected by scripts.colony via M.bind
-function M.bind(c) colony_mod = c end
+-- M.bind stays part of the bind protocol; this adapter needs no colony reference.
+function M.bind() end
 
 M.RANGE = garrison.RANGE       -- scan a militia's surroundings like a posted guard (16 tiles)
 M.ATTACK_RANGE = 14            -- the colonist hitscan range; script strikes only land within it
@@ -88,9 +88,7 @@ function M.return_gear(colony, st, un)
   for _, item in ipairs({gear.weapon, gear.armour}) do
     if item then
       -- A mined or full Armory falls back to the hall, so gear is never dropped with its owner.
-      if source and armory.put(colony, source, item, 1) > 0 then
-        -- returned to its source
-      elseif hall and hall.valid then
+      if not (source and armory.put(colony, source, item, 1) > 0) and hall and hall.valid then
         hall.insert{name = item, count = 1}
       end
     end
@@ -238,7 +236,7 @@ end
 -- player's new lock takes effect. Called by work.assign when the unit is no longer locked to militia.
 function M.demobilize(colony, un, e, st)
   M.return_gear(colony, st, un)
-  local nun, new = swap_entity(colony, un, e, st, "colony-colonist")
+  local nun = swap_entity(colony, un, e, st, "colony-colonist")
   if not nun then return nil end
   storage.unit_state[nun] = {colony_id = colony.id, state = "idle"}
   work.clear_label(nun)
@@ -390,7 +388,7 @@ events.on(defines.events.on_entity_damaged, function(ev)
   local hp = e.health
   -- Armour never revives: if the engine already took this unit to 0 health (a lethal hit), do not heal.
   if hp <= 0 then return end
-  local healed = 0
+  local healed
   if armour.is_shield(gear.armour) then
     -- The Fulgora shield is a flat, finite pool rather than a percentage (#69): the absorbed part is healed
     -- back and the charge is spent now, then refilled by the scan timer. No second percentage applies.

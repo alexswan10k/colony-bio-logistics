@@ -204,7 +204,6 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
   -- 1. Requesters: check active providers (direct delivery) first, then storage
   for _, r in ipairs(requesters) do
     local r_pos = r.pos or (r.entity and r.entity.position) or {x = 0, y = 0}
-    local matched_direct = false
 
     -- A. Direct delivery from active providers
     local direct_providers = {}
@@ -252,7 +251,6 @@ function M.match(requesters, providers, storages, compost_offers, cap, hauler_po
             pan = p.pan,
             well = p.well,
           }
-          matched_direct = true
           break
         end
       end

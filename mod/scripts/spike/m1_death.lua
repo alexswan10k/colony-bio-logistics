@@ -56,8 +56,7 @@ core.register("m1_death", {
     local cem = build("colony-cemetery", {p.x + 8, p.y + 6})
     ctx.check("2 cemetery registered", cem and cem.valid and c.cemeteries[cem.unit_number] ~= nil)
     local car = s.create_entity{name = "car", position = {p.x - 30, p.y + 30}, force = "player"}
-    un, victim = pick()
-    at = victim.position
+    victim = select(2, pick())
     victim.die("player", car)
     ctx.check("2 cause recorded as vehicle", c.last_death == "vehicle", tostring(c.last_death))
     ctx.check("2 buried in the cemetery, no field grave", c.cemeteries[cem.unit_number].graves == 1 and c.buried == 1

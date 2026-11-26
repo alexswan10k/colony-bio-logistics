@@ -11,7 +11,7 @@
 -- waypoints are added through the same adapter API those gestures call.
 -- Run: TICKS=9000 scripts/headless-spike.sh m3_patrol
 local core = require("scripts.spike.core")
-local colony = require("scripts.colony")
+require("scripts.colony")
 local work = require("scripts.work")
 local militia = require("scripts.militia")
 local patrol = require("scripts.patrol")
@@ -95,7 +95,6 @@ core.register("m3_patrol", {
       local rec = c.patrols[mun]
       ctx.check("dispatch timer starts an armed patrol", rec ~= nil and st.state == "patrolling"
         and #rec.route == 2, "state=" .. tostring(st.state) .. " route=" .. tostring(rec and #rec.route))
-      local seq = rec and rec.seq
 
       local loop = {t = 0, prev = nil, wrapped = false, indices = {}}
       local function loop_poll()
@@ -222,9 +221,9 @@ core.register("m3_patrol", {
         -- script.raise_event cannot synthesise this engine event on 2.1 (s18 found the same for custom
         -- inputs), so the handler is exposed for the regression.
         ctx.probe("[engine] synthetic on_ai_command_completed raise", function()
-          local ok, err = pcall(script.raise_event, defines.events.on_ai_command_completed,
+          local raised, raise_err = pcall(script.raise_event, defines.events.on_ai_command_completed,
             {unit_number = mun, result = defines.behavior_result.fail})
-          return ok and "raised" or ("rejected: " .. tostring(err))
+          return raised and "raised" or ("rejected: " .. tostring(raise_err))
         end)
         -- A failed path into a nest happens while the patrol is engaging that nest: give the lease a target
         -- unit number so the repeated-failure rule has something to blacklist (an unreachable target is the
@@ -310,7 +309,7 @@ core.register("m3_patrol", {
         local un2 = m2.unit_number
         ctx.after(patrol.DISPATCH_TICKS + 60, function()
           local active = 0
-          for _, rec in pairs(c.patrols) do if rec.post == pun then active = active + 1 end end
+          for _, patrol_rec in pairs(c.patrols) do if patrol_rec.post == pun then active = active + 1 end end
           ctx.check("the post fills both squad slots", active == 2 and c.patrols[mun] and c.patrols[un2],
             "active=" .. active)
           -- Real engine death. No direct registry manipulation in the spike.
@@ -326,7 +325,7 @@ core.register("m3_patrol", {
             local un3 = m3.unit_number
             ctx.after(patrol.DISPATCH_TICKS + 60, function()
               local active2 = 0
-              for _, rec in pairs(c.patrols) do if rec.post == pun then active2 = active2 + 1 end end
+              for _, patrol_rec in pairs(c.patrols) do if patrol_rec.post == pun then active2 = active2 + 1 end end
               ctx.check("post re-recruits after a death",
                 active2 == 2 and c.patrols[un3] ~= nil and c.patrols[mun] == nil,
                 "active=" .. active2 .. " replacement=" .. tostring(c.patrols[un3] ~= nil))

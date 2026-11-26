@@ -75,7 +75,7 @@ core.register("m1_commute", {
     ctx.check("line, stops and platforms", stopA.connected_rail ~= nil and stopB.connected_rail ~= nil
       and platA and platA.valid and platB and platB.valid)
     local loco1 = build("locomotive", {101, ROW}, defines.direction.east)
-    local coach = build("colony-passenger-coach", {108, ROW}, defines.direction.east)
+    build("colony-passenger-coach", {108, ROW}, defines.direction.east)
     local loco2 = build("locomotive", {115, ROW}, defines.direction.west)
     for _, l in ipairs({loco1, loco2}) do l.get_fuel_inventory().insert{name = "coal", count = 50} end
     local wait = {{type = "time", ticks = 300, compare_type = "and"}}

@@ -9,8 +9,8 @@ local armour = require("scripts.model.armour")
 local haul_plan = require("scripts.model.haul_plan")
 local M = {}
 
-local colony_mod   -- injected by scripts.colony via M.bind
-function M.bind(c) colony_mod = c end
+-- M.bind stays part of the bind protocol; this adapter needs no colony reference.
+function M.bind() end
 
 M.EQUIP_RANGE = defence.RADIUS   -- militia draws from an Armory within the same radius the aura covers
 M.MAX_LIMIT = 4                  -- at most four militia can be equipped from one Armory

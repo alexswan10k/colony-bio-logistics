@@ -3,7 +3,7 @@
 -- Run: TICKS=9000 scripts/headless-spike.sh m1_material
 local core = require("scripts.spike.core")
 local colony = require("scripts.colony")
-local work = require("scripts.work")
+require("scripts.work")
 local material_priority = require("scripts.model.material_priority")
 
 core.register("m1_material", {
@@ -67,12 +67,6 @@ core.register("m1_material", {
         end
       end
     end
-    local function every(ticks, fn, last)
-      ctx.after(ticks, function()
-        fn()
-        if game.tick - (fn.t0 or game.tick) < last then every(ticks, fn, last) end
-      end)
-    end
     -- Sample continuously for the first 2000 ticks.
     local t0 = game.tick
     local function poll()
@@ -104,7 +98,6 @@ core.register("m1_material", {
         -- The flip is proven if either a fresh copper site appeared or the iron site is now the
         -- lower-ranked one (rank 5) while copper (rank 1) would be found first by a new find.
         -- We check directly via the model: the best ore for a hut with no override is copper now.
-        local groups = nil
         -- Recompute via material_priority: copper score 1, iron 5
         local best_iron = material_priority.score(c.ratings, "iron-ore")
         local best_copper = material_priority.score(c.ratings, "copper-ore")

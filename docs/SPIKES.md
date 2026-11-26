@@ -28,6 +28,7 @@ After a run: `scripts/collect-results.sh`, then `scripts/post-results.sh spike-r
 | m2_gleba | #70 | `TICKS=19500 scripts/headless-spike.sh m2_gleba` | anywhere (headless ok) | Gleba Cuisine tech gate, Smokehouse cures fruit into jam, jam is house food / raw fruit is not |
 | s21_gleba_spores | #70 | `scripts/headless-spike.sh s21_gleba_spores` | headless, Nauvis | Swamp/spore engine facts: `planet:create_surface()` association, 2-arg `pollute` adds 15 spores, 3-arg "spores" errors, `tree.destroy()` emits none, `is_spore` guards Nauvis |
 | m4_swamp_fever | #70 | `scripts/headless-spike.sh m4_swamp_fever` | associated Gleba surface (headless ok) | Natural Swamp Fever catch on duty, Clinic cure, untreated death, seeded counters/desirability, and a real `scheduler → work.finish` smokehouse trip emitting 15 spores with a Nauvis zero control |
+| m4_vulcanus_heat | #70 | `TICKS=1800 scripts/headless-spike.sh m4_vulcanus_heat` | headless, associated Vulcanus surface + Nauvis control | Nil `pollutant_type`, off-world pollution read as clean, dome-founded colony, natural Heat Stroke catch in the open, dome shelter, Clinic cure, untreated death, Nauvis zero control |
 | m1_tech | #54 | `scripts/headless-spike.sh m1_tech` | anywhere (headless ok) | Colony tech graph integrity: reachability, lab coverage, vanilla interlocks, unconsumed packs |
 
 Suggested order (fast→slow, riskiest first): s01, s02, s05, s09, s08, s07, s03, s04, s06, s10, s11.

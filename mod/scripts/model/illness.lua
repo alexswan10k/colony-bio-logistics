@@ -4,13 +4,17 @@
 --   * Smoker's Lung: breathing the colony's pollution. Never passes on its own and kills if untreated.
 --   * Food Poisoning: a house eating food that is nearly spoiled. Passes on its own after a few evaluations.
 --   * Swamp Fever (#70): working on a spore surface (Gleba). Never passes on its own, kills if untreated.
+--   * Heat Stroke (#70): working in the open on Vulcanus, away from a pressurized Habitat Dome. Off-world
+--     surfaces have no pollutant type, so this is keyed on planet identity, not pollution. Fatal untreated.
 -- No contagion (yet). A sick colonist works at half speed. A Clinic's doctors cure patients, one Herbal Medicine
 -- each. Rolls are a hash of (unit number, tick, salt) so a run is deterministic and needs no stored generator.
+local vulcanus = require("scripts.model.vulcanus")
 local M = {}
 
 M.LUNG_RATE = 0.02        -- chance per evaluation at full pollution (scales linearly with the pollution ratio)
 M.POISON_RATE = 0.3       -- chance per occupant when the house eats nearly spoiled food
 M.SWAMP_RATE = 0.04       -- chance per evaluation at full spore exposure (Gleba; #70)
+M.HEAT_RATE = vulcanus.HEAT_RATE  -- chance per evaluation in the Vulcanus open air (#70)
 M.ROTTEN = 0.75           -- spoil fraction at which food counts as nearly spoiled
 M.CURES_PER_DOCTOR = 2    -- patients one doctor on duty cures per evaluation
 M.MEDICINE = "colony-herbal-medicine"
@@ -20,6 +24,7 @@ M.DISEASES = {
   lung = {fatal_after = 40},           -- evaluations untreated before it kills
   poison = {recovers_after = 4},       -- evaluations before it passes by itself
   swamp_fever = {fatal_after = 24},    -- evaluations untreated before it kills (Gleba; #70)
+  heat_stroke = {fatal_after = vulcanus.FATAL_AFTER},  -- untreated in the Vulcanus heat (#70)
 }
 
 -- Only a colonist actually on a job breathes spores at work (#70 review). This is the full on-duty state
@@ -42,7 +47,8 @@ end
 -- Does a colonist catch `kind` this evaluation? `exposure` is 0..1 (pollution ratio, spore exposure,
 -- or 1 for a rotten meal). Unknown kinds have no rate: the old fallback handed them POISON_RATE, the
 -- most lethal rate in the game, which was a bug.
-local RATES = {lung = M.LUNG_RATE, poison = M.POISON_RATE, swamp_fever = M.SWAMP_RATE}
+local RATES = {lung = M.LUNG_RATE, poison = M.POISON_RATE, swamp_fever = M.SWAMP_RATE,
+  heat_stroke = M.HEAT_RATE}
 function M.catches(kind, exposure, r)
   local rate = RATES[kind] or 0
   return r < rate * math.max(0, math.min(exposure or 0, 1))

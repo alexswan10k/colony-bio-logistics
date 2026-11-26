@@ -143,7 +143,7 @@ local migrations = {
   end,
   [27] = function()
     -- Illness (#47, #70): storage.sick [unit_number] = {kind = "lung"|"poison"|"swamp_fever", age}; colonies
-    -- gain sick_count / sick_lung / sick_poison / sick_swamp_fever on their next evaluation; "heal" joins the
+    -- gain sick_count / sick_lung / sick_poison / sick_swamp_fever / sick_heat_stroke on their next evaluation; "heal" joins the
     -- job matrix at its default rank.
     storage.sick = storage.sick or {}
   end,

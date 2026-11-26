@@ -2,6 +2,7 @@
 -- once per colony evaluation: exposure rolls, the Clinic's cures, and untreated illness running its course.
 local illness = require("scripts.model.illness")
 local gleba = require("scripts.model.gleba")
+local vulcanus = require("scripts.model.vulcanus")
 local planet = require("scripts.planet")
 local mortality = require("scripts.mortality")
 local commute = require("scripts.commute")
@@ -87,12 +88,38 @@ function M.evaluate(colony, rotten)
   -- the whole evaluation (including the untreated course below, which then sees no patients).
   local panacea = gear.present(colony_mod.stock_table(colony), gear.ITEM.panacea)
 
+  -- Distance to the nearest live Habitat Dome on a colonist's own surface. Built once per evaluation, and only
+  -- if someone is actually on Vulcanus: Nauvis towns never pay for this scan (their dome_list is empty anyway).
+  local domes
+  local function heat_exposure(e, surface)
+    if not domes then
+      domes = {}
+      if colony_mod and colony_mod.dome_list then
+        for _, d in ipairs(colony_mod.dome_list(colony)) do
+          local de = d.entity
+          if de and de.valid then domes[#domes + 1] = {pos = de.position, surface = de.surface} end
+        end
+      end
+    end
+    local nearest
+    for _, d in ipairs(domes) do
+      if d.surface == surface then
+        local dx, dy = e.position.x - d.pos.x, e.position.y - d.pos.y
+        local dist = math.sqrt(dx * dx + dy * dy)
+        if not nearest or dist < nearest then nearest = dist end
+      end
+    end
+    return vulcanus.exposure(nearest)
+  end
+
   -- Exposure. Colonists breathe the air of the surface they are actually standing on: on a spore surface an
-  -- on-duty colonist catches Swamp Fever (#70) from the local spore pollution. An ordinary (non-spore) surface
-  -- still has Smoker's Lung from the colony's pollution, and a house that ate rotten food may poison its occupants
-  -- on ANY surface -- so spore pollution can never fall through the elseif chain into a lung case.
-  -- Every colonist gets at most one disease per evaluation (the if/elseif chain).
-  local fell = {lung = 0, poison = 0, swamp_fever = 0}
+  -- on-duty colonist catches Swamp Fever (#70) from the local spore pollution. On Vulcanus an on-duty colonist
+  -- working in the open catches Heat Stroke (#70) from the planet's own heat, which needs no pollution reading
+  -- at all (pollutant_type is nil off-world). An ordinary surface still has Smoker's Lung from the colony's
+  -- pollution, and a house that ate rotten food may poison its occupants on ANY surface -- so neither spore
+  -- pollution nor Vulcanus heat can fall through the elseif chain into a lung case. Every colonist gets at most
+  -- one disease per evaluation (the if/elseif chain).
+  local fell = {lung = 0, poison = 0, swamp_fever = 0, heat_stroke = 0}
   local pollution = colony.pollution or 0
   local home_of
   if next(rotten) then
@@ -110,7 +137,10 @@ function M.evaluate(colony, rotten)
       if planet.is_gleba(es) and illness.on_duty(st)
           and illness.catches("swamp_fever", gleba.exposure(es.get_pollution(e.position)), illness.roll(un, tick, 3)) then
         kind = "swamp_fever"
-      elseif not planet.is_spore(es) and pollution > 0
+      elseif planet.is_vulcanus(es) and illness.on_duty(st)
+          and illness.catches("heat_stroke", heat_exposure(e, es), illness.roll(un, tick, 4)) then
+        kind = "heat_stroke"
+      elseif not planet.is_spore(es) and not planet.is_vulcanus(es) and pollution > 0
           and illness.catches("lung", pollution, illness.roll(un, tick, 1)) then kind = "lung"
       elseif home_of and home_of[un] and illness.catches("poison", 1, illness.roll(un, tick, 2)) then kind = "poison" end
       if kind then
@@ -119,7 +149,7 @@ function M.evaluate(colony, rotten)
       end
     end
   end
-  for _, kind in ipairs({"lung", "poison", "swamp_fever"}) do
+  for _, kind in ipairs({"lung", "poison", "swamp_fever", "heat_stroke"}) do
     if fell[kind] > 0 then colony.hall.force.print({"colony-message.fell-ill", fell[kind], {"colony-illness." .. kind}}) end
   end
 
@@ -147,7 +177,7 @@ function M.evaluate(colony, rotten)
   end
 
   -- Untreated illness runs its course.
-  local lung, poison, swamp = 0, 0, 0
+  local lung, poison, swamp, heat = 0, 0, 0, 0
   for _, un in ipairs(ids) do
     local rec = storage.sick[un]
     if rec then
@@ -156,11 +186,13 @@ function M.evaluate(colony, rotten)
       elseif outcome == "recovers" then storage.sick[un] = nil
       elseif rec.kind == "lung" then lung = lung + 1
       elseif rec.kind == "poison" then poison = poison + 1
-      elseif rec.kind == "swamp_fever" then swamp = swamp + 1 end
+      elseif rec.kind == "swamp_fever" then swamp = swamp + 1
+      elseif rec.kind == "heat_stroke" then heat = heat + 1 end
     end
   end
-  colony.sick_lung, colony.sick_poison, colony.sick_swamp_fever = lung, poison, swamp
-  colony.sick_count = lung + poison + swamp
+  colony.sick_lung, colony.sick_poison = lung, poison
+  colony.sick_swamp_fever, colony.sick_heat_stroke = swamp, heat
+  colony.sick_count = lung + poison + swamp + heat
 end
 
 return M

@@ -26,6 +26,14 @@ function M.is_platform(surface)
   return surface ~= nil and surface.platform ~= nil
 end
 
+-- Vulcanus itself (#70): planet association first, then a name fallback for script-created surfaces. Nil-safe
+-- and deliberately independent of `pollutant_type`, which is nil on every hostile world and on platforms.
+function M.is_vulcanus(surface)
+  if not surface then return false end
+  local name = (surface.planet and surface.planet.name) or surface.name
+  return name == "vulcanus"
+end
+
 -- Vulcanus, Fulgora and Aquilo (design §9.1). Gleba is life-friendly, so it is deliberately NOT hostile.
 -- Nil-safe on script-created surfaces with no planet; an optional name fallback covers those.
 local HOSTILE = {vulcanus = true, fulgora = true, aquilo = true}

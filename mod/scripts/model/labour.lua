@@ -48,6 +48,9 @@ M.HUTS = {
   ["colony-university"] = {job = "research", capacity = 4,
     keep = {"colony-frontier-pack", "colony-civic-pack"},
     inputs = {{item = "colony-frontier-pack", count = 10}, {item = "colony-civic-pack", count = 10}}},
+  -- #69: the dedicated second-pack lab. It staffs like the University but only wants Sovereign Codex packs.
+  ["colony-federation-archive"] = {job = "research", capacity = 2,
+    keep = {"colony-sovereignty-pack"}, inputs = {{item = "colony-sovereignty-pack", count = 10}}},
   -- Clinic (#47): doctors staff it while it holds medicine and someone is sick.
   ["colony-clinic"] = {job = "heal", capacity = 2, keep = {"colony-herbal-medicine"}, inputs = {{item = "colony-herbal-medicine", count = 10}}},
   -- Garrisoned Watchtower (#56): a guard post. The tower's stock room is the armory: bows and rifles/guns inside it

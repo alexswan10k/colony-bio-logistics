@@ -6,6 +6,7 @@ local pods = require("scripts.model.pods")
 local nursery = require("scripts.model.nursery")
 local hydro = require("scripts.model.hydroponics")
 local eva = require("scripts.model.eva")
+local science = require("scripts.model.science")
 
 describe("cross-planet gear", function()
   it("tungsten is a real third tier: more trips and faster work than steel", function()
@@ -87,6 +88,17 @@ describe("cross-planet gear", function()
     eq(nursery.in_radius({x = 10, y = 0}, {x = 0, y = 0}, 24), true)
     eq(nursery.in_radius({x = 25, y = 0}, {x = 0, y = 0}, 24), false)
     eq(nursery.in_radius(nil, {x = 0, y = 0}), false)
+  end)
+  it("the Sovereign Codex is a genuine third science tier (#69)", function()
+    eq(science.SOVEREIGNTY_PACK, "colony-sovereignty-pack")
+    eq(#science.PACKS_BY_LAB[science.FEDERATION_ARCHIVE], 1)
+    eq(science.PACKS_BY_LAB[science.FEDERATION_ARCHIVE][1], science.SOVEREIGNTY_PACK)
+    local has_sovereignty = false
+    for _, p in ipairs(science.PACKS_BY_LAB[science.UNIVERSITY]) do
+      if p == science.SOVEREIGNTY_PACK then has_sovereignty = true end
+    end
+    eq(has_sovereignty, false)
+    eq(science.wants(science.FEDERATION_ARCHIVE, {}, {})[1].item, science.SOVEREIGNTY_PACK)
   end)
   it("EVA crew needs an airlock and a jetpack on a platform (#69)", function()
     eq(eva.work_ticks(480, false, false), 480)

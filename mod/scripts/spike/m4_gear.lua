@@ -18,6 +18,8 @@ local hydroponics = require("scripts.hydroponics")
 local eva = require("scripts.model.eva")
 local resorts = require("scripts.model.resorts")
 local training = require("scripts.model.training")
+local science = require("scripts.model.science")
+local labour = require("scripts.model.labour")
 local gear = require("scripts.model.gear")
 local labour = require("scripts.model.labour")
 local housing = require("scripts.model.housing")
@@ -40,7 +42,8 @@ core.register("m4_gear", {
       "colony-cryo-pod", "colony-nursery", "colony-hydroponics-bay", "colony-eva-airlock", "colony-eva-jetpack",
       "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
       "colony-federation-plating", "colony-federation-vault", "colony-resort",
-      "colony-space-training-center", "colony-cryo-warehouse", "colony-fusion-arcology"}) do
+      "colony-space-training-center", "colony-sovereignty-pack", "colony-federation-archive",
+      "colony-cryo-warehouse", "colony-fusion-arcology"}) do
       ctx.check(name .. " is a real item", prototypes.item[name] ~= nil)
       ctx.check(name .. " has a recipe", prototypes.recipe[name] ~= nil)
     end
@@ -80,6 +83,20 @@ core.register("m4_gear", {
     local consumes_civic = false
     for _, i in ipairs(plating_ing or {}) do if i.name == "colony-civic-pack" then consumes_civic = true end end
     ctx.check("Federation Plating is minted from Civic Treatises", consumes_civic)
+    local capstone = f.technologies["colony-transcendent-codex"]
+    local cing = capstone and capstone.research_unit_ingredients and capstone.research_unit_ingredients[1]
+    ctx.check("the capstone costs Sovereign Codex packs only",
+      capstone ~= nil and cing and cing.name == "colony-sovereignty-pack",
+      cing and cing.name or "?")
+    -- Engine fact pinned by this spike: LuaEntityPrototype does not expose `inputs` at runtime, so lab
+    -- coverage is asserted from the model the haulers actually use (science.PACKS_BY_LAB).
+    ctx.check("only the Federation Archive studies Sovereign Codex packs",
+      #science.PACKS_BY_LAB[science.FEDERATION_ARCHIVE] == 1
+        and science.PACKS_BY_LAB[science.FEDERATION_ARCHIVE][1] == science.SOVEREIGNTY_PACK
+        and science.PACKS_BY_LAB[science.UNIVERSITY][2] == science.CIVIC_PACK)
+    ctx.check("the Federation Archive staffs as a research lab",
+      labour.HUTS["colony-federation-archive"] ~= nil
+        and labour.HUTS["colony-federation-archive"].job == "research")
 
     f.technologies["colony-bio-ecological-data"].researched = true
     f.technologies["colony-sovereignty-codex"].researched = true

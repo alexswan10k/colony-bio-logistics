@@ -222,6 +222,10 @@ local archive = make_lab("colony-town-archive", "icon-town-archive.png", "town-a
   {"colony-frontier-pack"}, 1.0, 40)
 local university = make_lab("colony-university", "icon-university.png", "university.png", 2.0,
   {"colony-frontier-pack", "colony-civic-pack"}, 2.0, 100)
+-- #69: a genuine second-pack lab. It consumes ONLY the Sovereign Codex tier, so the final technology cannot
+-- be researched with Frontier Charters or Civic Treatises no matter how many of those the player stockpiles.
+local federation_archive = make_lab("colony-federation-archive", "icon-civic-pack.png", "university.png", 1.5,
+  {"colony-sovereignty-pack"}, 2.5, 80)
 -- Colony logistics crates (#33, design §5.1). Plain containers, not logistic chests: inserters and belts
 -- still work on them, but colony hauling is driven by our own registry so bots and colonists never fight
 -- over the same request.
@@ -393,7 +397,7 @@ ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while wal
 data:extend({
   hall, dome, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, theatre, plaza, spa, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, freight_crate, warehouse, haul_station, compost_bin,
-  cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity, nursery, hydroponics, eva_airlock, federation_vault, resort, training_center,
+  cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity, nursery, hydroponics, eva_airlock, federation_vault, resort, training_center, federation_archive,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(dome, "town-hall", "z[colony]-l0[dome]"),
@@ -405,6 +409,7 @@ data:extend({
   item_of(well, "well", "z[colony]-k1[well]"),
   item_of(archive, "town-archive", "z[colony]-k2[town-archive]"),
   item_of(university, "university", "z[colony]-k3[university]"),
+  item_of(federation_archive, "civic-pack", "z[colony]-k3[federation-archive]"),
   item_of(forager, "forager-hut", "z[colony]-d[forager-hut]"),
   item_of(woodcutter, "woodcutter-hut", "z[colony]-e[woodcutter-hut]"),
   item_of(miner, "miner-hut", "z[colony]-f[miner-hut]"),
@@ -472,6 +477,13 @@ data:extend({
    spoil_ticks = 60 * 60 * 60, spoil_result = "spoilage",
    localised_name = {"item-name.colony-civic-pack"},
    localised_description = {"item-description.colony-civic-pack"}},
+  -- #69: the true third science tier. Only the Federation Archive accepts it, so the capstone technology
+  -- must be studied in a lab dedicated to the second pack economy.
+  {type = "tool", name = "colony-sovereignty-pack", icon = G .. "icon-civic-pack.png", icon_size = 64,
+   subgroup = "science-pack", order = "z[colony]-s3[sovereignty-pack]", stack_size = 200, durability = 1,
+   spoil_ticks = 60 * 60 * 60, spoil_result = "spoilage",
+   localised_name = {"item-name.colony-sovereignty-pack"},
+   localised_description = {"item-description.colony-sovereignty-pack"}},
   {type = "item", name = "colony-farm-plot", icon = G .. "farm-plot-ripe.png", icon_size = 64,
    subgroup = "storage", order = "z[colony]-i[farm-plot]", place_result = "colony-farm-plot", stack_size = 50,
    localised_name = {"item-name.colony-farm-plot"}, localised_description = {"item-description.colony-farm-plot"}},
@@ -504,6 +516,7 @@ data:extend({
    localised_name = {"recipe-name.colony-water-bottling"}},
   recipe("colony-town-archive", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-university", {["stone-brick"] = 50, ["iron-plate"] = 30, ["electronic-circuit"] = 20}, 5, 1, false),
+  recipe("colony-federation-archive", {["steel-plate"] = 40, ["iron-plate"] = 30, ["electronic-circuit"] = 20}, 8, 1, false),
   {type = "recipe", name = "colony-frontier-pack", enabled = false, energy_required = 5,
    ingredients = {{type = "item", name = "wood", amount = 1},
                   {type = "item", name = "iron-plate", amount = 1},
@@ -570,6 +583,14 @@ data:extend({
    subgroup = "science-pack", order = "z[colony]-s2[frontier-pack-preserved-fish]",
    localised_name = {"recipe-name.colony-frontier-pack-preserved-fish"},
    localised_description = {"recipe-description.colony-frontier-pack-preserved-fish"}},
+  {type = "recipe", name = "colony-sovereignty-pack", enabled = false, energy_required = 12,
+   ingredients = {{type = "item", name = "colony-civic-pack", amount = 2},
+                  {type = "item", name = "colony-federation-plating", amount = 1}},
+   results = {{type = "item", name = "colony-sovereignty-pack", amount = 1}},
+   icon = G .. "icon-civic-pack.png", icon_size = 64,
+   subgroup = "science-pack", order = "z[colony]-s3[sovereignty-pack]",
+   localised_name = {"item-name.colony-sovereignty-pack"},
+   localised_description = {"item-description.colony-sovereignty-pack"}},
   {type = "recipe", name = "colony-civic-pack", enabled = false, energy_required = 8,
    ingredients = {{type = "item", name = "iron-gear-wheel", amount = 2},
                   {type = "item", name = "colony-bread", amount = 1},

@@ -221,5 +221,11 @@ data:extend({
   tech("colony-interplanetary-federation", "icon-civic-pack.png", 80, {"colony-civic-pack"}, 30,
     {"colony-sovereignty-codex"}, {
       unlock("colony-federation-plating"), unlock("colony-federation-vault"),
+      unlock("colony-sovereignty-pack"), unlock("colony-federation-archive"),
     }),
+  -- The capstone. Paid ONLY with Sovereign Codex packs, which the Federation Archive alone consumes: a real
+  -- second-pack science tier, not just another Civic Treatise cost. No new building - the achievement is the
+  -- self-sustaining pack economy itself, proved by research in the dedicated lab.
+  tech("colony-transcendent-codex", "icon-civic-pack.png", 80, {"colony-sovereignty-pack"}, 30,
+    {"colony-interplanetary-federation"}, {}),
 })

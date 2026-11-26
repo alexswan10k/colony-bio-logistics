@@ -50,11 +50,11 @@ Three headless gates cover the things the unit tests and the playable spike cann
   results for the five Gleba items, freshness inheritance in engine crafts, `always_fresh` product behaviour,
   cold-chain restamp, composting and spore/pollutant facts. `m2_gleba` (17 checks) then proves the colony
   Smokehouse refuses over-ripe fruit and produces jam only after the `colony-gleba-cuisine` tech is researched.
-- `scripts/headless-spike.sh s18_command` - the #58 RTS engine probe (23 checks): no `attack_move` in 2.1
+- `scripts/headless-spike.sh s18_command` - the #58 RTS engine probe (24 checks): no `attack_move` in 2.1
   (`attack_area` substitutes), `set_command` semantics and completion results, per-unit command completion,
-  and integrated checks that a lease release returns a commanded hunter's kill and that a stale construction
-  timer cannot overwrite a live order. Real mouse gestures cannot be raised from script — see the in-game
-  checklist on #58.
+  and integrated checks that a lease release returns a commanded hunter's kill, that a stale construction
+  timer cannot overwrite a live order and that a colonist dying mid-order is pruned from every player's
+  selection and lease. Real mouse gestures cannot be raised from script — see the in-game checklist on #58.
 - `scripts/headless-spike.sh m4_dome` - the #63 Habitat Dome integration spike (54 checks, `TICKS=6000`): a dome
   founds a colony with no hall on Nauvis, a second dome extends beds and territory, destroying the core promotes
   the lowest-unit-number dome and destroying the last one makes the colony dormant. Hostile worlds refuse a Town

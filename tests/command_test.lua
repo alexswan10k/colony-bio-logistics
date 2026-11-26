@@ -148,6 +148,48 @@ describe("command whistle (order precedence, #58)", function()
   end)
 end)
 
+-- Death cleanup (#58): a colonist killed under a whistle lease must not stay selected or leased. The pure
+-- rules are here; the adapter's redraw is pinned in the mock test below and in s18_command's real engine case.
+describe("command whistle death cleanup (#58)", function()
+  it("forgets a dead unit in every player's selection and drops only that unit's lease/owner", function()
+    local data = {selection = {[1] = {4, 7}, [2] = {7, 9}}, markers = {[1] = {"a"}, [2] = {"b"}},
+      owner = {[4] = 1, [7] = 1, [9] = 2}, leased = {[4] = true, [7] = true, [9] = true}, watchdog = true}
+    local out = command.forget_unit(data, 7)
+    eq(table.concat(out.selection[1], ","), "4")
+    eq(table.concat(out.selection[2], ","), "9")
+    eq(table.concat(out.changed, ","), "1,2")
+    eq(out.owner[7], nil)
+    eq(out.leased[7], nil)
+    eq(out.owner[4], 1)
+    eq(out.owner[9], 2)
+    eq(out.leased[4], true)
+    eq(out.leased[9], true)
+    eq(out.watchdog, true)
+    eq(out.markers[1][1], "a", "marker render objects pass through untouched for the adapter")
+    eq(data.selection[1][2], 7, "input untouched")
+    eq(data.owner[7], 1, "input untouched")
+  end)
+
+  it("reports only the players who had the unit and accepts the map selection form", function()
+    local data = {selection = {[3] = {[5] = true, [8] = true}, [4] = {[8] = true}}}
+    local out = command.forget_unit(data, 5)
+    eq(table.concat(out.selection[3], ","), "8")
+    eq(table.concat(out.selection[4], ","), "8")
+    eq(table.concat(out.changed, ","), "3")
+    eq(command.forget_unit(data, 5).changed[2], nil)
+  end)
+
+  it("is a no-op for nil data and an absent unit number", function()
+    eq(next(command.forget_unit(nil, 1).selection), nil)
+    eq(next(command.forget_unit(nil, 1).owner), nil)
+    local data = {selection = {[1] = {3}}, leased = {[3] = true}}
+    local out = command.forget_unit(data, nil)
+    eq(table.concat(out.selection[1], ","), "3")
+    eq(out.leased[3], true)
+    eq(next(out.changed), nil)
+  end)
+end)
+
 -- Regression for the review's MAJOR finding: work.lua's hunt kill-credit (on_entity_died) writes meat into
 -- st.carry whenever st.job == "hunt", even while state == "commanded". The old release_lease discarded the
 -- whole state table, so the meat vanished. This pins the adapter's release path (the s18_command spike pins
@@ -185,6 +227,35 @@ describe("command whistle release (item-loss regression, #58 review)", function(
     eq(storage.unit_state[7].carry, nil)
     eq(storage.command.leased[7], nil)
     eq(storage.command.owner[7], nil)
+  end)
+end)
+
+describe("command whistle death cleanup adapter (#58)", function()
+  it("prunes a dead unit from every selection, redraws only affected players and drops its lease", function()
+    local mock = require("tests.mock_factorio")
+    local env = mock.install(); env = env.reset()
+    package.loaded["scripts.work"] = {release = function() end, clear_label = function() end,
+      assign = function() end, is_sleep_time = function() return false end}
+    package.loaded["scripts.scheduler"] = {register = function() end, after = function() end}
+    local cmd = require("scripts.command")
+    local destroyed = 0
+    local function mark() return {valid = true, destroy = function() destroyed = destroyed + 1 end} end
+    storage.command = {selection = {[1] = {7, 9}, [2] = {7}},
+      markers = {[1] = {mark()}, [2] = {mark()}},
+      owner = {[7] = 1, [9] = 2}, leased = {[7] = true, [9] = true}}
+    storage.unit_state = {[7] = {colony_id = 1}, [9] = {colony_id = 1}}
+    storage.colonies = {[1] = {colonists = {[7] = {valid = true, surface = {}},
+      [9] = {valid = true, surface = {}}}}}
+    cmd.died(7)
+    eq(table.concat(storage.command.selection[1], ","), "9")
+    eq(table.concat(storage.command.selection[2], ","), "")
+    eq(storage.command.owner[7], nil)
+    eq(storage.command.leased[7], nil)
+    eq(storage.command.owner[9], 2)
+    eq(storage.command.leased[9], true)
+    eq(destroyed, 2, "both players had their old circles cleared")
+    eq(#storage.command.markers[1], 1, "player 1's surviving unit is redrawn")
+    eq(#storage.command.markers[2], 0, "player 2 keeps an empty selection")
   end)
 end)
 

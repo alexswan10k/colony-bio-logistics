@@ -178,6 +178,34 @@ function M.label_for(kind)
   return "⚑ moving"
 end
 
+-- Plain-data cleanup for a colonist that died while selected or leased. A dead unit can never be ordered
+-- again, so it is pruned from EVERY player's selection (last writer wins is irrelevant once it is gone) and
+-- its lease/owner entries are dropped immediately rather than lingering until the 300-tick watchdog. `changed` is
+-- the sorted list of player indices whose selection lost the unit; the adapter redraws only their circles.
+-- `markers` and `watchdog` pass through unchanged, and the input is never mutated.
+function M.forget_unit(data, un)
+  data = data or {}
+  local out = {selection = {}, markers = data.markers or {}, owner = {}, leased = {},
+    watchdog = data.watchdog, changed = {}}
+  for pi, sel in pairs(data.selection or {}) do
+    local list = to_list(sel)
+    local kept = {}
+    for _, u in ipairs(list) do
+      if u ~= un then kept[#kept + 1] = u end
+    end
+    out.selection[pi] = kept
+    if #kept ~= #list then out.changed[#out.changed + 1] = pi end
+  end
+  for u, owner in pairs(data.owner or {}) do
+    if u ~= un then out.owner[u] = owner end
+  end
+  for u in pairs(data.leased or {}) do
+    if u ~= un then out.leased[u] = true end
+  end
+  table.sort(out.changed)
+  return out
+end
+
 -- Plain-data cleanup for a disconnecting player. `markers_removed` are render objects the adapter destroys;
 -- `released` are unit numbers whose leases that player owned and must now be handed back to work.
 function M.drop_player(data, pi)

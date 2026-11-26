@@ -56,6 +56,19 @@ local function draw_markers(pi, units)
   s.markers[pi] = marks
 end
 
+-- A colonist (or militia) that died cannot be commanded any more. mortality.lua calls this on the same
+-- on_entity_died that records the death, so a player's selection never keeps a corpse and a lease never
+-- outlives its unit. Only the players who actually had the unit get their circles redrawn; everyone else's
+-- markers are left alone. work.lua's on_object_destroyed has already returned any carry/gear by now.
+local function died(un)
+  if not un then return end
+  local s = state()
+  local out = model.forget_unit(s, un)
+  s.selection, s.owner, s.leased = out.selection, out.owner, out.leased
+  for _, pi in ipairs(out.changed) do draw_markers(pi, out.selection[pi]) end
+end
+M.died = died   -- exposed for the death-cleanup regression test; no functions in storage
+
 local function clear_carry_sprite(un)
   local cur = storage.carry_sprites and storage.carry_sprites[un]
   if cur then

@@ -1,11 +1,13 @@
 -- Territory rules: distance-based radius around Town Hall and Watchtowers (#15 simplified), extended by
--- Habitat Domes (#63). Territory is a smooth circle of tiles centered on the buildings.
+-- Habitat Domes (#63) and Waystations (#56). Territory is a smooth circle of tiles centered on the buildings.
 local core = require("scripts.model.core")
+local waystation = require("scripts.model.waystation")
 local M = {}
 
 M.HALL_RADIUS = 64     -- tile radius around Town Hall
 M.TOWER_RADIUS = 48    -- tile radius around each Watchtower
 M.DOME_RADIUS = 64     -- tile radius around a Habitat Dome (also a colony core)
+M.WAYSTATION_RADIUS = waystation.RADIUS   -- one rule, shared with the placement model
 M.HALL_RADIUS_SQ = M.HALL_RADIUS * M.HALL_RADIUS
 M.TOWER_RADIUS_SQ = M.TOWER_RADIUS * M.TOWER_RADIUS
 M.DOME_RADIUS_SQ = M.DOME_RADIUS * M.DOME_RADIUS
@@ -55,7 +57,32 @@ function M.emitters(colony)
       out[#out + 1] = {entity = tower, radius = M.TOWER_RADIUS, name = tower.name}
     end
   end
+  for _, k in ipairs(sorted_keys(colony.waystations)) do
+    local ws = entity_of(colony.waystations[k])
+    if ws and ws.valid then
+      out[#out + 1] = {entity = ws, radius = M.WAYSTATION_RADIUS, name = ws.name}
+    end
+  end
   return out
+end
+
+-- The colony whose territory the position joins if a Waystation is built there: the closest circle by
+-- signed gap, accepted only within the Waystation's adjacency tolerance. Colonies are walked in numeric id
+-- order so an overlap resolves the same way on both sides of a save/load (owner_at uses the same rule).
+function M.owner_near(surface_index, pos, tolerance)
+  if not pos then return nil end
+  local best_id, best_gap
+  for id = 1, (storage.next_colony_id or 1) - 1 do
+    local colony = storage.colonies[id]
+    if colony and colony.surface_index == surface_index then
+      local g = waystation.gap(pos, M.emitters(colony))
+      if g and (best_gap == nil or g < best_gap) then
+        best_id, best_gap = id, g
+      end
+    end
+  end
+  if best_id and best_gap <= (tolerance or waystation.ADJACENT) then return best_id end
+  return nil
 end
 
 function M.owner_at(surface_index, pos)

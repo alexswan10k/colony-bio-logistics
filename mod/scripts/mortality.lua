@@ -6,6 +6,7 @@ local events = require("scripts.events")
 local mortality = require("scripts.model.mortality")
 local commute = require("scripts.commute")
 local tourism_mod = require("scripts.tourism")   -- #51: a visitor dies as its home town's colonist
+local command = require("scripts.command")       -- #58: drop a dead unit from every whistle selection/lease
 local M = {}
 
 M.COLONIST = "colony-colonist"
@@ -56,6 +57,11 @@ events.on(defines.events.on_entity_died, function(ev)
   if not COLONIST_NAMES[e.name] then return end
   local un = e.unit_number
   local colonist_name = e.name
+  -- #58: a colonist under a whistle lease carries an engine target and can die mid-order (e.g. Attack-Move
+  -- into biters). Drop it from every player's selection and release its lease now, not at the next watchdog.
+  -- Do this before the roster check: even a unit already struck off (a launch, a departure) may still be in
+  -- somebody's stale selection, and no dead unit should keep a render circle or a command target.
+  command.died(un)
   if settings and settings.global and settings.global["colony-debug-log"] and settings.global["colony-debug-log"].value then
     log("[colony-death-ev] " .. serpent.line({
       cause = ev.cause and ev.cause.valid and ev.cause.name, cause_type = ev.cause and ev.cause.valid and ev.cause.type,

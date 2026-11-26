@@ -306,6 +306,30 @@ core.register("s18_command", {
           ctx.check("[integrated] builders for the construct-window regression spawned", false)
         end
 
+        -- [integrated] Death cleanup: the real on_entity_died path must prune a leased colonist from every
+        -- player's selection and drop its lease immediately, rather than leaving a corpse under a whistle
+        -- order until the 300-tick watchdog. mortality.lua calls command.died before its roster check, so this
+        -- also covers a unit already struck off the roster.
+        local dead = spawn(16, 9)
+        if dead then
+          local dun = dead.unit_number
+          storage.command.selection = storage.command.selection or {}
+          storage.command.selection[1] = {dun}
+          storage.command.selection[2] = {dun, 7}
+          storage.command.leased[dun], storage.command.owner[dun] = true, 1
+          storage.unit_state[dun] = {colony_id = cid, job = "hunt", state = "commanded",
+            until_tick = game.tick + 3600}
+          dead.die()
+          ctx.check("[integrated] a dead colonist is pruned from every whistle selection and lease",
+            #storage.command.selection[1] == 0 and #storage.command.selection[2] == 1
+            and storage.command.selection[2][1] == 7
+            and storage.command.leased[dun] == nil and storage.command.owner[dun] == nil,
+            "p1=" .. #storage.command.selection[1] .. " p2=" .. table.concat(storage.command.selection[2], ",")
+            .. " leased=" .. tostring(storage.command.leased[dun]))
+        else
+          ctx.check("[integrated] a colonist for the death-cleanup case spawned", false)
+        end
+
         -- Cost: 200 set_commands on one unit, averaged over 20 passes.
         ctx.profile("set_command x 200", function()
           for i = 1, 200 do

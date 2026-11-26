@@ -99,7 +99,7 @@ data:extend({
   -- A player who has not built belts, steel or concrete yet is not offered colony buildings they cannot build.
   tech("colony-logistics", "icon-watchtower.png", 15, {"colony-frontier-pack"}, 15,
     {"colony-frontier-charter", "logistics"}, {
-    unlock("colony-watchtower"), unlock("colony-demand-crate"), unlock("colony-logistics-marker"),
+    unlock("colony-watchtower"), unlock("colony-waystation"), unlock("colony-demand-crate"), unlock("colony-logistics-marker"),
     unlock("colony-rifle"), unlock("colony-haul-station"), unlock("colony-wooden-trailer"),
   }),
   -- Armory (#56 remainder): a worker-free depot that equips militia and projects a structural aura. Vanilla

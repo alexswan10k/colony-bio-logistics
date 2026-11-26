@@ -80,6 +80,21 @@ local miner = chest_clone("iron-chest", "colony-miner-hut", "miner-hut", 8, 1)
 -- Watchtower (#37-adjacent, design §2.1): built inside territory, claims a ring of chunks around itself,
 -- so the colony's work area (and therefore its huts and opted-in machines) can creep outward.
 local watchtower = chest_clone("steel-chest", "colony-watchtower", "watchtower", 4, 1)
+-- Waystation (#56 remainder): a separate territory node. Unlike a Watchtower (which must sit inside claimed
+-- land) it may be built inside OR just outside the boundary, and claims a larger 96-tile radius, so a chain
+-- of nodes can reach distant resources without founding another colony. It is a marker, not a container:
+-- no inventory, no job, no schema - the only state is its registry entry and the circle it projects.
+-- Reuses the Watchtower art/icon; dedicated art is a follow-up, not a blocker for the rule.
+local waystation = {
+  type = "simple-entity-with-owner", name = "colony-waystation",
+  localised_name = {"entity-name.colony-waystation"},
+  localised_description = {"entity-description.colony-waystation"},
+  icon = G .. "icon-watchtower.png", icon_size = 64,
+  flags = {"placeable-player", "player-creation"},
+  collision_box = {{-0.8, -0.8}, {0.8, 0.8}}, selection_box = {{-1, -1}, {1, 1}},
+  picture = sprite("watchtower"), render_layer = "object", max_health = 200,
+  minable = {mining_time = 0.5, result = "colony-waystation"},
+}
 -- Armory (#56 remainder): a worker-free gear depot. Haulers fill it with weapons/armour/ammo for the
 -- manning limit the player sets; militia equip from it, and a manned Armory projects a structural aura.
 local armory_depot = chest_clone("steel-chest", "colony-armory", "armory", 16, 1)
@@ -390,6 +405,7 @@ end
 ring(hall, 64, "green")             -- territory.HALL_RADIUS
 ring(dome, 64, "green")             -- a dome emits the same territory as a hall (#63)
 ring(watchtower, 48, "green")       -- territory.TOWER_RADIUS
+ring(waystation, 96, "green")        -- waystation.RADIUS (#56): pinned by tests/waystation_test.lua
 ring(forager, 96, "yellow")           -- colony.FORAGE_RADIUS
 for _, hut in ipairs{woodcutter, miner, farmhut, huntinglodge, fishingdock, smokehouse, kitchen, toolsmith} do
   ring(hut, 48, "yellow")           -- colony.HUT_RADIUS
@@ -398,7 +414,7 @@ ring(forester, 20, "yellow")        -- forest.RADIUS: it plants close to home, w
 ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while walking the route
 
 data:extend({
-  hall, dome, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
+  hall, dome, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, waystation, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, theatre, plaza, spa, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, freight_crate, warehouse, haul_station, compost_bin,
   cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity, nursery, hydroponics, eva_airlock, federation_vault, resort, grand_hotel, training_center, federation_archive,
   plot, bush, sink, marker, cemetery, grave,
@@ -417,6 +433,7 @@ data:extend({
   item_of(woodcutter, "woodcutter-hut", "z[colony]-e[woodcutter-hut]"),
   item_of(miner, "miner-hut", "z[colony]-f[miner-hut]"),
   item_of(watchtower, "watchtower", "z[colony]-g[watchtower]"),
+  item_of(waystation, "watchtower", "z[colony]-g05[waystation]"),
   item_of(armory_depot, "armory", "z[colony]-g1[armory]"),
   item_of(patrol_post, "patrol-post", "z[colony]-g2[patrol-post]"),
   item_of(farmhut, "farm-hut", "z[colony]-h[farm-hut]"),
@@ -658,6 +675,9 @@ data:extend({
   recipe("colony-woodcutter-hut", {wood = 20, stone = 5}, 2, 1, false),
   recipe("colony-miner-hut", {wood = 20, stone = 10}, 2, 1, false),
   recipe("colony-watchtower", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 4, 1, false),
+  -- #56: the Waystation reaches further than a Watchtower, so it costs more stone and iron, but no steel
+  -- (colony-logistics has no steel-processing prerequisite, and m1_tech rule 6 pins makeable ingredients).
+  recipe("colony-waystation", {wood = 30, ["stone-brick"] = 40, ["iron-plate"] = 20}, 6, 1, false),
   recipe("colony-armory", {["steel-plate"] = 20, ["iron-plate"] = 20, ["stone-brick"] = 10}, 5, 1, false),
   recipe("colony-patrol-post", {["stone-brick"] = 20, ["iron-plate"] = 10, wood = 10}, 4, 1, false),
   recipe("colony-farm-hut", {wood = 20, ["iron-plate"] = 5}, 2, 1, false),

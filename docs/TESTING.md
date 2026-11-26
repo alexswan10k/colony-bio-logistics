@@ -46,6 +46,9 @@ Three headless gates cover the things the unit tests and the playable spike cann
 - `scripts/headless-spike.sh m3_turret` - the #59 ammo-turret spike (36 checks): turret opt-in and ammo
   requests, the `collect=false` safety invariant under forged and omitted tags, and the behavioural proof
   that a loaded turret produces no collect offer (its `get_output_inventory()` is the ammo inventory).
+- `scripts/headless-spike.sh m3_waystation` - the #56 waystation spike (18 checks): a marker built 8 tiles outside
+  the hall boundary is adopted by the colony and emits a real 96-tile territory circle, a far build is refused
+  and unregistered, and destroying the node releases only its ring while the hall's own land stays owned.
 - `scripts/headless-spike.sh s17_gleba` - the #70 engine probe (27 checks): actual spoil ticks and `spoilage`
   results for the five Gleba items, freshness inheritance in engine crafts, `always_fresh` product behaviour,
   cold-chain restamp, composting and spore/pollutant facts. `m2_gleba` (17 checks) then proves the colony

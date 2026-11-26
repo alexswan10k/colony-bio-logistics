@@ -75,6 +75,7 @@ M.CORE = core.CORE
 M.is_core = core.is_core
 M.is_dome = core.is_dome
 M.WATCHTOWER = "colony-watchtower"
+M.WAYSTATION = "colony-waystation"  -- #56: a separate territory node, placeable inside or just outside territory
 M.PLOT = "colony-farm-plot"
 M.WELL = "colony-well"
 M.WATER_TOWER = "colony-water-tower"
@@ -2260,6 +2261,15 @@ local function on_built(ev)
         e.destroy()
         return
       end
+    elseif name == M.WAYSTATION then
+      -- A Waystation may sit just outside the boundary, but it still needs a colony to belong to.
+      if not (territory.owner_at(e.surface.index, e.position)
+          or territory.owner_near(e.surface.index, e.position)) then
+        local p = ev.player_index and game.get_player(ev.player_index)
+        if p then p.create_local_flying_text{text = {"colony-message.waystation-unclaimed"}, position = e.position} end
+        e.destroy()
+        return
+      end
     elseif name == M.PLOT then
       local owner = territory.owner_at(e.surface.index, e.position)
       local tile = e.surface.get_tile(e.position)
@@ -2418,6 +2428,28 @@ local function on_built(ev)
       p.create_local_flying_text{text = {"colony-message.watchtower-expanded", territory.TOWER_RADIUS}, position = e.position}
     end
     rendering.draw_circle{color = {0.1, 0.4, 0.15, 0.5}, width = 2, filled = false, radius = territory.TOWER_RADIUS,
+      target = e, surface = e.surface, only_in_alt_mode = true}
+    script.register_on_object_destroyed(e)
+    M.refresh_all_cursor_overlays()
+  elseif name == M.WAYSTATION then
+    -- A Waystation is its own territory node: inside territory it extends the current colony, just outside
+    -- it adopts the nearest colony within the adjacency gap. There is no schema - the registry is lazy, like
+    -- domes and wells - and no labour job: this building only emits a circle and dies with it.
+    local owner = territory.owner_at(e.surface.index, e.position)
+      or territory.owner_near(e.surface.index, e.position)
+    if not owner then
+      refund(ev, e, name, {"colony-message.waystation-unclaimed"})
+      e.destroy()
+      return
+    end
+    local colony = storage.colonies[owner]
+    colony.waystations = colony.waystations or {}
+    colony.waystations[e.unit_number] = e
+    local p = ev.player_index and game.get_player(ev.player_index)
+    if p then
+      p.create_local_flying_text{text = {"colony-message.waystation-expanded", territory.WAYSTATION_RADIUS}, position = e.position}
+    end
+    rendering.draw_circle{color = {0.1, 0.4, 0.15, 0.5}, width = 2, filled = false, radius = territory.WAYSTATION_RADIUS,
       target = e, surface = e.surface, only_in_alt_mode = true}
     script.register_on_object_destroyed(e)
     M.refresh_all_cursor_overlays()
@@ -2685,7 +2717,7 @@ function M.update_cursor_overlay(player)
   elseif player.cursor_ghost then
     item_name = player.cursor_ghost.name
   end
-  if not (item_name == M.WATCHTOWER or core.is_core(item_name) or M.HOUSES[item_name] or labour.HUTS[item_name]
+  if not (item_name == M.WATCHTOWER or item_name == M.WAYSTATION or core.is_core(item_name) or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
       or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.NURSERY or item_name == M.HYDRO_BAY or item_name == M.EVA_AIRLOCK or item_name == M.RESORT or item_name == M.GRAND_HOTEL or item_name == M.TRAINING_CENTER or item_name == M.PLOT) then return end
 
@@ -2758,6 +2790,29 @@ function M.update_cursor_overlay(player)
             filled = false,
             radius = territory.TOWER_RADIUS,
             target = tower,
+            surface = surface,
+            players = {player},
+          }
+          table.insert(list, r_fill)
+          table.insert(list, r_border)
+        end
+      end
+      for _, ws in pairs(colony.waystations or {}) do
+        if ws and ws.valid then
+          local r_fill = rendering.draw_circle{
+            color = {0.008, 0.032, 0.012, 0.04},
+            filled = true,
+            radius = territory.WAYSTATION_RADIUS,
+            target = ws,
+            surface = surface,
+            players = {player},
+          }
+          local r_border = rendering.draw_circle{
+            color = {0.1, 0.4, 0.15, 0.5},
+            width = 2,
+            filled = false,
+            radius = territory.WAYSTATION_RADIUS,
+            target = ws,
             surface = surface,
             players = {player},
           }
@@ -2928,6 +2983,11 @@ events.on(defines.events.on_object_destroyed, function(ev)
     if colony.towers and colony.towers[un] then
       colony.towers[un] = nil
       if colony.huts then colony.huts[un] = nil end
+      M.refresh_all_cursor_overlays()
+      return
+    end
+    if colony.waystations and colony.waystations[un] then
+      colony.waystations[un] = nil   -- territory is derived from live emitters, so the ring shrinks at once
       M.refresh_all_cursor_overlays()
       return
     end

@@ -36,7 +36,7 @@ core.register("m2_recreation", {
     if not (c and hall and hall.valid) then return ctx.finish() end
 
     -- Territory and the two amenities. The watchtower is only there to match the other colony spikes.
-    local tower = build("colony-watchtower", {p.x + 40, p.y})
+    build("colony-watchtower", {p.x + 40, p.y})
     local theatre_e = build("colony-theatre", {p.x, p.y + 6})
     ctx.check("theatre built inside territory", theatre_e and theatre_e.valid)
     if not (theatre_e and theatre_e.valid) then return ctx.finish() end

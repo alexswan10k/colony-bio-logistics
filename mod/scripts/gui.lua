@@ -2,7 +2,6 @@
 -- Thin adapter; rules live in model/housing.lua. Machine requests are stored on colony.machines[unit_number].
 local events = require("scripts.events")
 local scheduler = require("scripts.scheduler")
-local territory = require("scripts.territory")
 local housing = require("scripts.model.housing")
 local labour = require("scripts.model.labour")
 local jobs = require("scripts.model.jobs")
@@ -341,8 +340,8 @@ local function fill_hut(frame, h)
         and h.entity.get_inventory(defines.inventory.lab_input)
         or h.entity.get_inventory(defines.inventory.chest)
       local parts = {}
-      for _, item in ipairs(def.keep) do
-        parts[#parts + 1] = string.format("[item=%s] %d", item, inv and inv.get_item_count(item) or 0)
+      for _, kept in ipairs(def.keep) do
+        parts[#parts + 1] = string.format("[item=%s] %d", kept, inv and inv.get_item_count(kept) or 0)
       end
       frame.add{type = "label", caption = {"colony-gui-hut.inputs", table.concat(parts, "  ")}}
     end
@@ -351,8 +350,8 @@ local function fill_hut(frame, h)
       and h.entity.get_inventory(defines.inventory.lab_input)
       or h.entity.get_inventory(defines.inventory.chest)
     local parts = {}
-    for _, item in ipairs(def.keep or {}) do
-      parts[#parts + 1] = string.format("[item=%s] %d", item, inv and inv.get_item_count(item) or 0)
+    for _, kept in ipairs(def.keep or {}) do
+      parts[#parts + 1] = string.format("[item=%s] %d", kept, inv and inv.get_item_count(kept) or 0)
     end
     frame.add{type = "label", caption = {"colony-gui-hut.inputs", table.concat(parts, "  ")}}
   end
@@ -427,19 +426,19 @@ local function fill_hut(frame, h)
     local ranks = mine_plan.effective(h.ores)
     local colony = storage.colonies[h.colony_id]
     for _, ore in ipairs(mine_plan.ORES) do
-      local row = frame.add{type = "flow", direction = "horizontal"}
-      row.style.vertical_align = "center"
-      local name = row.add{type = "label", caption = "[item=" .. ore .. "]"}
+      local ore_row = frame.add{type = "flow", direction = "horizontal"}
+      ore_row.style.vertical_align = "center"
+      local name = ore_row.add{type = "label", caption = "[item=" .. ore .. "]"}
       name.style.width = 64
-      row.add{type = "button", name = "colony_ore_" .. ore .. "_less", caption = "-",
+      ore_row.add{type = "button", name = "colony_ore_" .. ore .. "_less", caption = "-",
         tooltip = {"colony-gui-hut.ore-less-tt"}}
-      local rank = row.add{type = "label", caption = ranks[ore] > 0 and tostring(ranks[ore]) or {"colony-gui-info.off"}}
+      local rank = ore_row.add{type = "label", caption = ranks[ore] > 0 and tostring(ranks[ore]) or {"colony-gui-info.off"}}
       rank.style.width = 24
       rank.style.horizontal_align = "center"
-      row.add{type = "button", name = "colony_ore_" .. ore .. "_more", caption = "+",
+      ore_row.add{type = "button", name = "colony_ore_" .. ore .. "_more", caption = "+",
         tooltip = {"colony-gui-hut.ore-more-tt"}}
       if colony then
-        local qb_less = row.add{type = "button", name = "colony_quota_" .. ore .. "_less", caption = "-",
+        local qb_less = ore_row.add{type = "button", name = "colony_quota_" .. ore .. "_less", caption = "-",
           tooltip = {"colony-gui-hut.quota-less-tt"}}
         qb_less.style.width = 18; qb_less.style.height = 20
         local base_tgt = colony_mod.base_quota_target(colony, ore)
@@ -447,17 +446,17 @@ local function fill_hut(frame, h)
         local extra = eff_tgt - base_tgt
         local txt = (base_tgt == 0) and {"colony-gui-info.quota-unlimited"}
           or (extra > 0 and (tostring(base_tgt) .. " (+" .. extra .. ")") or tostring(base_tgt))
-        local q_lbl = row.add{type = "label", caption = txt}
+        local q_lbl = ore_row.add{type = "label", caption = txt}
         q_lbl.style.width = 54; q_lbl.style.horizontal_align = "center"
         q_lbl.tooltip = {"colony-gui-info.quota-target-tt",
           (base_tgt == 0) and {"colony-gui-info.quota-unlimited"} or tostring(eff_tgt),
           (base_tgt == 0) and {"colony-gui-info.quota-unlimited"} or tostring(base_tgt),
           tostring(extra)}
-        local qb_more = row.add{type = "button", name = "colony_quota_" .. ore .. "_more", caption = "+",
+        local qb_more = ore_row.add{type = "button", name = "colony_quota_" .. ore .. "_more", caption = "+",
           tooltip = {"colony-gui-hut.quota-more-tt"}}
         qb_more.style.width = 18; qb_more.style.height = 20
 
-        local ocb = row.add{type = "checkbox", name = "colony_hut_overflow_" .. ore,
+        local ocb = ore_row.add{type = "checkbox", name = "colony_hut_overflow_" .. ore,
           state = colony_mod.overflow_allowed(colony, ore),
           tooltip = {"colony-gui-hut.idle-collect-tt"}}
         ocb.style.left_margin = 4
@@ -470,7 +469,7 @@ local function fill_hut(frame, h)
     if sites > 0 then
       frame.add{type = "label", caption = {"colony-gui-hut.sites", sites}}
     else
-      local warn = frame.add{type = "label", caption = {"", "[color=red]⚠ [/color]", {"colony-gui-hut.no-sites"}}, style = "bold_label"}
+      frame.add{type = "label", caption = {"", "[color=red]⚠ [/color]", {"colony-gui-hut.no-sites"}}, style = "bold_label"}
       local lbl = frame.add{type = "label", caption = {"colony-gui-hut.sites", 0}}
       lbl.style.font_color = {1, 0.3, 0.3}
     end
@@ -768,23 +767,23 @@ local function build_info(body, colony)
   mh3.style.width = 66; mh3.style.horizontal_align = "center"
   local mh4 = mat_table.add{type = "label", caption = {"colony-gui-info.mat-demand"}, style = "bold_label"}
   mh4.style.width = 60; mh4.style.horizontal_align = "right"
-  for _, item in ipairs(material_priority.RANKABLE) do
-    local name_lbl = mat_table.add{type = "label", caption = {"", "[item=" .. item .. "] ", {"item-name." .. item}}}
+  for _, mat_item in ipairs(material_priority.RANKABLE) do
+    local name_lbl = mat_table.add{type = "label", caption = {"", "[item=" .. mat_item .. "] ", {"item-name." .. mat_item}}}
     name_lbl.style.width = 110
-    local cb = mat_table.add{type = "checkbox", name = "colony_mat_enabled_" .. item, state = true,
+    local cb = mat_table.add{type = "checkbox", name = "colony_mat_enabled_" .. mat_item, state = true,
       tooltip = {"colony-gui-info.mat-on-tt"}}
     cb.style.horizontal_align = "center"
-    local flow = mat_table.add{type = "flow", name = "mat_flow_" .. item, direction = "horizontal"}
+    local flow = mat_table.add{type = "flow", name = "mat_flow_" .. mat_item, direction = "horizontal"}
     flow.style.vertical_align = "center"
-    local less = flow.add{type = "button", name = "colony_mat_" .. item .. "_less", caption = "-",
+    local less = flow.add{type = "button", name = "colony_mat_" .. mat_item .. "_less", caption = "-",
       tooltip = {"colony-gui-info.less-tt"}}
     less.style.width = 18; less.style.height = 20
-    local rank_lbl = flow.add{type = "label", name = "mat_rank_" .. item, caption = "3"}
+    local rank_lbl = flow.add{type = "label", name = "mat_rank_" .. mat_item, caption = "3"}
     rank_lbl.style.width = 24; rank_lbl.style.horizontal_align = "center"
-    local more = flow.add{type = "button", name = "colony_mat_" .. item .. "_more", caption = "+",
+    local more = flow.add{type = "button", name = "colony_mat_" .. mat_item .. "_more", caption = "+",
       tooltip = {"colony-gui-info.more-tt"}}
     more.style.width = 18; more.style.height = 20
-    local demand_lbl = mat_table.add{type = "label", name = "mat_demand_" .. item, caption = "0"}
+    local demand_lbl = mat_table.add{type = "label", name = "mat_demand_" .. mat_item, caption = "0"}
     demand_lbl.style.width = 60; demand_lbl.style.horizontal_align = "right"
   end
   local mat_reset_row = body.add{type = "flow", name = "mat_reset_row", direction = "horizontal"}
@@ -1060,17 +1059,17 @@ local function update_info(body, colony)
   local mat_table = mat_scrol and mat_scrol.mat_table
   if mat_table then
     local demand = colony_mod.demand_table(colony)
-    for _, item in ipairs(material_priority.RANKABLE) do
-      local flow = mat_table["mat_flow_" .. item]
-      local rank_lbl = flow and flow["mat_rank_" .. item]
+    for _, mat_item in ipairs(material_priority.RANKABLE) do
+      local flow = mat_table["mat_flow_" .. mat_item]
+      local rank_lbl = flow and flow["mat_rank_" .. mat_item]
       if rank_lbl then
-        local r = material_priority.score(colony.ratings, item)
+        local r = material_priority.score(colony.ratings, mat_item)
         rank_lbl.caption = r == material_priority.DISABLED and {"colony-gui-info.off"} or tostring(r)
       end
-      local cb = mat_table["colony_mat_enabled_" .. item]
-      if cb then cb.state = material_priority.enabled(colony.ratings, item) end
-      local d_lbl = mat_table["mat_demand_" .. item]
-      if d_lbl then d_lbl.caption = tostring((demand and demand[item]) or 0) end
+      local cb = mat_table["colony_mat_enabled_" .. mat_item]
+      if cb then cb.state = material_priority.enabled(colony.ratings, mat_item) end
+      local d_lbl = mat_table["mat_demand_" .. mat_item]
+      if d_lbl then d_lbl.caption = tostring((demand and demand[mat_item]) or 0) end
     end
   end
 end
@@ -1187,20 +1186,20 @@ events.on(defines.events.on_gui_click, function(ev)
         if frame and frame.body then fill_hut(frame.body, h) end
       end
     elseif prio_type == "crate" then
-      local _, c, _, body, e = crate_ctx(ev)
+      local _, c, _, body, crate_e = crate_ctx(ev)
       if c then
         local cur = c.priority or crate_default_prio(c)
         c.priority = math.max(1, math.min(5, cur + delta))
-        if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.crate(c)) end
+        if crate_e.type == "entity-ghost" then crate_e.tags = tags.dictionary(tags.crate(c)) end
         if body then fill_crate(body, c) end
       end
     elseif prio_type == "machine" then
-      local player, e, colony, body, m = machine_ctx(ev)
+      local _, machine_e, _, body, m = machine_ctx(ev)
       if m then
         local cur = m.priority or 4
         m.priority = math.max(1, math.min(5, cur + delta))
-        if e.type == "entity-ghost" then e.tags = tags.dictionary(tags.machine(m)) end
-        if body then fill_machine(body, m, e) end
+        if machine_e.type == "entity-ghost" then machine_e.tags = tags.dictionary(tags.machine(m)) end
+        if body then fill_machine(body, m, machine_e) end
       end
     end
     return
@@ -1371,16 +1370,16 @@ end)
 
 events.on(defines.events.on_gui_checked_state_changed, function(ev)
   local name = ev.element.name
-  local item = name:match("^colony_mat_enabled_(.+)$")
-  if not item then return end
-  if not material_priority.is_rankable(item) then return end
+  local mat_item = name:match("^colony_mat_enabled_(.+)$")
+  if not mat_item then return end
+  if not material_priority.is_rankable(mat_item) then return end
   local player = game.get_player(ev.player_index)
   local e = player and player.opened
   if not (e and e.valid and colony_mod.is_core(e.name)) then return end
   local colony = colony_at(e)
   if not colony then return end
   colony.ratings = colony.ratings or {}
-  material_priority.set_enabled(colony.ratings, item, ev.element.state)
+  material_priority.set_enabled(colony.ratings, mat_item, ev.element.state)
   colony_mod.reassign_workforce(colony)
   local frame = player.gui.relative[INFO_FRAME]
   if frame and frame.body then fill_info(frame.body, colony) end
@@ -1408,9 +1407,9 @@ local function crate_contents(c)
   local inv = c.entity.get_inventory(defines.inventory.chest)
   local out, map = {}, {}
   if inv then
-    for _, item in ipairs(inv.get_contents()) do
-      out[#out + 1] = item
-      map[item.name] = item.count
+    for _, stack in ipairs(inv.get_contents()) do
+      out[#out + 1] = stack
+      map[stack.name] = stack.count
     end
   end
   table.sort(out, function(a, b) return a.name < b.name end)
@@ -1509,8 +1508,8 @@ function fill_crate(frame, c)
   frame.add{type = "line"}
   frame.add{type = "label", caption = {"colony-gui-crate.contents"}, style = "bold_label"}
   if #contents == 0 then frame.add{type = "label", caption = {"colony-gui-crate.empty"}} end
-  for _, item in ipairs(contents) do
-    frame.add{type = "label", caption = {"", "[item=" .. item.name .. "]", " " .. item.count}}
+  for _, stack in ipairs(contents) do
+    frame.add{type = "label", caption = {"", "[item=" .. stack.name .. "]", " " .. stack.count}}
   end
 end
 
@@ -1748,14 +1747,14 @@ function fill_machine(frame, m, e)
       frame.add{type = "label", caption = "No finished products yet."}
     else
       for _, stack in ipairs(contents) do
-        local item, n = stack.name, stack.count
-        local stock = colony and colony_mod.stock_count(colony, item) or 0
-        local base = colony and colony_mod.base_quota_target(colony, item) or 0
-        local eff = colony and colony_mod.quota_target(colony, item) or 0
-        local capped = colony and work.supply_capped(colony, item) or false
+        local item_name, n = stack.name, stack.count
+        local stock = colony and colony_mod.stock_count(colony, item_name) or 0
+        local base = colony and colony_mod.base_quota_target(colony, item_name) or 0
+        local eff = colony and colony_mod.quota_target(colony, item_name) or 0
+        local capped = colony and work.supply_capped(colony, item_name) or false
         if eff <= 0 then
           frame.add{type = "label",
-            caption = "[item=" .. item .. "] " .. tostring(n) .. " in machine, " .. tostring(stock)
+            caption = "[item=" .. item_name .. "] " .. tostring(n) .. " in machine, " .. tostring(stock)
               .. " in Town Hall (no cap). Haulers are collecting it.",
             tooltip = "Cap is base + downstream demand (20 by default). Capped means stock already meets that total with no consumer eating it, so colonists leave the output in the machine until it is wanted."}
         else
@@ -1765,7 +1764,7 @@ function fill_machine(frame, m, e)
             and " Haulers leave it here: the cap is full and nothing is eating it."
             or " Haulers are collecting it."
           frame.add{type = "label",
-            caption = "[item=" .. item .. "] " .. tostring(n) .. " in machine, " .. tostring(stock)
+            caption = "[item=" .. item_name .. "] " .. tostring(n) .. " in machine, " .. tostring(stock)
               .. " in Town Hall (cap " .. cap_txt .. ")." .. tail,
             tooltip = "Cap is base + downstream demand (20 by default). Capped means stock already meets that total with no consumer eating it, so colonists leave the output in the machine until it is wanted."}
         end
@@ -1924,7 +1923,7 @@ events.on(defines.events.on_gui_checked_state_changed, function(ev)
     return
   end
   if name ~= "colony_supply_enabled" and name ~= "colony_supply_collect" then return end
-  local player, e, colony, body, m = machine_ctx(ev)
+  local _, e, colony, body, m = machine_ctx(ev)
   if not body then return end
   if name == "colony_supply_enabled" then
     if e.type == "entity-ghost" then
@@ -1970,11 +1969,11 @@ events.on(defines.events.on_gui_elem_changed, function(ev)
   end
   local i = row_of(ev.element.name)
   if not (i and ev.element.name:find("colony_req_item_", 1, true)) then return end
-  local player, e, colony, body, m = machine_ctx(ev)
+  local player, e, colony, _, m = machine_ctx(ev)
   if not m then return end
-  local item = ev.element.elem_value
-  if not item then m.requests[i] = nil
-  else m.requests[i] = {item = item, count = m.requests[i] and m.requests[i].count or M.DEFAULT_COUNT} end
+  local elem = ev.element.elem_value
+  if not elem then m.requests[i] = nil
+  else m.requests[i] = {item = elem, count = m.requests[i] and m.requests[i].count or M.DEFAULT_COUNT} end
   if e.type == "entity-ghost" then
     e.tags = tags.dictionary(tags.machine(m))
   else
@@ -1998,7 +1997,7 @@ events.on(defines.events.on_gui_text_changed, function(ev)
   end
   local i = row_of(ev.element.name)
   if not (i and ev.element.name:find("colony_req_count_", 1, true)) then return end
-  local player, e, colony, body, m = machine_ctx(ev)
+  local _, e, colony, _, m = machine_ctx(ev)
   local req = m and m.requests[i]
   if req then
     req.count = tonumber(ev.element.text) or 0

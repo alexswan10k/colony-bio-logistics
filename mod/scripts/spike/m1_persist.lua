@@ -3,7 +3,7 @@
 -- that every registry, scheduler entry and rendering came back. Nothing in `storage.persist_expected` may
 -- be a Lua object: it has to survive serialisation as plain data.
 local core = require("scripts.spike.core")
-local events = require("scripts.events")
+require("scripts.events")
 local scheduler = require("scripts.scheduler")
 local colony = require("scripts.colony")
 local territory = require("scripts.territory")

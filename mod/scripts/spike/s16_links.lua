@@ -146,7 +146,7 @@ core.register("s16_links", {
     local sanity_ins
     do
       local cA = s.create_entity{name = "iron-chest", position = {p.x + 20.5, p.y + 12.5}, force = "player", raise_built = true}
-      local cB = s.create_entity{name = "iron-chest", position = {p.x + 22.5, p.y + 12.5}, force = "player", raise_built = true}
+      s.create_entity{name = "iron-chest", position = {p.x + 22.5, p.y + 12.5}, force = "player", raise_built = true}
       local eei_t = s.create_entity{name = "electric-energy-interface", position = {p.x + 24, p.y + 12}, force = "player", raise_built = true}
       if eei_t then eei_t.power_production = 5e6 / 60; eei_t.electric_buffer_size = 5e6 end
       s.create_entity{name = "medium-electric-pole", position = {p.x + 24, p.y + 8.5}, force = "player", raise_built = true}

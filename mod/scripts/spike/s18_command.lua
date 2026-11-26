@@ -216,7 +216,7 @@ core.register("s18_command", {
           "n=" .. r7.completions .. " at=" .. pos(u7))
         -- set_multi_command on three fresh units (force-wide, not a selection). A bare `stop` is rejected
         -- ("command has no destination") - this API wants a movement-style command; pin that too.
-        local spares = {spawn(-6, 12), spawn(-4, 12), spawn(-2, 12)}
+        spawn(-6, 12); spawn(-4, 12); spawn(-2, 12)
         local ok_stop, stop_err = pcall(s.set_multi_command, {command = {type = defines.command.stop,
           ticks_to_wait = 4294967295, distraction = defines.distraction.none},
           unit_count = 3, force = f, unit_search_distance = 40})

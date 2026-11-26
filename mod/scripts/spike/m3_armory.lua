@@ -160,7 +160,8 @@ core.register("m3_armory", {
           watch.probed = true
           local g_un = guard and guard.valid and guard.unit_number
           local gst = g_un and storage.unit_state[g_un]
-          local def, tools, allowed, workers = th and work.hut_info(th)
+          local def, tools, allowed, workers
+          if th then def, tools, allowed, workers = work.hut_info(th) end
           ctx.probe("5 guard diagnostic", function()
             return "guard=" .. tostring(gst and gst.job) .. "/" .. tostring(gst and gst.state)
               .. " lock=" .. tostring(g_un and c.locks[g_un]) .. " valid=" .. tostring(guard and guard.valid)

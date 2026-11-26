@@ -161,11 +161,6 @@ core.register("s14_circuit", {
                 -- Step 5: capacity and value limits, so the model knows what it can publish.
                 local section = behavior.get_section(1)
                 if not section then section = behavior.add_section() end
-                local many = {}
-                for i = 1, 30 do
-                  many[i] = {value = {type = "item", name = "iron-ore", quality = "normal"},
-                             min = i, max = i}
-                end
                 -- Distinct items, not 30 copies of one: duplicates would sum, which is legal but useless here.
                 local names = {"iron-ore", "copper-ore", "coal", "stone", "wood", "iron-plate", "copper-plate",
                   "steel-plate", "electronic-circuit", "advanced-circuit", "processing-unit", "battery"}
@@ -189,10 +184,6 @@ core.register("s14_circuit", {
                   ctx.log("[INFO] after 30-filter write the wire carries: iron-ore=" .. tostring(read(net, "iron-ore")))
 
                   -- Step 6: what a real publish pass costs (per ledger entity, per update).
-                  local csv = {
-                    {value = {type = "item", name = "iron-plate", quality = "normal"}, min = 1234},
-                    {value = {type = "item", name = "copper-plate", quality = "normal"}, min = 2345},
-                  }
                   local full = {}
                   for i = 1, 20 do
                     full[i] = {value = {type = "item", name = names[(i - 1) % #names + 1], quality = "normal"},

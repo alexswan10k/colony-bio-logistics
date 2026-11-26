@@ -206,7 +206,7 @@ core.register("m2_link", {
     for _, c in pairs(storage.colonies) do
       if c.hall and c.hall.valid and c.hall.position.y > p.y + 100 then C = c end
     end
-    local ok2 = false
+    local ok2
     local double_peer = nil
     if C then
       local crateC = build("colony-freight-crate", {p.x + 10, p.y + 150})
@@ -219,7 +219,7 @@ core.register("m2_link", {
         if double_peer then
           crates.set_filter(double_peer.filters, 1, "iron-plate")
           crates.set_count(double_peer.filters, 1, 10)
-          crateC.destroy(); rc = nil
+          crateC.destroy()
           local ok3, id3 = colony.bind_link(double_peer, rb)
           ctx.check("an already-paired destination refuses a second partner", ok2 and ok3 == false,
             "reason=" .. tostring(id3))

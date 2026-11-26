@@ -131,7 +131,6 @@ events.on(defines.events.on_train_changed_state, function(ev)
   local p, colony = platform_at(stop)
   if not p then return end
   storage.coaches = storage.coaches or {}
-  local arrived = 0
   -- Riders off first: they free seats for the people waiting, and they need beds that boarders are leaving.
   -- Migrants need a free bed, commuters bound for work an open job slot (#50), commuters bound home nothing.
   local arrived, commuters_in, home_again, tourists_in, tourists_home = 0, 0, 0, 0, 0
@@ -203,7 +202,7 @@ events.on(defines.events.on_train_changed_state, function(ev)
         elseif st and st.tourist_return then
           -- Returning visitor: the host is where we board, the bed is still held at `tourist_home`.
           kind, home, host, visited, resort = "tourist_return", st.tourist_home, colony.id,
-            st.tourist_visited == true, st.tourist_resort == true, st.tourist_grand == true
+            st.tourist_visited == true, st.tourist_resort == true
         elseif st and st.commute then kind = "commute"
         elseif st and st.home then kind, home = "return", st.home end
         local k = (kind or "") .. ":" .. tostring(home) .. ":" .. tostring(host) .. ":"

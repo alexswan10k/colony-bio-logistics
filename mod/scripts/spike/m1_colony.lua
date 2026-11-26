@@ -329,8 +329,8 @@ core.register("m1_colony", {
         -- Salt is made, not harvested: a pan holding any means evaporation ran, and salt in the hall means a
         -- hauler emptied the pan.
         if hall.get_item_count("colony-salt") > 0 then saw.salt = true end
-        for _, pan in pairs(c.salt_pans or {}) do
-          if pan.entity.valid and pan.entity.get_item_count("colony-salt") > 0 then saw.salt = true end
+        for _, salt_pan in pairs(c.salt_pans or {}) do
+          if salt_pan.entity.valid and salt_pan.entity.get_item_count("colony-salt") > 0 then saw.salt = true end
         end
         if hall.get_item_count("colony-water") > 0 then saw.water_in_hall = true end
         if well_ent.valid and well_ent.get_item_count("colony-water") > 0 then saw.well_water = true end
@@ -398,7 +398,7 @@ core.register("m1_colony", {
     ctx.after(colony.INTERVAL * 30, function()
       local tcnt = function(e, i) return e.get_inventory(defines.inventory.chest).get_item_count(i) end
       local th, ch = c.houses[tent.unit_number], c.houses[cabin.unit_number]
-      local wh, fh, mh = c.huts[woodcutter.unit_number], c.huts[forager.unit_number], c.huts[miner.unit_number]
+      local wc_hut, fo_hut, mi_hut = c.huts[woodcutter.unit_number], c.huts[forager.unit_number], c.huts[miner.unit_number]
       local trees_after = #s.find_entities_filtered{type = "tree", position = {p.x + 12, p.y + 8}, radius = 30}
       local patches_after = #s.find_entities_filtered{name = "colony-forage-patch", position = p, radius = 30}
       local ore_after = (ore1 and ore1.valid and ore1.amount or 0) + (ore2 and ore2.valid and ore2.amount or 0)
@@ -426,7 +426,7 @@ core.register("m1_colony", {
         " picks=" .. hall.get_item_count("colony-pickaxe"))
       ctx.log(string.format("trees %d -> %d | patches %d -> %d | ore %d -> %d | wear chop=%s forage=%s mine=%s",
         trees_before, trees_after, patches_before, patches_after, ore_before, ore_after,
-        tostring(wh and wh.wear), tostring(fh and fh.wear), tostring(mh and mh.wear)))
+        tostring(wc_hut and wc_hut.wear), tostring(fo_hut and fo_hut.wear), tostring(mi_hut and mi_hut.wear)))
       ctx.log("furnace: ore=" .. furnace.get_item_count("iron-ore") .. " wood=" .. furnace.get_item_count("wood") ..
         " plates=" .. furnace.get_item_count("iron-plate") .. " hall plates=" .. hall.get_item_count("iron-plate"))
       ctx.check("hauled food to houses", saw.food)
@@ -443,7 +443,7 @@ core.register("m1_colony", {
         "hall " .. hall.get_item_count("iron-plate") .. " stock " .. colony.stock_count(c, "iron-plate"))
       ctx.check("mining depletes ore 1:1 (no ore created)", ore_end <= ore_before + 100, ore_end .. " <= " .. (ore_before + 100))
       ctx.check("mining happened", ore_after < ore_before, ore_before .. " -> " .. ore_after)
-      ctx.check("tools wear out with use", (wh and wh.wear or 0) + (fh and fh.wear or 0) + (mh and mh.wear or 0) > 0)
+      ctx.check("tools wear out with use", (wc_hut and wc_hut.wear or 0) + (fo_hut and fo_hut.wear or 0) + (mi_hut and mi_hut.wear or 0) > 0)
       ctx.check("tools hauled to huts", hall.get_item_count("colony-axe") < 3 or hall.get_item_count("colony-pickaxe") < 3 or hall.get_item_count("colony-basket") < 3)
       ctx.check("colonists alive", colony.live_colonists(c) >= 1, colony.live_colonists(c))
       local jc, js = work.job_counts(c), {}
@@ -458,14 +458,14 @@ core.register("m1_colony", {
       local roster_jobs = {}
       for _, list in pairs(hh) do
         for _, un in ipairs(list) do
-          local st = storage.unit_state[un]
-          local j = st and st.job or "idle"
+          local unit_st = storage.unit_state[un]
+          local j = unit_st and unit_st.job or "idle"
           roster_jobs[j] = (roster_jobs[j] or 0) + 1
         end
       end
-      local jc = work.job_counts(c)
+      local jc_after = work.job_counts(c)
       local match = true
-      for job, count in pairs(jc) do
+      for job, count in pairs(jc_after) do
         if roster_jobs[job] ~= count then match = false end
       end
       ctx.check("aggregate job counts match the sum of house rosters", match == true)
@@ -520,8 +520,8 @@ core.register("m1_colony", {
         saw.fertilizer or hall.get_item_count("colony-fertilizer") + (bin.valid and bin.get_item_count("colony-fertilizer") or 0) >= 1,
         hall.get_item_count("colony-fertilizer") .. " in the hall")
       -- Panel advice (model/advice.lua) reads live state; an unequipped hut with an empty hall must say why.
-      local probe = s.create_entity{name = "colony-woodcutter-hut", position = {p.x - 30, p.y - 30}, force = "player", raise_built = true}
-      local ph = probe and c.huts[probe.unit_number]
+      local probe_hut = s.create_entity{name = "colony-woodcutter-hut", position = {p.x - 30, p.y - 30}, force = "player", raise_built = true}
+      local ph = probe_hut and c.huts[probe_hut.unit_number]
       local def, tools, workers, reason
       if ph then
         def, tools, _, workers = work.hut_info(ph)
@@ -534,7 +534,7 @@ core.register("m1_colony", {
       local problems = gui.colony_advice(c, colony.stats(c), work.job_counts(c))
       local asm = s.create_entity{name = "assembling-machine-1", position = {p.x - 12, p.y + 12}, force = "player"}
       asm.set_recipe("iron-gear-wheel")
-      local ore_before = colony.resource_demand(c, "iron-ore")
+      local ore_demand_before = colony.resource_demand(c, "iron-ore")
       local am = colony.set_machine(c, asm, true)
       ctx.check("opting an assembler in reads its recipe", am.requests[1] and am.requests[1].item == "iron-plate"
         and am.requests[1].count == 10, am.requests[1] and (am.requests[1].item .. " x" .. am.requests[1].count) or "none")
@@ -544,9 +544,9 @@ core.register("m1_colony", {
       local plate = graph["iron-plate"]
       ctx.check("the recipe graph comes from data.raw", plate and #plate.ingredients == 1
         and plate.ingredients[1][1] == "iron-ore", plate and plate.ingredients[1][1] or "no plate recipe")
-      local ore_after = colony.resource_demand(c, "iron-ore")
-      ctx.check("demand walks up the real recipe graph to ore", ore_after - ore_before >= 7,
-        string.format("iron ore wanted %d -> %d", ore_before, ore_after))
+      local ore_demand_after = colony.resource_demand(c, "iron-ore")
+      ctx.check("demand walks up the real recipe graph to ore", ore_demand_after - ore_demand_before >= 7,
+        string.format("iron ore wanted %d -> %d", ore_demand_before, ore_demand_after))
       colony.set_machine(c, asm, false); asm.destroy()
       ctx.check("colony advice computes", type(problems) == "table", #problems)
 
@@ -581,8 +581,8 @@ core.register("m1_colony", {
           if c.claimed[k] then phantom = phantom + 1 end
         end
       end
-      for _, st in pairs(storage.unit_state or {}) do
-        if st and (st.job == "fish" or st.job == "preserve" or st.job == "research" or st.job == "heal") then
+      for _, unit_st in pairs(storage.unit_state or {}) do
+        if unit_st and (unit_st.job == "fish" or unit_st.job == "preserve" or unit_st.job == "research" or unit_st.job == "heal") then
           hut_workers = hut_workers + 1
         end
       end

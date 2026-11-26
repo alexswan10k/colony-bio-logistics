@@ -31,10 +31,8 @@ core.register("m1_desirability", {
 
     -- Phase 1: a fed, housed colony migrates (#28 already covers this; here it just populates the town).
     -- Migrants are 5x slower since #88 (one per five evaluations), so by this window only two have arrived.
-    local migrated
     ctx.after(1500, function()
       local pop = colony.live_colonists(c)
-      migrated = pop
       ctx.check("migrants arrived on a desirable site", pop >= 2, pop)
       ctx.check("D is above the migration line", (c.d or -1) > desirability.defaults.migrate_in,
         string.format("%.2f", c.d or 0))

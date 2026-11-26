@@ -13,7 +13,7 @@ core.register("m1_food", {
     local hall = build("colony-town-hall", {p.x, p.y})
     local c = storage.colonies[territory.owner_at(s.index, p)]
     local tent = build("colony-housing-tent", {p.x + 6, p.y})
-    local fhut = build("colony-forager-hut", {p.x - 6, p.y})
+    build("colony-forager-hut", {p.x - 6, p.y})
     hall.insert{name = "colony-basket", count = 3}
     hall.insert{name = "wood", count = 50}
     local peak, max_forage_seen = 0, 0

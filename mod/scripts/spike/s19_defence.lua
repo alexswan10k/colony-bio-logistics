@@ -191,7 +191,7 @@ core.register("s19_defence", {
     if dwall and dwall.valid then
       dwall.destructible = false
       local h0 = dwall.health
-      local ok, ret = pcall(function() return dwall.damage(50, "enemy", "physical") end)
+      local _, ret = pcall(function() return dwall.damage(50, "enemy", "physical") end)
       ctx.check("[engine] damage to destructible=false is a no-op", dwall.valid and dwall.health == h0,
         "hp " .. tostring(h0) .. " -> " .. tostring(dwall.valid and dwall.health) .. " ret=" .. tostring(ret))
     else

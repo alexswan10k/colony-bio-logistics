@@ -76,12 +76,10 @@ M.to_list = to_list
 -- mode "set" (replace), "add" (union), "remove" (subtract), "clear" (empty).
 function M.select(current, candidates, mode)
   local set = {}
-  if mode == "clear" then
-    -- nothing to copy, nothing to add
-  elseif mode == "remove" then
+  if mode == "remove" then
     for _, un in ipairs(to_list(current)) do set[un] = true end
     for _, un in ipairs(to_list(candidates)) do set[un] = nil end
-  else
+  elseif mode ~= "clear" then
     if mode ~= "set" then
       for _, un in ipairs(to_list(current)) do set[un] = true end
     end

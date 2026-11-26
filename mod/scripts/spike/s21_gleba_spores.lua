@@ -62,7 +62,7 @@ core.register("s21_gleba_spores", {
       local ok_set, err_set = pcall(function() gs.set_pollution(pos, 0) end)
       ctx.check("set_pollution(pos, 0) on the spore surface", ok_set, tostring(err_set))
       local before = gs.get_pollution(pos)
-      local ok_two, err_two = pcall(function() gs.pollute(pos, 15) end)   -- 15 = gleba.SPORE_PER_HARVEST
+      local ok_two = pcall(function() gs.pollute(pos, 15) end)   -- 15 = gleba.SPORE_PER_HARVEST
       local after = gs.get_pollution(pos)
       ctx.check("2-arg pollute(pos, 15) raises local spore pollution", ok_two and after > before,
         "ok=" .. tostring(ok_two) .. " before=" .. tostring(before) .. " after=" .. tostring(after))
@@ -92,16 +92,16 @@ core.register("s21_gleba_spores", {
         local ok_get, old = pcall(function() return gs.override_pollution_type end)
         local ok_str, err_str = pcall(function() gs.override_pollution_type = "spores" end)
         local proto = prototypes.airborne_pollutant["spores"]
-        local ok_set, err_set = pcall(function() gs.override_pollution_type = {pollutant = proto} end)
-        local ok_read, now = pcall(function()
+        local ok_override, err_override = pcall(function() gs.override_pollution_type = {pollutant = proto} end)
+        local _, now = pcall(function()
           local v = gs.override_pollution_type
           return v and v.pollutant and v.pollutant.name or tostring(v)
         end)
-        if ok_set and ok_get then pcall(function() gs.override_pollution_type = old end) end
+        if ok_override and ok_get then pcall(function() gs.override_pollution_type = old end) end
         return "old=" .. tostring(old and old.pollutant and old.pollutant.name) ..
           " string-assign=" .. tostring(ok_str) .. " (" .. tostring(err_str) .. ")" ..
-          " proto=" .. tostring(proto and proto.name) .. " table-assign=" .. tostring(ok_set) ..
-          " (" .. tostring(err_set) .. ") now=" .. tostring(now)
+          " proto=" .. tostring(proto and proto.name) .. " table-assign=" .. tostring(ok_override) ..
+          " (" .. tostring(err_override) .. ") now=" .. tostring(now)
       end)
     end
 

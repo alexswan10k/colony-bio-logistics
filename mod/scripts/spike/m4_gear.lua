@@ -17,6 +17,7 @@ local hydro = require("scripts.model.hydroponics")
 local hydroponics = require("scripts.hydroponics")
 local eva = require("scripts.model.eva")
 local resorts = require("scripts.model.resorts")
+local training = require("scripts.model.training")
 local gear = require("scripts.model.gear")
 local labour = require("scripts.model.labour")
 local housing = require("scripts.model.housing")
@@ -39,7 +40,7 @@ core.register("m4_gear", {
       "colony-cryo-pod", "colony-nursery", "colony-hydroponics-bay", "colony-eva-airlock", "colony-eva-jetpack",
       "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
       "colony-federation-plating", "colony-federation-vault", "colony-resort",
-      "colony-cryo-warehouse", "colony-fusion-arcology"}) do
+      "colony-space-training-center", "colony-cryo-warehouse", "colony-fusion-arcology"}) do
       ctx.check(name .. " is a real item", prototypes.item[name] ~= nil)
       ctx.check(name .. " has a recipe", prototypes.recipe[name] ~= nil)
     end
@@ -91,6 +92,7 @@ core.register("m4_gear", {
         and f.recipes["colony-cryo-pod"].enabled == true
         and f.recipes["colony-pod-refill"].enabled == true
         and f.recipes["colony-nursery"].enabled == true
+        and f.recipes["colony-space-training-center"].enabled == true
         and f.recipes["colony-enviro-suit"].enabled == true
         and f.recipes["colony-heavy-siege-armor"].enabled == true
         and f.recipes["colony-personal-shield-pack"].enabled == true)
@@ -124,6 +126,10 @@ core.register("m4_gear", {
       pods.SHELF_TICKS == 20 * 60 * 60 and pods.needs_refill(0.6) and not pods.needs_refill(0.2))
     ctx.check("pod refill product always_fresh (2.1 API)",
       prototypes.recipe["colony-pod-refill"].products[1].always_fresh == true)
+    ctx.check("a training center needs a minimum town and rations",
+      training.pop_ok(4, 100, nil) == false and training.pop_ok(5, 100, nil) == true
+        and training.can_launch(6, 100, nil, {["colony-canned-meat"] = 2, ["colony-water"] = 2}) == true
+        and training.can_launch(6, 100, nil, {}) == false)
     ctx.check("a resort hosts four visitors and doubles insights",
       resorts.host_capacity(1, 1, 0, 0, 0) == 6 and resorts.insights(true, 2) == 4
         and resorts.hospitality(true, 2) == 4)
@@ -236,6 +242,24 @@ core.register("m4_gear", {
       ctx.check("speed returns to base when the harness is gone", math.abs(person.speed - base) < 1e-6,
         tostring(person.speed))
       ctx.check("the overlay is cleared with the buff", storage.gear_speed[person.unit_number] == nil)
+    end
+
+    -- Space Training Center: with a full town and rations, one volunteer is packed into a pod.
+    local center = build("colony-space-training-center", {p.x + 8, p.y - 10})
+    ctx.check("training center built and registered",
+      center and center.valid and c and c.training_centers[center.unit_number] ~= nil)
+    if center and center.valid and c then
+      for _ = 1, 5 do colony.spawn_colonist(c) end
+      hall.insert{name = "colony-canned-meat", count = 4}
+      hall.insert{name = "colony-water", count = 4}
+      c.stock_cache = nil
+      local before = colony.live_colonists(c)
+      local pods_before = hall.get_item_count("colony-cryo-pod")
+      local launched = colony.launch_training(c)
+      ctx.check("a volunteer launched into a fresh pod",
+        launched == true and colony.live_colonists(c) == before - 1
+          and hall.get_item_count("colony-cryo-pod") == pods_before + 1,
+        "pop " .. tostring(before) .. " -> " .. tostring(colony.live_colonists(c)))
     end
 
     ctx.finish()

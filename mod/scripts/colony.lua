@@ -54,6 +54,7 @@ local breeding = require("scripts.model.breeding")
 local pods = require("scripts.model.pods")
 local nursery = require("scripts.model.nursery")
 local resorts = require("scripts.model.resorts")
+local training = require("scripts.model.training")
 local hydroponics = require("scripts.hydroponics")
 local eva = require("scripts.model.eva")
 local stats = require("scripts.stats")
@@ -89,6 +90,7 @@ M.PATROL_POST = "colony-patrol-post"
 M.NURSERY = nursery.NURSERY   -- #69: worker-free off-world breeding amenity (lazy registry, no schema)
 M.HYDRO_BAY = "colony-hydroponics-bay"   -- #69: worker-free orbital closed-loop food producer
 M.EVA_AIRLOCK = eva.AIRLOCK              -- #69: platform EVA depot (lazy registry, no schema)
+M.TRAINING_CENTER = training.CENTER      -- #69: volunteer-to-pod depot (lazy registry, no schema)
 M.MEAL_ITEMS = commute.FOOD_ITEMS     -- what a Canteen serves (#50): the foods houses eat
 local MEAL_SET = {}
 for _, item in ipairs(M.MEAL_ITEMS) do MEAL_SET[item] = true end
@@ -263,6 +265,18 @@ function M.canteen_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.canteens[un] end
+  return out
+end
+
+-- Space Training Centers (#69), in a stable order; lazy registry like water towers, no schema.
+function M.training_list(colony)
+  local ids = {}
+  for un, t in pairs(colony.training_centers or {}) do
+    if t.entity.valid then ids[#ids + 1] = un else colony.training_centers[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.training_centers[un] end
   return out
 end
 
@@ -1567,6 +1581,62 @@ end
 
 M.spawn_colonist = spawn_colonist
 
+-- Space Training Center (#69): pack one volunteer into a fresh Cryo-Colonist Pod. The volunteer is removed
+-- from the roster cleanly (this is a launch, not a death, so it adds no mortality or mourning), and the pod
+-- goes into the colony stock. A town below four residents or without rations never launches.
+local function launch_colonist(colony)
+  if #M.training_list(colony) == 0 then return false end
+  local hall = colony.hall
+  if not (hall and hall.valid) then return false end
+  local pop = M.live_colonists(colony)
+  if not training.can_launch(pop, game.tick, colony.launch_ready, M.stock_table(colony)) then return false end
+  local ids = {}
+  for un, e in pairs(colony.colonists) do
+    local rec = storage.age and storage.age[un]
+    local st = storage.unit_state and storage.unit_state[un]
+    if e.valid and not (rec and rec.stage == "child") and not (colony.locks and colony.locks[un])
+        and not (st and st.job == "militia") and not tourism.is_visitor(un) then
+      ids[#ids + 1] = un
+    end
+  end
+  table.sort(ids)
+  local un = ids[1]
+  if not un then return false end
+  -- Rations come from the same stock locations a hauler would use, hall first, then bulk storage.
+  local function take(item, n)
+    local need = n
+    if hall.valid then need = need - hall.remove_item{name = item, count = need} end
+    if need > 0 then
+      for _, cr in ipairs(M.storage_crates(colony)) do
+        local e = cr.entity
+        if e and e.valid then
+          need = need - e.remove_item{name = item, count = need}
+          if need <= 0 then break end
+        end
+      end
+    end
+    return need <= 0
+  end
+  for item, n in pairs(training.RATIONS) do
+    if not take(item, n) then return false end   -- stock_table said yes; a concurrent claim won the race
+  end
+  local e = colony.colonists[un]
+  local pos = e and e.valid and e.position or hall.position
+  colony.colonists[un] = nil
+  if colony.locks then colony.locks[un] = nil end
+  if storage.unit_state then storage.unit_state[un] = nil end
+  if storage.age then storage.age[un] = nil end
+  if storage.sick then storage.sick[un] = nil end
+  colony.pop_cache, colony.pop_tick = nil, nil
+  if e and e.valid then e.destroy() end
+  hall.insert{name = training.POD, count = 1}
+  colony.launch_ready = game.tick + training.LAUNCH_TICKS
+  colony.stock_cache, colony.storage_cache, colony.ledger_cache = nil, nil, nil
+  hall.force.print({"colony-message.colonist-launched", gps(pos, hall.surface)})
+  return true
+end
+M.launch_training = launch_colonist   -- exposed for the headless spike
+
 -- Scenic (#29): count trees in a fixed box around the hall and sample the tiles under them, once every
 -- M.SCENIC_EVERY evaluations. Trees are entities, so one filtered find per sample beats per-tile probing;
 -- the box is fixed rather than the whole territory so the cost stays flat as watchtowers expand.
@@ -1901,6 +1971,7 @@ function M.evaluate(data)
       end
     end
   end
+  launch_colonist(colony)   -- #69: a Space Training Center packs a volunteer into a pod once per cooldown
   colony.recreation = M.serve_taverns(colony, houses, occ)
   M.serve_theatres(colony, houses, occ)   -- #48 slice B: may raise recreation and inspiration quality in place
   M.compute_inspiration(colony, split, houses)
@@ -2183,7 +2254,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif (M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or name == M.NURSERY or name == M.HYDRO_BAY or name == M.EVA_AIRLOCK or name == M.RESORT or M.HOUSES[name] or labour.HUTS[name]) and not core.is_core(name) then
+    elseif (M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or name == M.NURSERY or name == M.HYDRO_BAY or name == M.EVA_AIRLOCK or name == M.RESORT or name == M.TRAINING_CENTER or M.HOUSES[name] or labour.HUTS[name]) and not core.is_core(name) then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -2452,6 +2523,13 @@ local function on_built(ev)
     colony.canteens = colony.canteens or {}
     colony.canteens[e.unit_number] = {entity = e, colony_id = colony.id, inflight = {}}
     script.register_on_object_destroyed(e)
+  elseif name == M.TRAINING_CENTER then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.training_centers = colony.training_centers or {}
+    colony.training_centers[e.unit_number] = {entity = e, colony_id = colony.id}
+    script.register_on_object_destroyed(e)
   elseif name == M.RESORT then
     -- Resort (#69): a worker-free 4-visitor amenity that doubles the insights returned home. Same lazy
     -- registry shape as a Spa, and the coach/tourist flow is unchanged.
@@ -2580,7 +2658,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or core.is_core(item_name) or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.NURSERY or item_name == M.HYDRO_BAY or item_name == M.EVA_AIRLOCK or item_name == M.RESORT or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.NURSERY or item_name == M.HYDRO_BAY or item_name == M.EVA_AIRLOCK or item_name == M.RESORT or item_name == M.TRAINING_CENTER or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -2792,6 +2870,10 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.canteens and colony.canteens[un] then
       colony.canteens[un] = nil
+      return
+    end
+    if colony.training_centers and colony.training_centers[un] then
+      colony.training_centers[un] = nil
       return
     end
     if colony.resorts and colony.resorts[un] then

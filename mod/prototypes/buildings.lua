@@ -160,6 +160,9 @@ local eva_airlock = chest_clone("iron-chest", "colony-eva-airlock", "passenger-p
 -- Federation Vault (#69): the third Civic Treatise consumer. A 3x3 bulk store whose plating is literally
 -- minted from Civic Treatises, so the second pack tier has a production chain, not just two research sinks.
 local federation_vault = chest_clone("steel-chest", "colony-federation-vault", "warehouse", 100, 1.5)
+-- Space Training Center (#69, §9.2): a worker-free depot that packs a volunteer into a fresh Cryo-Colonist
+-- Pod for launch. Reuses the Passenger Platform art until dedicated art exists.
+local training_center = chest_clone("iron-chest", "colony-space-training-center", "passenger-platform", 8, 1.5)
 
 -- Nursery (#69, §9.1): a worker-free, pressurised cradle for off-world natural reproduction. Reuses the
 -- Clinic art until dedicated art exists; its only state is a lazy registry of positions (no schema).
@@ -384,7 +387,7 @@ ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while wal
 data:extend({
   hall, dome, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, theatre, plaza, spa, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, freight_crate, warehouse, haul_station, compost_bin,
-  cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity, nursery, hydroponics, eva_airlock, federation_vault, resort,
+  cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity, nursery, hydroponics, eva_airlock, federation_vault, resort, training_center,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(dome, "town-hall", "z[colony]-l0[dome]"),
@@ -426,6 +429,7 @@ data:extend({
   item_of(canteen, "canteen", "z[colony]-l5[canteen]"),
   item_of(spa, "tavern", "z[colony]-l4[spa]"),
   item_of(resort, "theatre", "z[colony]-l4[resort]"),
+  item_of(training_center, "passenger-platform", "z[colony]-l10[training-center]"),
   item_of(plaza, "plaza", "z[colony]-l5[plaza]"),
   item_of(clinic, "clinic", "z[colony]-l6[clinic]"),
   item_of(nursery, "clinic", "z[colony]-l7[nursery]"),
@@ -654,6 +658,7 @@ data:extend({
   recipe("colony-canteen", {wood = 30, ["stone-brick"] = 10, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-spa", {wood = 20, ["stone-brick"] = 10, ["iron-plate"] = 5}, 3, 1, false),
   recipe("colony-resort", {["stone-brick"] = 60, ["iron-plate"] = 30, ["copper-cable"] = 20}, 8, 1, false),
+  recipe("colony-space-training-center", {["steel-plate"] = 30, ["iron-plate"] = 20, ["electronic-circuit"] = 8}, 6, 1, false),
   recipe("colony-clinic", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-nursery", {["steel-plate"] = 15, ["electronic-circuit"] = 4, ["colony-furniture"] = 4}, 5, 1, false),
   recipe("colony-hydroponics-bay", {["steel-plate"] = 25, ["iron-plate"] = 20, ["electronic-circuit"] = 8}, 6, 1, false),

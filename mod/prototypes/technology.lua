@@ -206,6 +206,7 @@ data:extend({
     {"colony-civic-governance", "colony-rail-transit", "colony-cold-chain", "bioflux"}, {
       unlock("colony-tungsten-pickaxe"), unlock("colony-exoskeleton-harness"), unlock("colony-panacea-serum"),
       unlock("colony-cryo-pod"), unlock("colony-pod-refill"), unlock("colony-nursery"),
+      unlock("colony-space-training-center"),
       unlock("colony-enviro-suit"), unlock("colony-heavy-siege-armor"), unlock("colony-personal-shield-pack"),
     }),
   -- #69 M4 tier: Interplanetary Sovereignty Codex. The late structures: a zero-spoilage store and the Tier-6

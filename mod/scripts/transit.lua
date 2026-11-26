@@ -196,19 +196,20 @@ events.on(defines.events.on_train_changed_state, function(ev)
       local c = colony.colonists[un]
       if c and c.valid then
         local st = storage.unit_state[un]
-        local kind, home, host, visited = nil, nil, nil, nil
+        local kind, home, host, visited, resort = nil, nil, nil, nil, nil
         if st and st.tourist and tourism and tourism.host_ok(colony.id, st.tourist_host) then
           -- Outbound tourist: home is where we boarded; host is the Spa town. The bed is held at boarding.
           kind, home, host = "tourist", colony.id, st.tourist_host
         elseif st and st.tourist_return then
           -- Returning visitor: the host is where we board, the bed is still held at `tourist_home`.
-          kind, home, host, visited = "tourist_return", st.tourist_home, colony.id, st.tourist_visited == true
+          kind, home, host, visited, resort = "tourist_return", st.tourist_home, colony.id,
+            st.tourist_visited == true, st.tourist_resort == true
         elseif st and st.commute then kind = "commute"
         elseif st and st.home then kind, home = "return", st.home end
-        local k = (kind or "") .. ":" .. tostring(home) .. ":" .. tostring(host)
+        local k = (kind or "") .. ":" .. tostring(home) .. ":" .. tostring(host) .. ":" .. tostring(resort)
         local b = batches[k]
         if not b then
-          b = {from = colony.id, n = 0, kind = kind, home = home, host = host, visited = visited}
+          b = {from = colony.id, n = 0, kind = kind, home = home, host = host, visited = visited, resort = resort}
           batches[k] = b
           batches[#batches + 1] = b
         end
@@ -225,7 +226,7 @@ events.on(defines.events.on_train_changed_state, function(ev)
     end
     for _, b in ipairs(batches) do
       rec.groups[#rec.groups + 1] = {from = b.from, n = b.n, stops = 0, kind = b.kind, home = b.home,
-        host = b.host, visited = b.visited}
+        host = b.host, visited = b.visited, resort = b.resort}
       if b.kind == "commute" then commute.left_home(colony, b.n) end
     end
     if boarded > 0 then

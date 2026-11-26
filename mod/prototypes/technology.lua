@@ -188,6 +188,7 @@ data:extend({
       unlock("colony-passenger-coach"),
       unlock("colony-canteen"),
       unlock("colony-spa"),   -- #51: tourism rides the same rail network, no new tech node
+      unlock("colony-resort"), -- #69: a bigger host that doubles the insights a visit earns
       unlock("colony-freight-crate"),   -- #52: freight links ride the same rail age as passenger rail
     }),
   -- Habitat Domes (#63): Tier-5 housing that also emits a 64-tile territory, so a colony can be founded

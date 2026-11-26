@@ -16,6 +16,7 @@ local nursery = require("scripts.model.nursery")
 local hydro = require("scripts.model.hydroponics")
 local hydroponics = require("scripts.hydroponics")
 local eva = require("scripts.model.eva")
+local resorts = require("scripts.model.resorts")
 local gear = require("scripts.model.gear")
 local labour = require("scripts.model.labour")
 local housing = require("scripts.model.housing")
@@ -37,7 +38,7 @@ core.register("m4_gear", {
     for _, name in ipairs({"colony-tungsten-pickaxe", "colony-exoskeleton-harness", "colony-panacea-serum",
       "colony-cryo-pod", "colony-nursery", "colony-hydroponics-bay", "colony-eva-airlock", "colony-eva-jetpack",
       "colony-enviro-suit", "colony-heavy-siege-armor", "colony-personal-shield-pack",
-      "colony-federation-plating", "colony-federation-vault",
+      "colony-federation-plating", "colony-federation-vault", "colony-resort",
       "colony-cryo-warehouse", "colony-fusion-arcology"}) do
       ctx.check(name .. " is a real item", prototypes.item[name] ~= nil)
       ctx.check(name .. " has a recipe", prototypes.recipe[name] ~= nil)
@@ -101,6 +102,10 @@ core.register("m4_gear", {
         and f.recipes["colony-federation-plating"].enabled == true
         and f.recipes["colony-federation-vault"].enabled == true,
       "federation=" .. tostring(f.recipes["colony-federation-vault"].enabled))
+    local rail_effects = prototypes.technology["colony-rail-transit"].effects or {}
+    local resort_unlocked = false
+    for _, e in ipairs(rail_effects) do if e.recipe == "colony-resort" then resort_unlocked = true end end
+    ctx.check("the resort rides the existing rail-transit tech", resort_unlocked)
 
     -- ---------- pure rules through the real modules ----------
     ctx.check("tungsten wear and work spell come from the gear model",
@@ -119,6 +124,9 @@ core.register("m4_gear", {
       pods.SHELF_TICKS == 20 * 60 * 60 and pods.needs_refill(0.6) and not pods.needs_refill(0.2))
     ctx.check("pod refill product always_fresh (2.1 API)",
       prototypes.recipe["colony-pod-refill"].products[1].always_fresh == true)
+    ctx.check("a resort hosts four visitors and doubles insights",
+      resorts.host_capacity(1, 1, 0, 0, 0) == 6 and resorts.insights(true, 2) == 4
+        and resorts.hospitality(true, 2) == 4)
     ctx.check("EVA crew needs an airlock and a jetpack on a platform",
       eva.work_ticks(480, false, false) == 480 and eva.work_ticks(480, true, false) == 240
         and eva.work_ticks(480, true, true) == 480)
@@ -153,6 +161,9 @@ core.register("m4_gear", {
     storage.interval_override = 600
     local c = storage.colonies[territory.owner_at(s.index, p)]
     ctx.check("colony registered", c ~= nil)
+    local resort = build("colony-resort", {p.x + 8, p.y + 10})
+    ctx.check("resort built and registered", resort and resort.valid and c and c.resorts[resort.unit_number] ~= nil)
+
     local bay = build("colony-hydroponics-bay", {p.x + 16, p.y + 8})
     ctx.check("hydroponics bay built and registered", bay and bay.valid and c and c.hydroponics[bay.unit_number] ~= nil)
     if bay and bay.valid and c then

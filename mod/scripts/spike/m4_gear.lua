@@ -21,6 +21,7 @@ local training = require("scripts.model.training")
 local science = require("scripts.model.science")
 local hotels = require("scripts.model.hotels")
 local labour = require("scripts.model.labour")
+local launch = require("scripts.model.launch")
 local gear = require("scripts.model.gear")
 local labour = require("scripts.model.labour")
 local housing = require("scripts.model.housing")
@@ -146,6 +147,11 @@ core.register("m4_gear", {
       pods.SHELF_TICKS == 20 * 60 * 60 and pods.needs_refill(0.6) and not pods.needs_refill(0.2))
     ctx.check("pod refill product always_fresh (2.1 API)",
       prototypes.recipe["colony-pod-refill"].products[1].always_fresh == true)
+    ctx.check("the platform launch needs a hub and a centre and packs a pod",
+      launch.can_launch(6, 100, nil, true, true) == true
+        and launch.can_launch(6, 100, nil, false, true) == false
+        and launch.can_launch(4, 100, nil, true, true) == false
+        and launch.manifest()[launch.POD_ITEM] == 1)
     ctx.check("a training center needs a minimum town and rations",
       training.pop_ok(4, 100, nil) == false and training.pop_ok(5, 100, nil) == true
         and training.can_launch(6, 100, nil, {["colony-canned-meat"] = 2, ["colony-water"] = 2}) == true

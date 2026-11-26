@@ -58,6 +58,7 @@ local hotels = require("scripts.model.hotels")
 local training = require("scripts.model.training")
 local hydroponics = require("scripts.hydroponics")
 local eva_repair = require("scripts.eva_repair")
+local launch_adapter = require("scripts.launch")
 local eva = require("scripts.model.eva")
 local stats = require("scripts.stats")
 local tech = require("scripts.tech")
@@ -98,6 +99,7 @@ M.MEAL_ITEMS = commute.FOOD_ITEMS     -- what a Canteen serves (#50): the foods 
 local MEAL_SET = {}
 for _, item in ipairs(M.MEAL_ITEMS) do MEAL_SET[item] = true end
 M.is_sick = illness.is_sick
+M.is_visitor = tourism.is_visitor   -- #69: launch volunteers must be residents, not visiting tourists
 M.HUT_RADIUS = 48              -- working radius around a labour hut (other colonies' land excluded)
 M.FORAGE_RADIUS = 96           -- working radius for Forager Huts (bushes are sparse, ~3/chunk)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
@@ -1603,6 +1605,9 @@ local function launch_colonist(colony)
   if #M.training_list(colony) == 0 then return false end
   local hall = colony.hall
   if not (hall and hall.valid) then return false end
+  -- On a platform the exact engine path is used: swap the colonist for a real character, seat it in a cargo
+  -- pod launched from the hub (#69). A ground town keeps the direct pack-into-a-pod path.
+  if planet.is_platform(hall.surface) and launch_adapter.dispatch(colony) then return true end
   local pop = M.live_colonists(colony)
   if not training.can_launch(pop, game.tick, colony.launch_ready, M.stock_table(colony)) then return false end
   local ids = {}
@@ -2957,6 +2962,7 @@ end)
 work.bind(M); gui.bind(M, ledger_signal); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M); commute.bind(M, transit); illness.bind(M)   -- avoids a require cycle (runtime require is illegal)
 gear_speed.bind(M)
 eva_repair.bind(M)
+launch_adapter.bind(M)
 -- #51: the tourism adapter owns the trip's engine side; transit calls back into it on board/alight/loss.
 tourism.bind(M, transit); transit.bind_tourism(tourism)
 ledger_signal.bind(M)

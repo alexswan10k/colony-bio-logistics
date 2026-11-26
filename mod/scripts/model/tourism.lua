@@ -7,6 +7,8 @@
 -- Nothing here touches the Factorio API: the coach trip itself is model/transit.lua, the engine work is
 -- scripts/tourism.lua and scripts/transit.lua. All the anti-exploit predicates live here so they can be
 -- pinned offline (tests/tourism_test.lua) as well as in the headless spike (m2_tourism).
+local resorts = require("scripts.model.resorts")
+
 local M = {}
 
 M.SPA_CAPACITY = 2            -- visitors per Spa
@@ -67,7 +69,8 @@ end
 -- group at its own home. Two batches arriving close together each pay their own riders in full - the
 -- group is consumed by transit.alight, so neither can pay twice.
 function M.credited(group, here)
-  return M.earns_insight(group, here) and (group.n or 0) or 0
+  if not M.earns_insight(group, here) then return 0 end
+  return resorts.insights(group.resort, group.n, group.grand)
 end
 
 -- One evaluation of half-life decay: after INSIGHT_HALF_LIFE evaluations a stat is worth half as much.

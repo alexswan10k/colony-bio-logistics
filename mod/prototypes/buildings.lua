@@ -118,6 +118,12 @@ local canteen = chest_clone("iron-chest", "colony-canteen", "canteen", 8, 1)
 -- Spa (#51): a worker-free 2x2 amenity that hosts tourists from another rail-linked colony. Reuses the
 -- Tavern art/icon so the minimal slice adds no new graphics; its only state is registry + desirability.
 local spa = chest_clone("iron-chest", "colony-spa", "tavern", 4, 1)
+-- Resort (#69): a bigger tourist destination. Four visitors instead of two and double the Cultural Insights
+-- paid home; reuses the Theatre art until dedicated art exists. No worker, no consumable, no new fluid.
+local resort = chest_clone("iron-chest", "colony-resort", "theatre", 9, 1.5)
+-- Grand Hotel (#69): the top tourism tier. Eight visitors, triple insights home, and it only earns that
+-- premium while its own chest can serve every guest an ale. Worker-free like the Spa and Resort.
+local grand_hotel = chest_clone("steel-chest", "colony-grand-hotel", "theatre", 16, 2)
 -- Theatre (#48 slice B): worker-free Inspiration for houses within 16 tiles (quality 1.5, +50% work
 -- speed). The trade against a Tavern is no ale upkeep but a smaller radius; the adapter draws the circle.
 local theatre = chest_clone("iron-chest", "colony-theatre", "theatre", 8, 1.5)
@@ -147,6 +153,29 @@ ledger_entity.placeable_by = nil
 
 -- Clinic (#47): doctors cure sick colonists with Herbal Medicine (labour.lua job "heal").
 local clinic = chest_clone("iron-chest", "colony-clinic", "clinic", 8, 1)
+-- Orbital Hydroponics Bay (#69, §9.3): a worker-free crate whose Lua adapter crushes asteroid chunks into
+-- water and fresh produce and recycles spoilage, on a slow scheduler timer. No new fluid or item prototype:
+-- the bay is ordinary colony storage, and its chest is the whole interface for belts/inserters.
+local hydroponics = chest_clone("steel-chest", "colony-hydroponics-bay", "water-tower", 20, 1.5)
+-- Platform-native buildings (#69) clear the gravity condition they inherit from vanilla chests, exactly as
+-- the Habitat Dome does (#63); without this they cannot be placed on a platform's gravity-0 foundation.
+hydroponics.surface_conditions = nil
+-- EVA Airlock (#69, §9.3): the platform-side depot that issues jetpacks. Worker-free; the jetpack itself is
+-- carried in colony stock like any other issued gear, so there is no per-unit equipment state.
+local eva_airlock = chest_clone("iron-chest", "colony-eva-airlock", "passenger-platform", 8, 1)
+eva_airlock.surface_conditions = nil
+-- Federation Vault (#69): the third Civic Treatise consumer. A 3x3 bulk store whose plating is literally
+-- minted from Civic Treatises, so the second pack tier has a production chain, not just two research sinks.
+local federation_vault = chest_clone("steel-chest", "colony-federation-vault", "warehouse", 100, 1.5)
+-- Space Training Center (#69, §9.2): a worker-free depot that packs a volunteer into a fresh Cryo-Colonist
+-- Pod for launch. Reuses the Passenger Platform art until dedicated art exists.
+local training_center = chest_clone("iron-chest", "colony-space-training-center", "passenger-platform", 8, 1.5)
+training_center.surface_conditions = nil
+
+-- Nursery (#69, §9.1): a worker-free, pressurised cradle for off-world natural reproduction. Reuses the
+-- Clinic art until dedicated art exists; its only state is a lazy registry of positions (no schema).
+local nursery = chest_clone("iron-chest", "colony-nursery", "clinic", 6, 1)
+nursery.surface_conditions = nil
 
 -- Passenger Coach (#49): a vanilla cargo wagon, recoloured and renamed. Colonists ride it abstractly (no seats),
 -- so `inventory_size` stays at 1 and the wagon's own inventory is not used for passengers.
@@ -196,6 +225,10 @@ local archive = make_lab("colony-town-archive", "icon-town-archive.png", "town-a
   {"colony-frontier-pack"}, 1.0, 40)
 local university = make_lab("colony-university", "icon-university.png", "university.png", 2.0,
   {"colony-frontier-pack", "colony-civic-pack"}, 2.0, 100)
+-- #69: a genuine second-pack lab. It consumes ONLY the Sovereign Codex tier, so the final technology cannot
+-- be researched with Frontier Charters or Civic Treatises no matter how many of those the player stockpiles.
+local federation_archive = make_lab("colony-federation-archive", "icon-civic-pack.png", "university.png", 1.5,
+  {"colony-sovereignty-pack"}, 2.5, 80)
 -- Colony logistics crates (#33, design §5.1). Plain containers, not logistic chests: inserters and belts
 -- still work on them, but colony hauling is driven by our own registry so bots and colonists never fight
 -- over the same request.
@@ -217,6 +250,15 @@ local cannery = chest_clone("iron-chest", "colony-cannery", "cannery", 8, 1)
 -- Refrigerated Warehouse (#45): bulk colony stock like a Warehouse, but everything inside stays fresh
 -- forever. Colonists stock it like any warehouse; the spoil countdown only resumes when goods leave (#45).
 local refrigerated_warehouse = chest_clone("steel-chest", "colony-refrigerated-warehouse", "refrigerated-warehouse", 64, 1.5)
+-- Cryo-Preservation Warehouse (#69, Aquilo): the Cold Chain's big brother. Same bulk stock as a Warehouse, but
+-- `scripts/cold.lua` restamps its contents far more often, so the countdown never gets anywhere. Art is shared
+-- with the Refrigerated Warehouse until dedicated art exists; only the name and the pass cadence differ.
+local cryo_warehouse = chest_clone("steel-chest", "colony-cryo-warehouse", "refrigerated-warehouse", 64, 1.5)
+-- Fusion Arcology (#69, Aquilo): Tier-6 housing above the Habitat Dome. 4x4 like the dome, denser and with a
+-- bigger pantry; it is an ordinary house in the `colony-housing` fast-replace group, so a player can upgrade a
+-- settled world in place. No new `next_upgrade` hop is added (a 4x4 hop is not legal from the 3x3 tiers).
+local arcology = chest_clone("steel-chest", "colony-fusion-arcology", "apartment", 64, 2)
+arcology.fast_replaceable_group = "colony-housing"
 -- Refrigerated Wagon (#45): a cargo wagon in the cold chain. Its inventory never ages while it rides the
 -- rails, so preserved and canned food can cross the map. Shares the vanilla cargo-wagon sprites.
 local refrigerated_wagon = table.deepcopy(data.raw["cargo-wagon"]["cargo-wagon"])
@@ -358,7 +400,7 @@ ring(patrol_post, 16, "red")        -- patrol.RANGE: hostile detection while wal
 data:extend({
   hall, dome, tent, cabin, homestead, townhouse, apartment, well, forager, woodcutter, miner, watchtower, armory_depot, patrol_post, farmhut, forester, huntinglodge, fishingdock, saltpan,
   smokehouse, kitchen, toolsmith, tavern, theatre, plaza, spa, motorpool, platform, canteen, clinic, archive, university, supply_crate, demand_crate, freight_crate, warehouse, haul_station, compost_bin,
-  cannery, refrigerated_warehouse, refrigerated_wagon, tower, ledger_entity,
+  cannery, refrigerated_warehouse, cryo_warehouse, arcology, refrigerated_wagon, tower, ledger_entity, nursery, hydroponics, eva_airlock, federation_vault, resort, grand_hotel, training_center, federation_archive,
   plot, bush, sink, marker, cemetery, grave,
   item_of(hall, "town-hall", "z[colony]-a[town-hall]"),
   item_of(dome, "town-hall", "z[colony]-l0[dome]"),
@@ -370,6 +412,7 @@ data:extend({
   item_of(well, "well", "z[colony]-k1[well]"),
   item_of(archive, "town-archive", "z[colony]-k2[town-archive]"),
   item_of(university, "university", "z[colony]-k3[university]"),
+  item_of(federation_archive, "civic-pack", "z[colony]-k3[federation-archive]"),
   item_of(forager, "forager-hut", "z[colony]-d[forager-hut]"),
   item_of(woodcutter, "woodcutter-hut", "z[colony]-e[woodcutter-hut]"),
   item_of(miner, "miner-hut", "z[colony]-f[miner-hut]"),
@@ -386,6 +429,8 @@ data:extend({
   item_of(toolsmith, "toolsmith", "z[colony]-l1[toolsmith]"),
   item_of(cannery, "cannery", "z[colony]-l2[cannery]"),
   item_of(refrigerated_warehouse, "refrigerated-warehouse", "z[colony]-l2[refrigerated-warehouse]"),
+  item_of(cryo_warehouse, "refrigerated-warehouse", "z[colony]-l2[cryo-warehouse]"),
+  item_of(arcology, "apartment", "z[colony]-c3[arcology]"),
   {type = "item", name = "colony-refrigerated-wagon", icon = G .. "icon-refrigerated-wagon.png", icon_size = 64,
    subgroup = "raw-resource", order = "z[colony]-r[refrigerated-wagon]", place_result = "colony-refrigerated-wagon", stack_size = 10,
    localised_name = {"item-name.colony-refrigerated-wagon"},
@@ -397,8 +442,15 @@ data:extend({
   item_of(platform, "passenger-platform", "z[colony]-l3[passenger-platform]"),
   item_of(canteen, "canteen", "z[colony]-l5[canteen]"),
   item_of(spa, "tavern", "z[colony]-l4[spa]"),
+  item_of(resort, "theatre", "z[colony]-l4[resort]"),
+  item_of(grand_hotel, "theatre", "z[colony]-l4[grand-hotel]"),
+  item_of(training_center, "passenger-platform", "z[colony]-l10[training-center]"),
   item_of(plaza, "plaza", "z[colony]-l5[plaza]"),
   item_of(clinic, "clinic", "z[colony]-l6[clinic]"),
+  item_of(nursery, "clinic", "z[colony]-l7[nursery]"),
+  item_of(hydroponics, "water-tower", "z[colony]-k5[hydroponics]"),
+  item_of(eva_airlock, "passenger-platform", "z[colony]-l8[eva-airlock]"),
+  item_of(federation_vault, "warehouse", "z[colony]-l9[federation-vault]"),
   item_of(supply_crate, "supply-crate", "z[colony]-j[supply-crate]"),
   item_of(demand_crate, "demand-crate", "z[colony]-k[demand-crate]"),
   item_of(freight_crate, "demand-crate", "z[colony]-k1[freight-crate]"),
@@ -429,6 +481,13 @@ data:extend({
    spoil_ticks = 60 * 60 * 60, spoil_result = "spoilage",
    localised_name = {"item-name.colony-civic-pack"},
    localised_description = {"item-description.colony-civic-pack"}},
+  -- #69: the true third science tier. Only the Federation Archive accepts it, so the capstone technology
+  -- must be studied in a lab dedicated to the second pack economy.
+  {type = "tool", name = "colony-sovereignty-pack", icon = G .. "icon-civic-pack.png", icon_size = 64,
+   subgroup = "science-pack", order = "z[colony]-s3[sovereignty-pack]", stack_size = 200, durability = 1,
+   spoil_ticks = 60 * 60 * 60, spoil_result = "spoilage",
+   localised_name = {"item-name.colony-sovereignty-pack"},
+   localised_description = {"item-description.colony-sovereignty-pack"}},
   {type = "item", name = "colony-farm-plot", icon = G .. "farm-plot-ripe.png", icon_size = 64,
    subgroup = "storage", order = "z[colony]-i[farm-plot]", place_result = "colony-farm-plot", stack_size = 50,
    localised_name = {"item-name.colony-farm-plot"}, localised_description = {"item-description.colony-farm-plot"}},
@@ -443,6 +502,10 @@ data:extend({
   recipe("colony-habitat-dome", {["steel-plate"] = 40, ["iron-plate"] = 40, ["copper-cable"] = 20, ["electronic-circuit"] = 10}, 8, 1, false),
   recipe("colony-water-tower", {["iron-plate"] = 30, ["steel-plate"] = 10, ["electronic-circuit"] = 2, ["copper-cable"] = 5}, 4, 1, false),
   recipe("colony-refrigerated-warehouse", {["steel-plate"] = 60, ["iron-plate"] = 40, ["electronic-circuit"] = 5}, 5, 1, false),
+  -- #69 Aquilo: all ingredients are vanilla goods already proven reachable by the Civic Governance chain, so
+  -- tech_audit rule 6 stays happy without inventing a new vanilla prerequisite.
+  recipe("colony-cryo-warehouse", {["steel-plate"] = 80, ["iron-plate"] = 50, ["electronic-circuit"] = 10}, 8, 1, false),
+  recipe("colony-fusion-arcology", {["steel-plate"] = 60, concrete = 40, ["iron-plate"] = 40, ["electronic-circuit"] = 20}, 10, 1, false),
   recipe("colony-cannery", {["iron-plate"] = 30, ["steel-plate"] = 10, ["electronic-circuit"] = 2}, 4, 1, false),
   recipe("colony-refrigerated-wagon", {["iron-plate"] = 40, ["steel-plate"] = 20, ["electronic-circuit"] = 5}, 6, 1, false),
   recipe("colony-well", {wood = 20, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
@@ -457,6 +520,7 @@ data:extend({
    localised_name = {"recipe-name.colony-water-bottling"}},
   recipe("colony-town-archive", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-university", {["stone-brick"] = 50, ["iron-plate"] = 30, ["electronic-circuit"] = 20}, 5, 1, false),
+  recipe("colony-federation-archive", {["steel-plate"] = 40, ["iron-plate"] = 30, ["electronic-circuit"] = 20}, 8, 1, false),
   {type = "recipe", name = "colony-frontier-pack", enabled = false, energy_required = 5,
    ingredients = {{type = "item", name = "wood", amount = 1},
                   {type = "item", name = "iron-plate", amount = 1},
@@ -523,6 +587,14 @@ data:extend({
    subgroup = "science-pack", order = "z[colony]-s2[frontier-pack-preserved-fish]",
    localised_name = {"recipe-name.colony-frontier-pack-preserved-fish"},
    localised_description = {"recipe-description.colony-frontier-pack-preserved-fish"}},
+  {type = "recipe", name = "colony-sovereignty-pack", enabled = false, energy_required = 12,
+   ingredients = {{type = "item", name = "colony-civic-pack", amount = 2},
+                  {type = "item", name = "colony-federation-plating", amount = 1}},
+   results = {{type = "item", name = "colony-sovereignty-pack", amount = 1}},
+   icon = G .. "icon-civic-pack.png", icon_size = 64,
+   subgroup = "science-pack", order = "z[colony]-s3[sovereignty-pack]",
+   localised_name = {"item-name.colony-sovereignty-pack"},
+   localised_description = {"item-description.colony-sovereignty-pack"}},
   {type = "recipe", name = "colony-civic-pack", enabled = false, energy_required = 8,
    ingredients = {{type = "item", name = "iron-gear-wheel", amount = 2},
                   {type = "item", name = "colony-bread", amount = 1},
@@ -616,7 +688,18 @@ data:extend({
   recipe("colony-passenger-platform", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-canteen", {wood = 30, ["stone-brick"] = 10, ["iron-plate"] = 10}, 3, 1, false),
   recipe("colony-spa", {wood = 20, ["stone-brick"] = 10, ["iron-plate"] = 5}, 3, 1, false),
+  recipe("colony-resort", {["stone-brick"] = 60, ["iron-plate"] = 30, ["copper-cable"] = 20}, 8, 1, false),
+  recipe("colony-grand-hotel", {["steel-plate"] = 60, ["stone-brick"] = 80, ["copper-cable"] = 40, ["colony-furniture"] = 20}, 12, 1, false),
+  recipe("colony-space-training-center", {["steel-plate"] = 30, ["iron-plate"] = 20, ["electronic-circuit"] = 8}, 6, 1, false),
   recipe("colony-clinic", {wood = 30, ["stone-brick"] = 20, ["iron-plate"] = 10}, 3, 1, false),
+  recipe("colony-nursery", {["steel-plate"] = 15, ["electronic-circuit"] = 4, ["colony-furniture"] = 4}, 5, 1, false),
+  recipe("colony-hydroponics-bay", {["steel-plate"] = 25, ["iron-plate"] = 20, ["electronic-circuit"] = 8}, 6, 1, false),
+  recipe("colony-eva-airlock", {["steel-plate"] = 15, ["iron-plate"] = 15, ["electronic-circuit"] = 4}, 4, 1, false),
+  {type = "item", name = "colony-federation-plating", icon = G .. "icon-civic-pack.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-f[federation-plating]", stack_size = 100,
+   localised_name = {"item-name.colony-federation-plating"}},
+  recipe("colony-federation-plating", {["colony-civic-pack"] = 1, ["steel-plate"] = 4}, 6, 2, false),
+  recipe("colony-federation-vault", {["steel-plate"] = 60, ["colony-federation-plating"] = 20, ["electronic-circuit"] = 10}, 10, 1, false),
   recipe("colony-passenger-coach", {["cargo-wagon"] = 1, wood = 20}, 5, 1, false),
   recipe("colony-farm-plot", {wood = 2}, 0.5, 4, false),
   recipe("colony-supply-crate", {wood = 10, ["iron-plate"] = 5}, 1, 1, false),
@@ -634,6 +717,40 @@ data:extend({
   tool("colony-spade", "icon-spade.png"),
   tool("colony-steel-axe", "icon-steel-axe.png"), tool("colony-steel-pickaxe", "icon-steel-pickaxe.png"),
   tool("colony-steel-hoe", "icon-steel-hoe.png"),
+  -- #69 cross-planet gear. Tier-3 tungsten pickaxe is a `tool` like the tiers below it; the harness and serum
+  -- are plain issued items (they are never equipped on a real character - the effects are pure colony rules).
+  tool("colony-tungsten-pickaxe", "icon-steel-pickaxe.png"),
+  {type = "item", name = "colony-exoskeleton-harness", icon = G .. "icon-tool-rack.png", icon_size = 64,
+   subgroup = "tool", order = "z[colony]-t[exoskeleton]", stack_size = 1,
+   localised_name = {"item-name.colony-exoskeleton-harness"},
+   localised_description = {"item-description.colony-exoskeleton-harness"}},
+  {type = "item", name = "colony-panacea-serum", icon = G .. "icon-herbal-medicine.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-b4[panacea]", stack_size = 10,
+   localised_name = {"item-name.colony-panacea-serum"},
+   localised_description = {"item-description.colony-panacea-serum"}},
+  -- Cryo-Colonist Pod (#69, §9.2): the 20-minute spoil timer IS the life support. The refill recipe uses the
+  -- engine's `result_is_always_fresh` so a near-spoiled pod plus rations and water becomes a fresh one.
+  {type = "item", name = "colony-cryo-pod", icon = G .. "icon-passenger-coach.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-p[pod]", stack_size = 1,
+   spoil_ticks = 20 * 60 * 60, spoil_result = "spoilage",
+   localised_name = {"item-name.colony-cryo-pod"},
+   localised_description = {"item-description.colony-cryo-pod"}},
+  {type = "item", name = "colony-eva-jetpack", icon = G .. "icon-tool-rack.png", icon_size = 64,
+   subgroup = "armor", order = "z[colony]-d[eva]", stack_size = 1,
+   localised_name = {"item-name.colony-eva-jetpack"},
+   localised_description = {"item-description.colony-eva-jetpack"}},
+  {type = "item", name = "colony-enviro-suit", icon = G .. "icon-tool-rack.png", icon_size = 64,
+   subgroup = "armor", order = "z[colony]-c[enviro]", stack_size = 1,
+   localised_name = {"item-name.colony-enviro-suit"},
+   localised_description = {"item-description.colony-enviro-suit"}},
+  {type = "item", name = "colony-heavy-siege-armor", icon = G .. "icon-armory.png", icon_size = 64,
+   subgroup = "armor", order = "z[colony]-a[siege]", stack_size = 1,
+   localised_name = {"item-name.colony-heavy-siege-armor"},
+   localised_description = {"item-description.colony-heavy-siege-armor"}},
+  {type = "item", name = "colony-personal-shield-pack", icon = G .. "icon-water-tower.png", icon_size = 64,
+   subgroup = "armor", order = "z[colony]-b[shield]", stack_size = 1,
+   localised_name = {"item-name.colony-personal-shield-pack"},
+   localised_description = {"item-description.colony-personal-shield-pack"}},
   tool("colony-bow", "icon-bow.png"),
   recipe("colony-bow", {wood = 4}, 1, 1, false),
   {type = "item", name = "colony-arrow", icon = G .. "icon-arrow.png", icon_size = 64,
@@ -651,6 +768,28 @@ data:extend({
   recipe("colony-steel-axe", {["iron-plate"] = 2, ["steel-plate"] = 1}, 2, 1, false),
   recipe("colony-steel-pickaxe", {["iron-plate"] = 2, ["steel-plate"] = 1}, 2, 1, false),
   recipe("colony-steel-hoe", {["iron-plate"] = 2, ["steel-plate"] = 1}, 2, 1, false),
+  -- #69 cross-planet gear. Planet ores are resources (no crafting technology gates them), so rule 6 only
+  -- checks the vanilla plates/circuits, all already reachable in the Civic Governance prerequisite closure.
+  recipe("colony-tungsten-pickaxe", {["tungsten-ore"] = 4, ["steel-plate"] = 2}, 4, 1, false),
+  recipe("colony-exoskeleton-harness", {["holmium-ore"] = 4, ["steel-plate"] = 2, ["electronic-circuit"] = 2}, 6, 1, false),
+  -- Bioflux panacea (#69): the Gleba endgame intermediate, not raw fruit. The vanilla `bioflux` technology
+  -- is a prerequisite of Bio-Ecological Data, so tech_audit rule 6 can prove the ingredient is makeable.
+  recipe("colony-panacea-serum", {bioflux = 2, ["colony-herbal-medicine"] = 1}, 6, 1, false),
+  recipe("colony-cryo-pod", {["steel-plate"] = 6, ["colony-canned-meat"] = 2, ["colony-water"] = 2}, 10, 1, false),
+  -- 2.1 fact pinned by m4_gear: `result_is_always_fresh` moved from the recipe to the product
+  -- (`ItemProductPrototype::always_fresh`), or the whole mod fails to load.
+  {type = "recipe", name = "colony-pod-refill", enabled = false, energy_required = 2,
+   ingredients = {{type = "item", name = "colony-cryo-pod", amount = 1},
+                  {type = "item", name = "colony-canned-meat", amount = 1},
+                  {type = "item", name = "colony-water", amount = 2}},
+   results = {{type = "item", name = "colony-cryo-pod", amount = 1, always_fresh = true}},
+   icon = G .. "icon-passenger-coach.png", icon_size = 64,
+   subgroup = "raw-resource", order = "z[colony]-p[pod]-b[refill]",
+   localised_name = {"recipe-name.colony-pod-refill"}},
+  recipe("colony-eva-jetpack", {["steel-plate"] = 4, ["electronic-circuit"] = 3, ["copper-cable"] = 4}, 5, 1, false),
+  recipe("colony-enviro-suit", {["steel-plate"] = 4, ["electronic-circuit"] = 2, ["copper-cable"] = 4}, 5, 1, false),
+  recipe("colony-heavy-siege-armor", {["tungsten-ore"] = 8, ["steel-plate"] = 6, ["iron-plate"] = 4}, 8, 1, false),
+  recipe("colony-personal-shield-pack", {["holmium-ore"] = 8, ["electronic-circuit"] = 6, ["steel-plate"] = 4}, 8, 1, false),
   recipe("colony-rifle", {wood = 4, ["iron-plate"] = 6, ["copper-plate"] = 2}, 2, 1, false),
   recipe("colony-rod", {wood = 3, ["iron-plate"] = 2}, 1, 1, false),
   {type = "item", name = "colony-forage", icon = G .. "icon-forage.png", icon_size = 64,

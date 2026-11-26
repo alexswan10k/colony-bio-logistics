@@ -188,6 +188,7 @@ data:extend({
       unlock("colony-passenger-coach"),
       unlock("colony-canteen"),
       unlock("colony-spa"),   -- #51: tourism rides the same rail network, no new tech node
+      unlock("colony-resort"), -- #69: a bigger host that doubles the insights a visit earns
       unlock("colony-freight-crate"),   -- #52: freight links ride the same rail age as passenger rail
     }),
   -- Habitat Domes (#63): Tier-5 housing that also emits a 64-tile territory, so a colony can be founded
@@ -197,4 +198,35 @@ data:extend({
     {"colony-civic-governance", "space-platform"}, {
       unlock("colony-habitat-dome"),
     }),
+  -- #69 M4 tier: Bio-Ecological Data. This is the first technology paid for with the *second* pack tier
+  -- (Civic Treatise), closing the gap recorded in §8. The University is its only lab, and it is unlocked by
+  -- Civic Governance, so lab coverage holds. The vanilla `bioflux` interlock proves the serum's Gleba
+  -- intermediate is makeable when the tech appears (tech_audit rule 6).
+  tech("colony-bio-ecological-data", "icon-civic-pack.png", 40, {"colony-civic-pack"}, 25,
+    {"colony-civic-governance", "colony-rail-transit", "colony-cold-chain", "bioflux"}, {
+      unlock("colony-tungsten-pickaxe"), unlock("colony-exoskeleton-harness"), unlock("colony-panacea-serum"),
+      unlock("colony-cryo-pod"), unlock("colony-pod-refill"), unlock("colony-nursery"),
+      unlock("colony-space-training-center"),
+      unlock("colony-enviro-suit"), unlock("colony-heavy-siege-armor"), unlock("colony-personal-shield-pack"),
+    }),
+  -- #69 M4 tier: Interplanetary Sovereignty Codex. The late structures: a zero-spoilage store and the Tier-6
+  -- Fusion Arcology. Needs the data tier (for its pack economy) and orbit (for the Aquilo interlock).
+  tech("colony-sovereignty-codex", "icon-civic-pack.png", 60, {"colony-civic-pack"}, 30,
+    {"colony-bio-ecological-data", "colony-habitat-domes"}, {
+      unlock("colony-cryo-warehouse"), unlock("colony-fusion-arcology"), unlock("colony-hydroponics-bay"),
+      unlock("colony-eva-airlock"), unlock("colony-eva-jetpack"),
+    }),
+  -- A third Civic Treatise consumer (#69): the Federation Vault's plating is minted from Civic Treatises, so
+  -- the second pack tier feeds a production chain rather than only being spent on research.
+  tech("colony-interplanetary-federation", "icon-civic-pack.png", 80, {"colony-civic-pack"}, 30,
+    {"colony-sovereignty-codex"}, {
+      unlock("colony-federation-plating"), unlock("colony-federation-vault"),
+      unlock("colony-grand-hotel"),
+      unlock("colony-sovereignty-pack"), unlock("colony-federation-archive"),
+    }),
+  -- The capstone. Paid ONLY with Sovereign Codex packs, which the Federation Archive alone consumes: a real
+  -- second-pack science tier, not just another Civic Treatise cost. No new building - the achievement is the
+  -- self-sustaining pack economy itself, proved by research in the dedicated lab.
+  tech("colony-transcendent-codex", "icon-civic-pack.png", 80, {"colony-sovereignty-pack"}, 30,
+    {"colony-interplanetary-federation"}, {}),
 })

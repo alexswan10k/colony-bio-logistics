@@ -44,12 +44,22 @@ local shelter = require("scripts.shelter")
 local commute = require("scripts.commute")
 local tourism = require("scripts.tourism")
 local illness = require("scripts.illness")
+local gear_speed = require("scripts.gear_speed")
 local militia = require("scripts.militia")
 local armory = require("scripts.armory")
 local patrol = require("scripts.patrol")
 local command = require("scripts.command")
 local mortality_model = require("scripts.model.mortality")
 local breeding = require("scripts.model.breeding")
+local pods = require("scripts.model.pods")
+local nursery = require("scripts.model.nursery")
+local resorts = require("scripts.model.resorts")
+local hotels = require("scripts.model.hotels")
+local training = require("scripts.model.training")
+local hydroponics = require("scripts.hydroponics")
+local eva_repair = require("scripts.eva_repair")
+local launch_adapter = require("scripts.launch")
+local eva = require("scripts.model.eva")
 local stats = require("scripts.stats")
 local tech = require("scripts.tech")
 local ledger_signal = require("scripts.ledger_signal")
@@ -77,12 +87,19 @@ M.PLATFORM = "colony-passenger-platform"
 M.CEMETERY = "colony-cemetery"
 M.CANTEEN = "colony-canteen"
 M.SPA = "colony-spa"
+M.RESORT = resorts.RESORT
+M.GRAND_HOTEL = hotels.GRAND
 M.ARMORY = "colony-armory"
 M.PATROL_POST = "colony-patrol-post"
+M.NURSERY = nursery.NURSERY   -- #69: worker-free off-world breeding amenity (lazy registry, no schema)
+M.HYDRO_BAY = "colony-hydroponics-bay"   -- #69: worker-free orbital closed-loop food producer
+M.EVA_AIRLOCK = eva.AIRLOCK              -- #69: platform EVA depot (lazy registry, no schema)
+M.TRAINING_CENTER = training.CENTER      -- #69: volunteer-to-pod depot (lazy registry, no schema)
 M.MEAL_ITEMS = commute.FOOD_ITEMS     -- what a Canteen serves (#50): the foods houses eat
 local MEAL_SET = {}
 for _, item in ipairs(M.MEAL_ITEMS) do MEAL_SET[item] = true end
 M.is_sick = illness.is_sick
+M.is_visitor = tourism.is_visitor   -- #69: launch volunteers must be residents, not visiting tourists
 M.HUT_RADIUS = 48              -- working radius around a labour hut (other colonies' land excluded)
 M.FORAGE_RADIUS = 96           -- working radius for Forager Huts (bushes are sparse, ~3/chunk)
 M.REGROW_TICKS = 2400           -- a harvested forage patch grows back in place after this long...
@@ -91,7 +108,8 @@ M.FORAGE_PER_CHUNK = 3          -- natural forage patches seeded per already-gen
 M.FORAGE_TILES = {["grass-1"] = true, ["grass-2"] = true, ["grass-3"] = true, ["grass-4"] = true}
 M.HOUSES = {["colony-housing-tent"] = "tent", ["colony-housing-cabin"] = "cabin",
   ["colony-housing-homestead"] = "homestead", ["colony-housing-townhouse"] = "townhouse",
-  ["colony-housing-apartment"] = "apartment"}
+  ["colony-housing-apartment"] = "apartment",
+  ["colony-fusion-arcology"] = "arcology"}   -- #69 Tier-6 housing
 M.HOUSES[M.DOME] = "dome"   -- #63: a dome is also a house (the founding dome is its core's stock room)
 -- Colony logistics crates (#33): supply = provider, demand = requester, warehouse = bulk colony stock.
 -- Haul Station (#94) is bulk stock like a Warehouse, plus a Wooden Trailer depot (work.lua).
@@ -100,6 +118,11 @@ M.DEMAND_CRATE = "colony-demand-crate"
 M.WAREHOUSE = "colony-warehouse"
 M.HAUL_STATION = "colony-haul-station"
 M.REFRIGERATED_WAREHOUSE = "colony-refrigerated-warehouse"
+-- #69: the cryo store is ordinary bulk colony stock (accept-all, counted in the ledger) whose contents the
+-- cold pass restamps ten times as often. Reusing the refrigerator kind means no new registry or schema.
+M.CRYO_WAREHOUSE = "colony-cryo-warehouse"
+-- #69: the Federation Vault is ordinary bulk stock; its only difference is a much bigger chest.
+M.FEDERATION_VAULT = "colony-federation-vault"
 M.LINK_CRATE = "colony-freight-crate"   -- #52: one half of a colony-to-colony freight pair
 M.CRATES = {
   [M.SUPPLY_CRATE] = crates.SUPPLY,
@@ -107,6 +130,8 @@ M.CRATES = {
   [M.WAREHOUSE] = crates.WAREHOUSE,
   [M.HAUL_STATION] = crates.HAUL_STATION,
   [M.REFRIGERATED_WAREHOUSE] = crates.REFRIGERATOR,
+  [M.CRYO_WAREHOUSE] = crates.REFRIGERATOR,
+  [M.FEDERATION_VAULT] = crates.WAREHOUSE,
   [M.LINK_CRATE] = crates.LINK,
 }
 -- Compost Bin (#78, design §3.2): spoilage is removed from houses and stock by colonists and converted here.
@@ -248,6 +273,42 @@ function M.canteen_list(colony)
   return out
 end
 
+-- Space Training Centers (#69), in a stable order; lazy registry like water towers, no schema.
+function M.training_list(colony)
+  local ids = {}
+  for un, t in pairs(colony.training_centers or {}) do
+    if t.entity.valid then ids[#ids + 1] = un else colony.training_centers[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.training_centers[un] end
+  return out
+end
+
+-- Grand Hotels (#69), in a stable order; lazy registry like Spas, no schema.
+function M.grand_list(colony)
+  local ids = {}
+  for un, h in pairs(colony.grand_hotels or {}) do
+    if h.entity.valid then ids[#ids + 1] = un else colony.grand_hotels[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.grand_hotels[un] end
+  return out
+end
+
+-- Resorts (#69), in a stable order: the same lazy registry shape as Spas, no schema.
+function M.resort_list(colony)
+  local ids = {}
+  for un, r in pairs(colony.resorts or {}) do
+    if r.entity.valid then ids[#ids + 1] = un else colony.resorts[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.resorts[un] end
+  return out
+end
+
 -- Spas (#51), in a stable order: [unit_number] = {entity, colony_id}. A worker-free 2-visitor amenity;
 -- it only creates host demand, so the registry is all the state it has.
 function M.spa_list(colony)
@@ -282,6 +343,30 @@ function M.pool_list(colony)
   table.sort(ids)
   local out = {}
   for _, un in ipairs(ids) do out[#out + 1] = colony.pools[un] end
+  return out
+end
+
+-- EVA Airlocks (#69) in a stable order; lazy registry like water towers, no schema.
+function M.airlock_list(colony)
+  local ids = {}
+  for un, a in pairs(colony.airlocks or {}) do
+    if a.entity.valid then ids[#ids + 1] = un else colony.airlocks[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.airlocks[un] end
+  return out
+end
+
+-- Nurseries (#69) in a stable order; prunes dead ones like water towers. No schema: the registry is lazy.
+function M.nursery_list(colony)
+  local ids = {}
+  for un, n in pairs(colony.nurseries or {}) do
+    if n.entity.valid then ids[#ids + 1] = un else colony.nurseries[un] = nil end
+  end
+  table.sort(ids)
+  local out = {}
+  for _, un in ipairs(ids) do out[#out + 1] = colony.nurseries[un] end
   return out
 end
 
@@ -1513,6 +1598,65 @@ end
 
 M.spawn_colonist = spawn_colonist
 
+-- Space Training Center (#69): pack one volunteer into a fresh Cryo-Colonist Pod. The volunteer is removed
+-- from the roster cleanly (this is a launch, not a death, so it adds no mortality or mourning), and the pod
+-- goes into the colony stock. A town below four residents or without rations never launches.
+local function launch_colonist(colony)
+  if #M.training_list(colony) == 0 then return false end
+  local hall = colony.hall
+  if not (hall and hall.valid) then return false end
+  -- On a platform the exact engine path is used: swap the colonist for a real character, seat it in a cargo
+  -- pod launched from the hub (#69). A ground town keeps the direct pack-into-a-pod path.
+  if planet.is_platform(hall.surface) and launch_adapter.dispatch(colony) then return true end
+  local pop = M.live_colonists(colony)
+  if not training.can_launch(pop, game.tick, colony.launch_ready, M.stock_table(colony)) then return false end
+  local ids = {}
+  for un, e in pairs(colony.colonists) do
+    local rec = storage.age and storage.age[un]
+    local st = storage.unit_state and storage.unit_state[un]
+    if e.valid and not (rec and rec.stage == "child") and not (colony.locks and colony.locks[un])
+        and not (st and st.job == "militia") and not tourism.is_visitor(un) then
+      ids[#ids + 1] = un
+    end
+  end
+  table.sort(ids)
+  local un = ids[1]
+  if not un then return false end
+  -- Rations come from the same stock locations a hauler would use, hall first, then bulk storage.
+  local function take(item, n)
+    local need = n
+    if hall.valid then need = need - hall.remove_item{name = item, count = need} end
+    if need > 0 then
+      for _, cr in ipairs(M.storage_crates(colony)) do
+        local e = cr.entity
+        if e and e.valid then
+          need = need - e.remove_item{name = item, count = need}
+          if need <= 0 then break end
+        end
+      end
+    end
+    return need <= 0
+  end
+  for item, n in pairs(training.RATIONS) do
+    if not take(item, n) then return false end   -- stock_table said yes; a concurrent claim won the race
+  end
+  local e = colony.colonists[un]
+  local pos = e and e.valid and e.position or hall.position
+  colony.colonists[un] = nil
+  if colony.locks then colony.locks[un] = nil end
+  if storage.unit_state then storage.unit_state[un] = nil end
+  if storage.age then storage.age[un] = nil end
+  if storage.sick then storage.sick[un] = nil end
+  colony.pop_cache, colony.pop_tick = nil, nil
+  if e and e.valid then e.destroy() end
+  hall.insert{name = training.POD, count = 1}
+  colony.launch_ready = game.tick + training.LAUNCH_TICKS
+  colony.stock_cache, colony.storage_cache, colony.ledger_cache = nil, nil, nil
+  hall.force.print({"colony-message.colonist-launched", gps(pos, hall.surface)})
+  return true
+end
+M.launch_training = launch_colonist   -- exposed for the headless spike
+
 -- Scenic (#29): count trees in a fixed box around the hall and sample the tiles under them, once every
 -- M.SCENIC_EVERY evaluations. Trees are entities, so one filtered find per sample beats per-tile probing;
 -- the box is fixed rather than the whole territory so the cost stays flat as watchtowers expand.
@@ -1791,7 +1935,17 @@ function M.evaluate(data)
         states[#states + 1] = {sex = breeding.sex_of(un), stage = (rec and rec.stage) or "adult"}
       end
       local ok = breeding.eligible(states, h.crit_unmet, tier.capacity - occ[i], tick, h.breed_ready)
-      if ok and breeding.roll_birth(h.entity.unit_number, tick, 3) then
+      -- Nurseries (#69): off-world houses only breed near one, and there the chance is doubled. Nauvis and
+      -- Gleba keep exactly the old roll, so an established town's births are bit-identical.
+      local chance = breeding.BREED_P
+      if planet.is_exotic(colony.hall.surface) then
+        local covered = false
+        for _, n in ipairs(M.nursery_list(colony)) do
+          if nursery.in_radius(n.entity.position, h.entity.position, nursery.RADIUS) then covered = true; break end
+        end
+        chance = nursery.birth_chance(true, covered)
+      end
+      if ok and chance > 0 and breeding.roll_birth(h.entity.unit_number, tick, 3, chance) then
         local child = spawn_colonist(colony, h.entity.position, true)
         if child then h.breed_ready = tick + breeding.COOLDOWN_TICKS end
       end
@@ -1818,10 +1972,32 @@ function M.evaluate(data)
       end
     end
   end
+  -- Cryo-Colonist Pods (#69): a dome colony with a free bed wakes one settler per evaluation from a pod in
+  -- its stock. An ordinary Town Hall never unpacks pods, so an established Nauvis town is unchanged.
+  if core.is_dome(colony.hall.name) then
+    local free = M.capacity(colony) - M.live_colonists(colony) - (colony.away or 0)
+    if pods.can_unpack(M.stock_table(colony), free) then
+      local taken = colony.hall.remove_item{name = pods.POD, count = 1} > 0
+      if not taken then
+        for _, cr in ipairs(M.storage_crates(colony)) do
+          local ent = cr.entity
+          if ent and ent.valid and ent.remove_item{name = pods.POD, count = 1} > 0 then taken = true; break end
+        end
+      end
+      if taken then
+        colony.stock_cache, colony.storage_cache = nil, nil
+        local woken = spawn_colonist(colony, colony.hall.position)
+        if woken then colony.hall.force.print({"colony-message.pod-unpacked", gps(woken)}) end
+      end
+    end
+  end
+  launch_colonist(colony)   -- #69: a Space Training Center packs a volunteer into a pod once per cooldown
   colony.recreation = M.serve_taverns(colony, houses, occ)
   M.serve_theatres(colony, houses, occ)   -- #48 slice B: may raise recreation and inspiration quality in place
   M.compute_inspiration(colony, split, houses)
   illness.evaluate(colony, rotten)
+  gear_speed.apply(colony)   -- #69: issued exos harnesses double the colonists' movement speed
+  eva_repair.dispatch(colony)  -- #69: one EVA repair trip per evaluation on a platform with damaged tiles
   local kept = {}
   for _, a in ipairs(colony.deaths) do if a < 40 then kept[#kept + 1] = a + 1 end end
   colony.deaths = kept
@@ -1884,7 +2060,9 @@ function M.evaluate(data)
     pollution = pollution, deaths = colony.deaths,
     sickness = pop > 0 and (colony.sick_count or 0) / pop or 0,
     tents = tents, open_jobs = open_jobs, privacy = privacy, commute = work_walk,
-    tourism = colony.insights or 0, hospitality = #tourism.here(colony),
+    tourism = colony.insights or 0,
+    hospitality = resorts.hospitality(#M.resort_list(colony) > 0, #tourism.here(colony),
+      #M.grand_list(colony) > 0),
     death_halflife = mortality_model.halflife(desirability.defaults.death_halflife, #M.cemetery_list(colony) > 0),
   })
   colony.d, colony.d_parts = d, parts
@@ -2098,7 +2276,7 @@ local function on_built(ev)
         e.destroy()
         return
       end
-    elseif (M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or M.HOUSES[name] or labour.HUTS[name]) and not core.is_core(name) then
+    elseif (M.CRATES[name] or name == M.COMPOST_BIN or name == M.SALT_PAN or name == M.WELL or name == M.WATER_TOWER or name == M.MOTOR_POOL or name == M.TAVERN or name == M.THEATRE or name == M.PLAZA or name == M.PLATFORM or name == M.CEMETERY or name == M.CANTEEN or name == M.SPA or name == M.LEDGER or name == M.NURSERY or name == M.HYDRO_BAY or name == M.EVA_AIRLOCK or name == M.RESORT or name == M.GRAND_HOTEL or name == M.TRAINING_CENTER or M.HOUSES[name] or labour.HUTS[name]) and not core.is_core(name) then
       local owner = territory.owner_at(e.surface.index, e.position)
       if not owner then
         local p = ev.player_index and game.get_player(ev.player_index)
@@ -2307,6 +2485,27 @@ local function on_built(ev)
     local owner = territory.owner_at(e.surface.index, e.position)
     if not owner then refund(ev, e, name); e.destroy(); return end
     patrol.register_post(storage.colonies[owner], e, dict)
+  elseif name == M.NURSERY then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.nurseries = colony.nurseries or {}
+    colony.nurseries[e.unit_number] = {entity = e, colony_id = colony.id}
+    script.register_on_object_destroyed(e)
+  elseif name == M.HYDRO_BAY then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.hydroponics = colony.hydroponics or {}
+    colony.hydroponics[e.unit_number] = {entity = e, colony_id = colony.id}
+    script.register_on_object_destroyed(e)
+  elseif name == M.EVA_AIRLOCK then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.airlocks = colony.airlocks or {}
+    colony.airlocks[e.unit_number] = {entity = e, colony_id = colony.id}
+    script.register_on_object_destroyed(e)
   elseif name == M.WATER_TOWER then
     -- Water Tower (#96): a worker-free assembler with a locked recipe (the bottling recipe). It bottles the
     -- fluid water the player pipes in and hands it straight to the houses around it at evaluation time, so no
@@ -2345,6 +2544,29 @@ local function on_built(ev)
     local colony = storage.colonies[owner]
     colony.canteens = colony.canteens or {}
     colony.canteens[e.unit_number] = {entity = e, colony_id = colony.id, inflight = {}}
+    script.register_on_object_destroyed(e)
+  elseif name == M.GRAND_HOTEL then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.grand_hotels = colony.grand_hotels or {}
+    colony.grand_hotels[e.unit_number] = {entity = e, colony_id = colony.id}
+    script.register_on_object_destroyed(e)
+  elseif name == M.TRAINING_CENTER then
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.training_centers = colony.training_centers or {}
+    colony.training_centers[e.unit_number] = {entity = e, colony_id = colony.id}
+    script.register_on_object_destroyed(e)
+  elseif name == M.RESORT then
+    -- Resort (#69): a worker-free 4-visitor amenity that doubles the insights returned home. Same lazy
+    -- registry shape as a Spa, and the coach/tourist flow is unchanged.
+    local owner = territory.owner_at(e.surface.index, e.position)
+    if not owner then refund(ev, e, name); e.destroy(); return end
+    local colony = storage.colonies[owner]
+    colony.resorts = colony.resorts or {}
+    colony.resorts[e.unit_number] = {entity = e, colony_id = colony.id}
     script.register_on_object_destroyed(e)
   elseif name == M.SPA then
     -- Spa (#51): a worker-free 2-visitor amenity. Built inside territory like every other colony building;
@@ -2465,7 +2687,7 @@ function M.update_cursor_overlay(player)
   end
   if not (item_name == M.WATCHTOWER or core.is_core(item_name) or M.HOUSES[item_name] or labour.HUTS[item_name]
       or M.CRATES[item_name] or item_name == M.COMPOST_BIN or item_name == M.SALT_PAN
-      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.PLOT) then return end
+      or item_name == M.WELL or item_name == M.WATER_TOWER or item_name == M.ARMORY or item_name == M.PATROL_POST or item_name == M.MOTOR_POOL or item_name == M.TAVERN or item_name == M.THEATRE or item_name == M.PLAZA or item_name == M.PLATFORM or item_name == M.CEMETERY or item_name == M.CANTEEN or item_name == M.SPA or item_name == M.NURSERY or item_name == M.HYDRO_BAY or item_name == M.EVA_AIRLOCK or item_name == M.RESORT or item_name == M.GRAND_HOTEL or item_name == M.TRAINING_CENTER or item_name == M.PLOT) then return end
 
   local surface = player.surface
   local list = {}
@@ -2643,6 +2865,18 @@ events.on(defines.events.on_object_destroyed, function(ev)
       colony.water_towers[un] = nil
       return
     end
+    if colony.nurseries and colony.nurseries[un] then
+      colony.nurseries[un] = nil
+      return
+    end
+    if colony.hydroponics and colony.hydroponics[un] then
+      colony.hydroponics[un] = nil
+      return
+    end
+    if colony.airlocks and colony.airlocks[un] then
+      colony.airlocks[un] = nil
+      return
+    end
     if colony.ledgers and colony.ledgers[un] then
       colony.ledgers[un] = nil   -- the timer chain notices there is nothing left to publish and stops
       return
@@ -2665,6 +2899,18 @@ events.on(defines.events.on_object_destroyed, function(ev)
     end
     if colony.canteens and colony.canteens[un] then
       colony.canteens[un] = nil
+      return
+    end
+    if colony.grand_hotels and colony.grand_hotels[un] then
+      colony.grand_hotels[un] = nil
+      return
+    end
+    if colony.training_centers and colony.training_centers[un] then
+      colony.training_centers[un] = nil
+      return
+    end
+    if colony.resorts and colony.resorts[un] then
+      colony.resorts[un] = nil
       return
     end
     if colony.spas and colony.spas[un] then
@@ -2714,6 +2960,9 @@ events.on(defines.events.on_object_destroyed, function(ev)
 end)
 
 work.bind(M); gui.bind(M, ledger_signal); feedback.bind(M); transit.bind(M); mortality.bind(M); shelter.bind(M); commute.bind(M, transit); illness.bind(M)   -- avoids a require cycle (runtime require is illegal)
+gear_speed.bind(M)
+eva_repair.bind(M)
+launch_adapter.bind(M)
 -- #51: the tourism adapter owns the trip's engine side; transit calls back into it on board/alight/loss.
 tourism.bind(M, transit); transit.bind_tourism(tourism)
 ledger_signal.bind(M)
@@ -3132,13 +3381,14 @@ function M.stats(colony)
   local capacity = M.capacity(colony)
   local target = math.max(pop * M.FOOD_PER_COLONIST * M.TARGET_STOCK_INTERVALS, 1)
   local food = M.total_food(colony)
-  local tents, cabins, homesteads, townhouses, apartments = 0, 0, 0, 0, 0
+  local tents, cabins, homesteads, townhouses, apartments, arcologies = 0, 0, 0, 0, 0, 0
   for _, h in ipairs(M.house_list(colony)) do
     if h.kind == "tent" then tents = tents + 1
     elseif h.kind == "cabin" then cabins = cabins + 1
     elseif h.kind == "homestead" then homesteads = homesteads + 1
     elseif h.kind == "townhouse" then townhouses = townhouses + 1
     elseif h.kind == "apartment" then apartments = apartments + 1
+    elseif h.kind == "arcology" then arcologies = arcologies + 1
     end
   end
   local chunks = #territory.chunks(colony)
@@ -3151,7 +3401,7 @@ function M.stats(colony)
   for _, r in pairs(colony.repairs or {}) do if r.valid and construct.needs_repair(r.health, r.max_health) then damaged = damaged + 1 end end
   return {pop = pop, capacity = capacity, food = food, food_target = target, food_ratio = food / target,
     tents = tents, cabins = cabins, homesteads = homesteads, townhouses = townhouses, apartments = apartments,
-    domes = #M.dome_list(colony),
+    arcologies = arcologies, domes = #M.dome_list(colony),
     huts = huts, machines = machines, towers = towers, chunks = chunks,
     crates = #M.crate_list(colony), ghosts = ghosts, damaged = damaged,
     d = colony.d or 0, parts = colony.d_parts or {},

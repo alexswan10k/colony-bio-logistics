@@ -18,6 +18,9 @@ M.ARMOUR = {
   ["modular-armor"] = 0.38,
   ["power-armor"] = 0.48,
   ["power-armor-mk2"] = 0.58,
+  -- #69 cross-planet endgame: Vulcanus siege plating heals back 55% of applied damage (quality scales it,
+  -- clamped at 80%). The Fulgora shield is NOT a percentage - it has its own finite, recharging pool below.
+  ["colony-heavy-siege-armor"] = 0.55,
 }
 
 -- Quality multiplier on mitigation (a string key, exactly what ItemWithQualityCount.quality returns in 2.1).
@@ -31,7 +34,43 @@ M.QUALITY = {
 M.MAX_MITIGATION = 0.80   -- clamped: armour is a backstop, not invulnerability
 
 -- Deterministic order for "best armour" ties: highest base mitigation, then name.
-M.PREFERENCE = {"power-armor-mk2", "power-armor", "modular-armor", "heavy-armor", "light-armor"}
+M.PREFERENCE = {"colony-heavy-siege-armor", "power-armor-mk2", "power-armor", "modular-armor",
+  "colony-personal-shield-pack", "heavy-armor", "light-armor"}
+
+-- #69: two colony-made armours, unlocked by Bio-Ecological Data. Both are drawn by the same hall/Armory
+-- gear path as vanilla armour; never added to GEAR_PER_MILITIA unconditionally, or an untouched town's
+-- Armory would start requesting gear the player has not researched.
+M.SIEGE = "colony-heavy-siege-armor"
+M.SHIELD = "colony-personal-shield-pack"
+M.ENDGAME = {M.SIEGE, M.SHIELD}
+
+-- The Personal Shield Pack absorbs a flat amount from a finite pool instead of a percentage. Recharge is
+-- slow and deterministic; a depleted shield is still an armour (it can recharge on the next scan).
+M.SHIELD_CAPACITY = 60
+M.SHIELD_RECHARGE_PER_TICK = 0.1
+
+---@param kind string|nil
+---@return boolean
+function M.is_shield(kind) return kind == M.SHIELD end
+
+-- Absorb as much of `damage` as the remaining charge allows. No input mutation.
+---@param charge number|nil
+---@param damage number
+---@return number, number absorbed, charge_left
+function M.shield_drain(charge, damage)
+  local have = math.max(0, math.min(charge or M.SHIELD_CAPACITY, M.SHIELD_CAPACITY))
+  local absorbed = math.max(0, math.min(have, damage or 0))
+  return absorbed, have - absorbed
+end
+
+-- Recharge by `ticks` at the fixed rate, capped at capacity.
+---@param charge number|nil
+---@param ticks number
+---@return number
+function M.shield_recharge(charge, ticks)
+  local have = math.max(0, math.min(charge or 0, M.SHIELD_CAPACITY))
+  return math.min(M.SHIELD_CAPACITY, have + M.SHIELD_RECHARGE_PER_TICK * math.max(0, ticks or 0))
+end
 
 local function q(name) return M.QUALITY[name] or M.QUALITY.normal end
 
@@ -86,14 +125,22 @@ M.GEAR_PER_MILITIA = {
 }
 
 --- Restock targets for `manning` equipped militia. A limit of 0 wants nothing (an unmanned Armory never nags).
+--- `unlocked` is an optional set of endgame armour item names; only those the force has researched are asked
+--- for, so an untouched town's Armory is byte-identical (#69).
 ---@param manning integer|nil
+---@param unlocked table<string, boolean>|nil
 ---@return table[] {item=, count=}
-function M.armory_targets(manning)
+function M.armory_targets(manning, unlocked)
   local n = math.max(0, math.floor(tonumber(manning) or 0))
   local out = {}
   if n == 0 then return out end
   for _, row in ipairs(M.GEAR_PER_MILITIA) do
     out[#out + 1] = {item = row.item, count = row.count * n}
+  end
+  if unlocked then
+    for _, item in ipairs(M.ENDGAME) do
+      if unlocked[item] then out[#out + 1] = {item = item, count = n} end
+    end
   end
   return out
 end

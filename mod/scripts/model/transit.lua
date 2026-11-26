@@ -66,11 +66,12 @@ function M.alight(groups, here, free, jobs)
     end
     if off > 0 then
       out, n = out + off, n - off
-      offs[#offs + 1] = {kind = g.kind, from = g.from, home = g.home, host = g.host, visited = g.visited, n = off}
+      offs[#offs + 1] = {kind = g.kind, from = g.from, home = g.home, host = g.host,
+        visited = g.visited, resort = g.resort, grand = g.grand, n = off}
     end
     if n > 0 then
       left[#left + 1] = {from = g.from, n = n, stops = (g.stops or 0) + 1, kind = g.kind, home = g.home,
-        host = g.host, visited = g.visited}
+        host = g.host, visited = g.visited, resort = g.resort, grand = g.grand}
     end
   end
   return out, left, offs

@@ -8,15 +8,18 @@ local M = {}
 
 M.FRONTIER_PACK = "colony-frontier-pack"
 M.CIVIC_PACK = "colony-civic-pack"
+M.SOVEREIGNTY_PACK = "colony-sovereignty-pack"   -- #69: third tier, only the Federation Archive accepts it
 
 M.ARCHIVE = "colony-town-archive"
 M.UNIVERSITY = "colony-university"
+M.FEDERATION_ARCHIVE = "colony-federation-archive"
 
 M.BUFFER_STOCK = 10
 
 M.PACKS_BY_LAB = {
   [M.ARCHIVE] = {M.FRONTIER_PACK},
   [M.UNIVERSITY] = {M.FRONTIER_PACK, M.CIVIC_PACK},
+  [M.FEDERATION_ARCHIVE] = {M.SOVEREIGNTY_PACK},
 }
 
 -- Returns list of item demands for a lab building to keep its input buffer stocked.

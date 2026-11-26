@@ -106,7 +106,11 @@ industrial-only intermediate. **Swamp Fever and spore emissions are now built (M
 colonist on a Gleba/spore surface can catch the fatal disease, and a real Smokehouse trip that consumes raw Gleba
 fruit emits 15 spores (matching the vanilla yumako harvest burst) via two-arg `surface.pollute`. Scripted
 harvests do not emit on their own and `pollute`'s third argument is an *entity prototype for statistics*, not a
-pollutant type, so the adapter owns the emission; Vulcanus/Fulgora/Aquilo remain open under #70.
+pollutant type, so the adapter owns the emission. **Vulcanus is built too (M4, #70):** an on-duty colonist working
+in the open on Vulcanus can catch fatal **Heat Stroke**, keyed on the planet's identity and distance to the nearest
+Habitat Dome (`model/vulcanus.lua`: 6-tile safe ring, full exposure 18 tiles further out), never on pollution --
+`pollutant_type` is nil on every hostile world, so `colony.evaluate` reads off-world pollution as clean. A Clinic
+cures it like any other illness; Fulgora/Aquilo remain open under #70.
 
 **M1 hunting slice (implemented, #79):** hunting is **real engine combat** - a hunter is given an `attack`
 command and the engine does the chasing, the shooting and the kill - but the colony stays a non-combat faction

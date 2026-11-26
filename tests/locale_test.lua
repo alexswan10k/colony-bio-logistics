@@ -94,7 +94,7 @@ describe("locale", function()
     }
     -- illness.lua emits {"colony-illness." .. kind} at runtime for each disease a colonist catches or dies
     -- from, so those keys are built dynamically and the literal-caption scan above cannot see them.
-    local illness_keys = {"lung", "poison", "swamp_fever"}
+    local illness_keys = {"lung", "poison", "swamp_fever", "heat_stroke"}
     local missing = {}
     for _, k in ipairs(advice_keys) do
       if not exists("colony-advice." .. k) then missing[#missing + 1] = "colony-advice." .. k end

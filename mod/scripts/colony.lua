@@ -2011,7 +2011,12 @@ function M.evaluate(data)
   else colony.scenic_n = colony.scenic_n - 1 end
   local capacity = M.capacity(colony)
   local target = math.max(pop * M.FOOD_PER_COLONIST * M.TARGET_STOCK_INTERVALS, 1)
-  local pollution = scenic.pollution_ratio(colony.hall.surface.get_pollution(colony.hall.position))
+  -- Off-world surfaces (hostile planets and platforms) have no pollutant type at all (s22_dome), so a
+  -- pollution reading there is meaningless: treat it as clean instead of relying on it. Nauvis/Gleba are
+  -- unchanged -- this guard never runs on an ordinary surface.
+  local hs = colony.hall.surface
+  local pollution_raw = planet.is_exotic(hs) and 0 or hs.get_pollution(colony.hall.position)
+  local pollution = scenic.pollution_ratio(pollution_raw)
   colony.pollution = pollution
   local tents = 0
   for _, h in ipairs(houses) do if h.kind == "tent" then tents = tents + 1 end end
@@ -3470,7 +3475,7 @@ function M.stats(colony)
     away = colony.away or 0, commuters_here = #commute.here(colony),
     insights = colony.insights or 0, insights_total = colony.insights_total or 0, visitors = #tourism.here(colony),
     sick = colony.sick_count or 0, sick_lung = colony.sick_lung or 0, sick_poison = colony.sick_poison or 0,
-    sick_swamp_fever = colony.sick_swamp_fever or 0}
+    sick_swamp_fever = colony.sick_swamp_fever or 0, sick_heat_stroke = colony.sick_heat_stroke or 0}
 end
 
 return M

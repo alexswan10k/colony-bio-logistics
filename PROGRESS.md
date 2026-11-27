@@ -119,6 +119,17 @@ persisted dome-founded colony, determinism 1398514768 (prototype hash move), ben
 typecheck/lint/package all green. Adversarial review fixed three lifecycle bugs (missing `hall_un` on
 hall-founded towns, a sink-dependent force guard, and a clobbered housing tooltip).
 
+## 2026-11-27 — #71 M4 release prep
+
+One headless `m4_release_regression` spike (31 checks) ties the four merged M4 integrations together: Swamp
+Fever on a real Gleba surface, Heat Stroke + Habitat Dome founding on Vulcanus, Waystation territory
+growth/release, and the Command Whistle death cleanup through the real `on_entity_died` path. All balance
+values were reviewed against their rule tests and left unchanged. Release docs: 0.1.0 changelog entry,
+matching `info.json` version, refreshed README, new `docs/MOD_PORTAL.md`, and the spike runbook entry.
+Gates: 657 unit tests, 51 headless spikes, determinism PASS at 2488402232 (version-bump-only hash move),
+typecheck/luacheck/lint/package clean, UPS gate 0.551 ms/tick PASS. The `s05_pod` "colonist tag LOST" `[FAIL]` also occurs on pristine
+master — an M0 engine finding about anonymous pods, not a regression.
+
 ## Next
 
 - M4 follow-ups: #64 Enviro-Suits, #65 Nurseries, #66 cryo pods, #67 orbital domes, #68 EVA, #69 tech tiers, #70 other planets.

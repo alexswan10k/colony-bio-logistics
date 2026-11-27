@@ -1,4 +1,48 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.0
+Date: 2026-11-27
+  Features:
+    - M4 Habitat Domes (#63): a Tier-5 4x4 dome houses 48 colonists (32 beds) and emits its own 64-tile
+      territory. A dome can FOUND a colony where a Town Hall is refused - the hostile worlds and space
+      platforms - and a founding dome acts as the colony's core for stock, jobs and messages.
+    - M4 cross-planet science (#69): Civic Treatises are now a real research cost. Bio-Ecological Data
+      (40) and the Interplanetary Sovereignty Codex (60) gate the off-world tier; Interplanetary
+      Federation mints Federation Plating and the Federation Vault; Sovereign Codex packs are distilled
+      from Treatises + plating, studied only in the Federation Archive, and pay for the Transcendent
+      Codex capstone - a genuine second science pack.
+    - M4 off-world gear (#69): tungsten pickaxe (60 trips), exoskeleton harness (doubles colonist speed
+      while in stock, composes with the wooden trailer), bioflux panacea (immunity + half work ticks),
+      Enviro-Suits (lift the off-world work penalty), Heavy Siege Armor and Personal Shield Packs (issued
+      to militia from an Armory that has researched Bio-Ecological Data), Cryo-Colonist Pods with
+      refillable life support, and Nurseries for off-world births.
+    - M4 platform and orbital logistics (#69): Cryo-Preservation Warehouses restamp spoil every 600
+      ticks, Orbital Hydroponics Bays close the asteroid-to-food loop, EVA Crew + jetpacks work on a
+      platform, EVA tile repair fixes platform damage, and a Space Training Center packs a volunteer
+      into a pod and launches it with a real character in a cargo pod.
+    - M4 tourism and housing (#69): Resorts host four visitors for double Cultural Insight, the Grand
+      Hotel tops the tourism ladder, and the Tier-6 Fusion Arcology is the endgame housing rung.
+    - Gleba cuisine and Swamp Fever (#70): the Smokehouse salts yumako/jellynut (and mash/jelly) into
+      long-life colony jam behind the Gleba Cuisine tech; raw fruit stays inedible and a near-spoiled
+      input is refused. Working on a spore world kicks up 15 spores per harvest and can cause Swamp
+      Fever - fatal untreated, cured at a Clinic.
+    - Vulcanus Heat Stroke (#70): on-duty colonists working in the open on Vulcanus bake over several
+      evaluations; the conditioned air within 6 tiles of a live Habitat Dome is safe. Off-world surfaces
+      have no pollution type, so the risk is keyed on the planet, not an unreadable temperature reading.
+    - Waystations (#56): a worker-free 96-tile territory marker that may be built inside a colony or up
+      to 16 tiles outside it, where it joins the nearest colony. Its ring releases when the node dies.
+    - Command Whistle death cleanup (#101): a colonist killed under an RTS order is pruned from every
+      player's selection and its lease is dropped on the same tick, instead of lingering until the
+      300-tick watchdog.
+  Changes:
+    - Earlier milestones now in this build: the M1 core loop (jobs, hauling, tools, hunting, fishing,
+      preservation, construction and desirability), M2 housing/water/food/science, taverns, theatres,
+      passenger rail, commuting, tourism, freight links, the circuit-network Colony Ledger and Cold
+      Chain, the M3 defence stack (militia, Armory, Patrol Posts, ammo-turret logistics), foresters,
+      material priorities, distance-aware picking and the permanent-death/burial system.
+  Bugfixes:
+    - A release regression spike now exercises Swamp Fever, Heat Stroke + Habitat Dome, Waystations and
+      whistle death cleanup together on one map, so these integrations cannot silently regress.
+---------------------------------------------------------------------------------------------------
 Version: 0.0.1
 Date: 2026-11-01
   Features:
